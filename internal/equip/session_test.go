@@ -44,6 +44,19 @@ func TestHarnessIgnoresInheritedGitEnvironment(t *testing.T) {
 	}
 }
 
+func TestProjectIsSubmoduleCheckoutInsideSubmodule(t *testing.T) {
+	m := equiptest.New(t)
+	lib := m.Repo("lib")
+	m.Commit(lib)
+	super := m.Repo("super")
+	m.RunGit(super, "-c", "protocol.file.allow=always", "submodule", "add", "-q", lib, "mod")
+	mod := filepath.Join(super, "mod")
+
+	if got := open(t, m, mod).Project.Path; got != mod {
+		t.Errorf("Project.Path = %q, want %q", got, mod)
+	}
+}
+
 func TestProjectIsTheDirectoryOutsideGit(t *testing.T) {
 	m := equiptest.New(t)
 	dir := m.Mkdir(filepath.Join(m.Root, "scratch", "notes"))
