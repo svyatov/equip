@@ -21,6 +21,10 @@ An extension that bundles other extensions and comes from a marketplace.
 **MCP server**:
 An extension that gives an agent tools over the Model Context Protocol.
 
+**Content**:
+A skill or MCP server that a plugin contains. A skill among a plugin's contents has no key of its own and follows its plugin.
+_Avoid_: Component, part
+
 **Marketplace**:
 The source a plugin comes from. It is not an extension and has no state of its own.
 
@@ -49,7 +53,7 @@ _Avoid_: Exception, pin
 
 ## Relationships
 
-- A **Plugin** contains zero or more **Skills** and **MCP servers**
+- A **Plugin** contains zero or more **Skills** and **MCP servers**, its **Contents**
 - An **Extension** has one or more **Locations**, each read by one **Agent**
 - A **Project** uses zero or more **Presets** and zero or more **Overrides**
 - With one or more **Presets**, a **Project**'s active extensions are the union of their members plus its **Overrides**; every other extension is off

@@ -117,6 +117,106 @@ func TestDetailPaneShowsStatesOriginAndFallback(t *testing.T) {
 	}
 }
 
+func TestStateKeysPickFromThePluginsOnAndOff(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Plugin("github@official", "user", "")
+	tui := newModel(t, machine)
+
+	press(tui, key('2'))
+
+	if r := tui.s.View().Rows[0]; r.State != equip.Off || !r.Override {
+		t.Errorf("github@official = %+v, want an Override off", r)
+	}
+
+	for _, want := range []string{"( ) 1 on", "(○) 2 off"} {
+		if line(tui, want) == "" {
+			t.Errorf("view does not show %q:\n%s", want, tui.View().Content)
+		}
+	}
+}
+
+func TestThirdStateKeyLeavesAPluginAlone(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Plugin("github@official", "user", "")
+	tui := newModel(t, machine)
+
+	press(tui, key('3'))
+
+	if r := tui.s.View().Rows[0]; r.State != equip.On || r.Override {
+		t.Errorf("github@official = %+v, want on with no Override", r)
+	}
+}
+
+func TestDetailPaneShowsThePluginsMarketplace(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Plugin("github@official", "user", "")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	tui := newModel(t, machine)
+
+	if line(tui, "Marketplace  official") == "" {
+		t.Errorf("view does not show the Marketplace:\n%s", tui.View().Content)
+	}
+
+	press(tui, down())
+
+	for _, pluginOnly := range []string{"Marketplace  ", "Contents  "} {
+		if line(tui, pluginOnly) != "" {
+			t.Errorf("a skill shows %q:\n%s", pluginOnly, tui.View().Content)
+		}
+	}
+}
+
+func TestDetailPaneMarksAPluginWithHooks(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	dir := machine.Plugin("github@official", "user", "")
+	machine.WriteFile(filepath.Join(dir, "hooks", "hooks.json"), `{"hooks": {}}`)
+
+	if got := line(newModel(t, machine), "Cost  "); !strings.Contains(got, "Claude Code ~0 + hook output, unknown") {
+		t.Errorf("cost line %q does not mark the hooks", got)
+	}
+}
+
+func TestDetailPaneListsThePluginsContents(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	dir := machine.Plugin("github@official", "user", "")
+	machine.Skill(filepath.Join(dir, "skills"), "review") // "github:review" and "The review skill.": 10
+	machine.WriteFile(filepath.Join(dir, ".mcp.json"), `{"mcpServers": {"search": {"command": "search"}}}`)
+	tui := newModel(t, machine)
+
+	press(tui, key('2'))
+
+	if got := line(tui, "○ skill review ~0"); !strings.Contains(got, "The review skill.") {
+		t.Errorf("skill line %q does not show the skill's state, cost and description", got)
+	}
+
+	if line(tui, "○ MCP server search unknown") == "" {
+		t.Errorf("view does not show the MCP server:\n%s", tui.View().Content)
+	}
+}
+
+func TestDetailPaneCutsAPluginSkillsDescriptionShort(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	long := strings.Repeat("word ", 20) + "end"
+	machine.WriteFile(filepath.Join(machine.Plugin("github@official", "user", ""), "skills", "review", "SKILL.md"),
+		"---\nname: review\ndescription: |\n  "+long+"\n  second line\n---\n")
+	tui := newModel(t, machine)
+
+	got := line(tui, "skill review")
+	if !strings.Contains(got, "word") || strings.Contains(got, "end") {
+		t.Errorf("skill line %q does not cut the description short", got)
+	}
+
+	if line(tui, "second line") != "" {
+		t.Errorf("view shows the description's second line:\n%s", tui.View().Content)
+	}
+}
+
 func TestDetailPaneShowsTheNote(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)

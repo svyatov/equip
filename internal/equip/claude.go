@@ -16,20 +16,51 @@ func skillValue(st State) string {
 	return [...]string{On: "on", ManualOnly: "user-invocable-only", Off: "off"}[st]
 }
 
+// claudeKind is how Claude Code keeps the states of one kind of extension.
+type claudeKind struct {
+	value       func(State) json.RawMessage         // a state as Claude Code spells it
+	state       func(json.RawMessage) (State, bool) // reads an entry, reporting whether equip knows it
+	settingsKey string                              // the settings key that holds the states
+	states      []State                             // the states the user can pick
+}
+
+// claude is how Claude Code keeps the states of an extension of kind k.
+func (k Kind) claude() claudeKind {
+	return [...]claudeKind{
+		Skill: {
+			value:       func(st State) json.RawMessage { return json.RawMessage(strconv.Quote(skillValue(st))) },
+			state:       skillState,
+			settingsKey: "skillOverrides",
+			states:      States(),
+		},
+		// A plugin is all or nothing, so it has no manual-only.
+		Plugin: {
+			value:       func(st State) json.RawMessage { return json.RawMessage(strconv.FormatBool(st == On)) },
+			state:       pluginState,
+			settingsKey: "enabledPlugins",
+			states:      []State{On, Off},
+		},
+	}[k]
+}
+
 // settingsRel is the Project's Claude Code settings file that equip writes.
 const settingsRel = ".claude/settings.local.json"
 
 // settingsFile is a Claude Code settings file as equip reads it.
 type settingsFile struct {
-	keys    map[string]json.RawMessage // raw, so every other key stays exactly as it was
-	skills  map[string]json.RawMessage // the skillOverrides
+	keys    map[string]json.RawMessage          // raw, so every other key stays exactly as it was
+	entries map[Kind]map[string]json.RawMessage // the value of each kind's settings key
 	missing bool
 }
 
 // readSettings reads the settings file at path. A missing file reads as
 // empty.
 func readSettings(path string) (settingsFile, error) {
-	settings := settingsFile{keys: map[string]json.RawMessage{}, skills: map[string]json.RawMessage{}, missing: false}
+	settings := settingsFile{
+		keys:    map[string]json.RawMessage{},
+		entries: map[Kind]map[string]json.RawMessage{Skill: {}, Plugin: {}},
+		missing: false,
+	}
 
 	data, err := os.ReadFile(path) //nolint:gosec // equip builds the path
 	if errors.Is(err, fs.ErrNotExist) {
@@ -42,23 +73,25 @@ func readSettings(path string) (settingsFile, error) {
 		err = json.Unmarshal(data, &settings.keys)
 	}
 
-	if raw, ok := settings.keys["skillOverrides"]; ok && err == nil {
-		err = json.Unmarshal(raw, &settings.skills)
+	for kind, entries := range settings.entries {
+		if raw, ok := settings.keys[kind.claude().settingsKey]; ok && err == nil {
+			err = json.Unmarshal(raw, &entries)
+			// JSON null decodes to a nil map. A nil keys map only gets read.
+			if entries != nil {
+				settings.entries[kind] = entries
+			}
+		}
 	}
 
 	if err != nil {
 		return settingsFile{}, fmt.Errorf("read %s: %w", path, err)
 	}
-	// JSON null decodes to a nil map. A nil keys map only gets read.
-	if settings.skills == nil {
-		settings.skills = map[string]json.RawMessage{}
-	}
 
 	return settings, nil
 }
 
-// readClaude reads the skill states Claude Code has for exts in the
-// Project. A value equip does not know reads as no entry.
+// readClaude reads the states Claude Code has for exts in the Project. A
+// value equip does not know reads as no entry.
 func readClaude(project Project, exts []Extension) (map[string]State, error) {
 	states := map[string]State{}
 
@@ -68,12 +101,24 @@ func readClaude(project Project, exts []Extension) (map[string]State, error) {
 	}
 
 	for _, e := range exts {
-		if st, ok := skillState(settings.skills[e.Key]); ok {
+		if st, ok := e.Kind.claude().state(settings.entries[e.Kind][e.Key]); ok {
 			states[e.Key] = st
 		}
 	}
 
 	return states, nil
+}
+
+// pluginState reads one enabledPlugins value, reporting whether equip knows it.
+func pluginState(raw json.RawMessage) (State, bool) {
+	switch string(raw) {
+	case "true":
+		return On, true
+	case "false":
+		return Off, true
+	}
+
+	return 0, false
 }
 
 // skillState reads one skillOverrides value, reporting whether equip knows it.
@@ -94,7 +139,7 @@ func skillState(raw json.RawMessage) (State, bool) {
 	return 0, false
 }
 
-// writeClaude writes the skill states of overrides into the Project's
+// writeClaude writes the states of overrides into the Project's
 // .claude/settings.local.json, keeping every key equip does not own.
 func writeClaude(machine Machine, project Project, exts []Extension, overrides map[string]State) error {
 	path := filepath.Join(project.Path, settingsRel)
@@ -104,13 +149,18 @@ func writeClaude(machine Machine, project Project, exts []Extension, overrides m
 		return err
 	}
 
-	mergeSkills(settings.skills, exts, overrides)
+	mergeEntries(settings.entries, exts, overrides)
 
-	out := map[string]any{"skillOverrides": settings.skills}
+	out := map[string]any{}
 
 	for key, v := range settings.keys {
-		if key != "skillOverrides" {
-			out[key] = v
+		out[key] = v
+	}
+	// An owned key is written once it holds an entry, and kept once it is there.
+	for kind, entries := range settings.entries {
+		key := kind.claude().settingsKey
+		if _, had := settings.keys[key]; had || len(entries) > 0 {
+			out[key] = entries
 		}
 	}
 
@@ -135,22 +185,23 @@ func writeClaude(machine Machine, project Project, exts []Extension, overrides m
 	return writeFile(path, buf.Bytes())
 }
 
-// mergeSkills sets the skillOverrides value of each of exts to its state in
-// overrides, or removes it when overrides has none.
-func mergeSkills(skills map[string]json.RawMessage, exts []Extension, overrides map[string]State) {
+// mergeEntries sets the entry of each of exts to its state in overrides, or
+// removes it when overrides has none.
+func mergeEntries(entries map[Kind]map[string]json.RawMessage, exts []Extension, overrides map[string]State) {
 	for _, ext := range exts {
+		byKey, claude := entries[ext.Kind], ext.Kind.claude()
 		state, overridden := overrides[ext.Key]
 
-		_, known := skillState(skills[ext.Key])
+		was, known := claude.state(byKey[ext.Key])
 		switch {
 		case !overridden && known:
-			delete(skills, ext.Key)
+			delete(byKey, ext.Key)
 		case !overridden:
 			// A value equip does not know is not equip's to remove.
-		case state == On && string(skills[ext.Key]) == `"name-only"`:
-			// "name-only" reads as on, so it already holds.
+		case known && was == state:
+			// It already holds, as "name-only" does for on.
 		default:
-			skills[ext.Key] = json.RawMessage(strconv.Quote(skillValue(state)))
+			byKey[ext.Key] = claude.value(state)
 		}
 	}
 }

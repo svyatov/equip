@@ -3,6 +3,9 @@
 package equiptest
 
 import (
+	"encoding/json"
+	"errors"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -145,3 +148,58 @@ func (m *Machine) ClaudeSkills() string { return filepath.Join(m.Home, ".claude"
 
 // CodexSkills is the Codex user skills dir.
 func (m *Machine) CodexSkills() string { return filepath.Join(m.Home, ".agents", "skills") }
+
+// Plugin installs the Claude Code plugin key, "name@marketplace", in scope
+// ("user", "project" or "local", with projectPath for the last two). It writes
+// the plugin's manifest into the plugin cache and returns the plugin's dir
+// there.
+func (m *Machine) Plugin(key, scope, projectPath string) string {
+	m.t.Helper()
+
+	name, marketplace, _ := strings.Cut(key, "@")
+	dir := m.Mkdir(filepath.Join(m.Home, ".claude", "plugins", "cache", marketplace, name, "1.0.0"))
+	m.WriteFile(filepath.Join(dir, ".claude-plugin", "plugin.json"),
+		`{"name": "`+name+`", "description": "The `+name+` plugin."}`)
+
+	path := filepath.Join(m.Home, ".claude", "plugins", "installed_plugins.json")
+	installed := map[string]any{"plugins": map[string]any{}}
+
+	data, err := os.ReadFile(path)
+	if err == nil {
+		err = json.Unmarshal(data, &installed)
+	}
+
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		m.t.Fatal(err)
+	}
+
+	plugins, _ := installed["plugins"].(map[string]any)
+	installs, _ := plugins[key].([]any)
+	install := map[string]any{"scope": scope, "installPath": dir, "version": "1.0.0"}
+
+	if projectPath != "" {
+		install["projectPath"] = projectPath
+	}
+
+	plugins[key] = append(installs, install)
+
+	data, err = json.Marshal(installed)
+	if err != nil {
+		m.t.Fatal(err)
+	}
+
+	m.WriteFile(path, string(data))
+
+	return dir
+}
+
+// WriteFile writes content to path, creating its parents.
+func (m *Machine) WriteFile(path, content string) {
+	m.t.Helper()
+	m.Mkdir(filepath.Dir(path))
+
+	err := os.WriteFile(path, []byte(content), fileMode)
+	if err != nil {
+		m.t.Fatal(err)
+	}
+}

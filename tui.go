@@ -30,6 +30,10 @@ func newStyles() styles {
 // descriptionWidth is the width the detail pane wraps a description at.
 const descriptionWidth = 60
 
+// shortDescriptionWidth is the width the detail pane cuts the description of
+// a plugin's skill at.
+const shortDescriptionWidth = 40
+
 // glyph is the list mark of st.
 func glyph(st equip.State) string {
 	return [...]string{equip.On: "●", equip.ManualOnly: "◐", equip.Off: "○"}[st]
@@ -137,7 +141,7 @@ func (m *model) press(key string) tea.Cmd {
 		m.cur = max(min(m.cur+1, len(rows)-1), 0)
 	case "1", "2", "3":
 		if m.cur < len(rows) {
-			m.s.SetState(rows[m.cur].Name, equip.States()[key[0]-'1'])
+			m.setState(rows[m.cur].Name, int(key[0]-'1'))
 		}
 	case "x":
 		if m.cur < len(rows) {
@@ -151,6 +155,14 @@ func (m *model) press(key string) tea.Cmd {
 	}
 
 	return nil
+}
+
+// setState sets the extension with key to the state the key numbered i picks
+// among the states it offers.
+func (m *model) setState(key string, i int) {
+	if states := m.s.Detail(key).States; i < len(states) {
+		m.s.SetState(key, states[i])
+	}
 }
 
 // quit quits, or first asks to confirm with unsaved changes.
@@ -168,19 +180,21 @@ func (m *model) quit() tea.Cmd {
 // origin, the states to pick from and where it comes from.
 func (m *model) detail(row equip.Row, ext equip.Detail) string {
 	agents := make([]string, 0, len(ext.Agents))
-	costs := make([]string, 0, len(ext.Agents))
-
 	for _, agent := range ext.Agents {
 		agents = append(agents, agent.String())
-		costs = append(costs, agent.String()+" "+cost(ext.Costs[agent]))
 	}
 
 	lines := []string{
 		m.style.cur.Render(row.Name),
 		m.style.dim.Width(descriptionWidth).Render(ext.Description),
 		"",
-		"Agents  " + strings.Join(agents, ", "),
 	}
+
+	if ext.Marketplace != "" {
+		lines = append(lines, "Marketplace  "+ext.Marketplace)
+	}
+
+	lines = append(lines, "Agents  "+strings.Join(agents, ", "))
 
 	for _, agent := range ext.Agents {
 		if reason, ok := ext.NotApplied[agent]; ok {
@@ -188,7 +202,7 @@ func (m *model) detail(row equip.Row, ext equip.Detail) string {
 		}
 	}
 
-	lines = append(lines, "Cost    "+strings.Join(costs, ", "))
+	lines = append(lines, costLine(ext))
 
 	if row.Override {
 		lines = append(lines,
@@ -204,7 +218,7 @@ func (m *model) detail(row equip.Row, ext equip.Detail) string {
 
 	lines = append(lines, "", "State")
 
-	for index, state := range equip.States() {
+	for index, state := range ext.States {
 		radio := " "
 		if state == row.State {
 			radio = glyph(state)
@@ -213,10 +227,48 @@ func (m *model) detail(row equip.Row, ext equip.Detail) string {
 		lines = append(lines, fmt.Sprintf("  (%s) %d %s", radio, index+1, state))
 	}
 
+	lines = append(lines, m.contents(ext.Contents)...)
+
 	lines = append(lines, "", "Locations")
 	for _, loc := range ext.Locations {
 		lines = append(lines, "  "+loc.Path+"  "+m.style.dim.Render(loc.Agent.String()))
 	}
 
 	return strings.Join(lines, "\n")
+}
+
+// costLine is the detail pane line of ext's cost in each agent.
+func costLine(ext equip.Detail) string {
+	costs := make([]string, 0, len(ext.Agents))
+	for _, agent := range ext.Agents {
+		costs = append(costs, agent.String()+" "+cost(ext.Costs[agent]))
+	}
+
+	line := "Cost    " + strings.Join(costs, ", ")
+	if ext.Hooks {
+		line += " + hook output, unknown"
+	}
+
+	return line
+}
+
+// contents are the detail pane lines of a plugin's contents, read-only.
+func (m *model) contents(contents []equip.Content) []string {
+	if len(contents) == 0 {
+		return nil
+	}
+
+	lines := []string{"", "Contents  " + m.style.dim.Render("follow the plugin")}
+
+	for _, content := range contents {
+		tokens := cost(content.Cost)
+		if content.Kind == equip.MCPServer {
+			tokens = "unknown" // until it is measured
+		}
+
+		lines = append(lines, fmt.Sprintf("  %s %s %s %s %s", glyph(content.State), content.Kind, content.Name, tokens,
+			m.style.dim.MaxWidth(shortDescriptionWidth).MaxHeight(1).Render(content.Description)))
+	}
+
+	return lines
 }

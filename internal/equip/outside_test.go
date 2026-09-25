@@ -47,7 +47,8 @@ func TestFirstSaveRecordsTheImportedStates(t *testing.T) {
 	save(t, newSession(t, machine, repo))
 
 	got := readRecord(t, machine)["overrides"]
-	if want := map[string]any{"skills": map[string]any{"review": "off"}}; !reflect.DeepEqual(got, want) {
+	if want := map[string]any{"skills": map[string]any{"review": "off"}, "plugins": map[string]any{}}; !reflect.DeepEqual(
+		got, want) {
 		t.Errorf("record overrides = %v, want %v", got, want)
 	}
 }
@@ -97,7 +98,8 @@ func TestSaveKeepsAnImportAndClearsItsNote(t *testing.T) {
 	}
 
 	got := readRecord(t, machine)["overrides"]
-	if want := map[string]any{"skills": map[string]any{"review": "on"}}; !reflect.DeepEqual(got, want) {
+	if want := map[string]any{"skills": map[string]any{"review": "on"}, "plugins": map[string]any{}}; !reflect.DeepEqual(
+		got, want) {
 		t.Errorf("record overrides = %v, want %v", got, want)
 	}
 }
@@ -193,7 +195,8 @@ func TestSaveAfterAnOutsideChangeWritesNothingAndImportsIt(t *testing.T) {
 	}
 
 	got := readRecord(t, machine)["overrides"]
-	if want := map[string]any{"skills": map[string]any{"review": "off"}}; !reflect.DeepEqual(got, want) {
+	if want := map[string]any{"skills": map[string]any{"review": "off"}, "plugins": map[string]any{}}; !reflect.DeepEqual(
+		got, want) {
 		t.Errorf("record overrides = %v, want %v", got, want)
 	}
 
