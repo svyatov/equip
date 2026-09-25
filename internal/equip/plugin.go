@@ -148,7 +148,7 @@ func readPlugin(key, dir string, setting json.RawMessage) Extension {
 	return Extension{
 		Kind: Plugin, Key: key, Description: man.Description, cost: map[Agent]int{ClaudeCode: cost}, fallback: fallback,
 		Locations: []Location{{Path: dir, Agent: ClaudeCode}}, contents: contents, hooks: err == nil || man.Hooks != nil,
-		lists: mcpLists{on: "", off: "", settings: false},
+		lists: mcpLists{on: "", off: "", settings: false}, builtIn: false,
 	}
 }
 

@@ -59,11 +59,13 @@ type Extension struct {
 	Kind        Kind
 	fallback    State // the agent's default, without an Override
 	hooks       bool  // a plugin's
+	builtIn     bool  // built into Claude Code, so read from no Location
 }
 
 // has reports whether agent loads the extension.
 func (e Extension) has(agent Agent) bool {
-	return slices.ContainsFunc(e.Locations, func(s Location) bool { return s.Agent == agent })
+	return e.builtIn && agent == ClaudeCode ||
+		slices.ContainsFunc(e.Locations, func(s Location) bool { return s.Agent == agent })
 }
 
 // discover finds the extensions installed for a session started in dir,
@@ -163,7 +165,7 @@ func (inv *inventory) add(agent Agent, root string) int {
 		if ext == nil {
 			ext = &Extension{
 				Kind: Skill, Key: entry.Name(), Description: "", Locations: nil, cost: map[Agent]int{}, fallback: On,
-				contents: nil, hooks: false, lists: mcpLists{on: "", off: "", settings: false},
+				contents: nil, hooks: false, lists: mcpLists{on: "", off: "", settings: false}, builtIn: false,
 			}
 			inv.byKey[entry.Name()] = ext
 		}

@@ -410,15 +410,28 @@ func TestMCPServerNamedWithAnAtHasNoMarketplace(t *testing.T) {
 	}
 }
 
-func TestOpenRefusesABrokenClaudeJSON(t *testing.T) {
+func TestBrokenClaudeJSONListsNoServersAndSaveLeavesItAlone(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
 	writeFile(t, claudeJSON(machine), "{")
+	session := newSession(t, machine, repo)
 
-	_, err := equip.Open(machine.Machine, repo)
+	if got, want := names(session.View()), []string{"review"}; !slices.Equal(got, want) {
+		t.Errorf("rows = %q, want %q", got, want)
+	}
+
+	session.SetState("review", equip.Off)
+
+	err := session.Save()
 	if err == nil {
-		t.Error("Open = nil, want an error")
+		t.Error("Save = nil, want an error")
+	}
+
+	data, _ := os.ReadFile(claudeJSON(machine))
+	if string(data) != "{" {
+		t.Errorf("~/.claude.json = %q, want it untouched", data)
 	}
 }
 
@@ -445,5 +458,100 @@ func TestSaveInAWorktreeWritesUnderTheMainCheckoutInClaudeJSON(t *testing.T) {
 	if got := projectEntry(t, machine, repo)["disabledMcpServers"]; !reflect.DeepEqual(
 		got, want) {
 		t.Errorf("disabledMcpServers = %v, want %v", got, want)
+	}
+}
+
+func TestBuiltInMCPServerIsBuiltInWithNoLocation(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	withBuiltins(t, machine)
+
+	detail := newSession(t, machine, repo).Detail("mcp:claude-in-chrome")
+	if !detail.BuiltIn || len(detail.Locations) != 0 || !slices.Equal(detail.Agents, []equip.Agent{equip.ClaudeCode}) {
+		t.Errorf("BuiltIn, Locations, Agents = %v, %v, %v, want true, none, Claude Code",
+			detail.BuiltIn, detail.Locations, detail.Agents)
+	}
+}
+
+func TestMCPJSONServerRejectedInSharedOrUserSettingsDefaultsToOff(t *testing.T) {
+	t.Parallel()
+
+	for _, where := range []string{"shared", "user"} {
+		t.Run(where, func(t *testing.T) {
+			t.Parallel()
+			machine := equiptest.New(t)
+			repo := machine.Repo("app")
+			writeFile(t, filepath.Join(repo, ".mcp.json"), `{"mcpServers": {"db": {"command": "db"}}}`)
+
+			settings := filepath.Join(repo, ".claude", "settings.json")
+			if where == "user" {
+				settings = filepath.Join(machine.Home, ".claude", "settings.json")
+			}
+
+			writeFile(t, settings, `{"disabledMcpjsonServers": ["db"]}`)
+
+			if got := row(t, open(t, machine, repo), "db"); got.State != equip.Off || got.Fallback != equip.Off || got.Override {
+				t.Errorf("row = %+v, want off with no Override", got)
+			}
+		})
+	}
+}
+
+func TestSettingsRejectingAnMCPJSONServerLeaveAUserServerOfThatNameOn(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	writeFile(t, claudeJSON(machine), `{"mcpServers": {"db": {"command": "db"}}}`)
+	writeFile(t, filepath.Join(repo, ".claude", "settings.json"), `{"disabledMcpjsonServers": ["db"]}`)
+
+	if got := row(t, open(t, machine, repo), "db"); got.State != equip.On {
+		t.Errorf("row = %+v, want on", got)
+	}
+}
+
+func TestSaveAfterAFailedClaudeJSONWriteKeepsWhatLandedAsEquipsOwn(t *testing.T) {
+	t.Parallel()
+
+	if os.Geteuid() == 0 {
+		t.Skip("root writes every dir")
+	}
+
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	// ~/.claude.json links into a dir equip cannot write, as a dotfiles link may.
+	locked := machine.Mkdir(filepath.Join(machine.Root, "locked"))
+	writeFile(t, filepath.Join(locked, ".claude.json"), `{"mcpServers": {"github": {"command": "gh"}}}`)
+
+	err := os.Symlink(filepath.Join(locked, ".claude.json"), claudeJSON(machine))
+	if err == nil {
+		err = os.Chmod(locked, 0o555)
+	}
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
+	session.SetState("mcp:github", equip.Off)
+
+	err = session.Save()
+	if err == nil {
+		t.Fatal("Save = nil, want an error")
+	}
+
+	err = os.Chmod(locked, 0o755)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	save(t, session)
+
+	if got := row(t, session.View(), "review"); got.ChangedOutside || got.Unsaved {
+		t.Errorf("review row = %+v, want saved and not changed outside", got)
 	}
 }

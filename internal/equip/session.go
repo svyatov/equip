@@ -179,6 +179,7 @@ type Detail struct {
 	States      []State   // the states the user can pick
 	Contents    []Content // a plugin's skills
 	Hooks       bool      // a plugin has hooks, whose output adds an unknown cost
+	BuiltIn     bool      // built into Claude Code, so it has no Locations
 }
 
 // Content is one extension inside a plugin. It follows its plugin and is
@@ -197,14 +198,14 @@ func (s *Session) Detail(key string) Detail {
 	if !ok {
 		return Detail{
 			Description: "", Marketplace: "", Agents: nil, Locations: nil, NotApplied: nil, Costs: nil, States: nil,
-			Contents: nil, Hooks: false,
+			Contents: nil, Hooks: false, BuiltIn: false,
 		}
 	}
 
 	detail := Detail{
 		Description: ext.Description, Marketplace: marketplaceOf(ext.Key), Agents: nil, Locations: ext.Locations,
 		NotApplied: map[Agent]string{}, Costs: map[Agent]int{}, States: ext.Kind.claude().states,
-		Contents: nil, Hooks: ext.hooks,
+		Contents: nil, Hooks: ext.hooks, BuiltIn: ext.builtIn,
 	}
 	state, _ := s.state(ext)
 
@@ -217,10 +218,10 @@ func (s *Session) Detail(key string) Detail {
 		detail.Contents = append(detail.Contents, content)
 	}
 
-	for _, loc := range ext.Locations {
-		if !slices.Contains(detail.Agents, loc.Agent) {
-			detail.Agents = append(detail.Agents, loc.Agent)
-			detail.Costs[loc.Agent] = ext.costIn(loc.Agent, state)
+	for _, agent := range Agents() {
+		if ext.has(agent) {
+			detail.Agents = append(detail.Agents, agent)
+			detail.Costs[agent] = ext.costIn(agent, state)
 		}
 	}
 
@@ -254,6 +255,13 @@ func (s *Session) Save() error {
 
 	err = writeClaude(s.machine, s.project, s.claudeExts, s.overrides)
 	if err != nil {
+		// A file written before the failure holds equip's own entries, which
+		// the next save must not read as changed outside.
+		landed, readErr := readClaude(s.machine, s.project, s.claudeExts)
+		if readErr == nil {
+			s.disk = landed
+		}
+
 		return err
 	}
 	// Set before the record write, so a failed one does not make equip's own

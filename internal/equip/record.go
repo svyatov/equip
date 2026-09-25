@@ -9,7 +9,6 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -128,7 +127,7 @@ func writeRecord(machine Machine, project Project, overrides map[string]State) e
 	}
 
 	for key, state := range overrides {
-		byKind[keyKind(key).recordTable()][strings.TrimPrefix(key, mcpPrefix)] = state.String()
+		byKind[keyKind(key).recordTable()][keyName(key)] = state.String()
 	}
 
 	rec := record{Path: project.Path, RootCommit: project.RootCommit, Overrides: byKind}

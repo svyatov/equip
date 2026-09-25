@@ -107,10 +107,10 @@ func readClaude(machine Machine, project Project, exts []Extension) (map[string]
 		return states, err
 	}
 
-	lists := config.object("projects").object(project.Path)
+	projectEntry := config.object("projects").object(project.Path)
 
 	for _, ext := range exts {
-		if state, ok := ext.claudeState(settings, lists); ok {
+		if state, ok := ext.claudeState(settings, projectEntry); ok {
 			states[ext.Key] = state
 		}
 	}
@@ -119,9 +119,9 @@ func readClaude(machine Machine, project Project, exts []Extension) (map[string]
 }
 
 // claudeState reads the extension's entry in the Project's settings or, for an
-// MCP server Claude Code keeps there, in lists, the Project's entry in
-// ~/.claude.json. It reports whether equip knows an entry.
-func (e Extension) claudeState(settings settingsFile, lists jsonObject) (State, bool) {
+// MCP server Claude Code keeps elsewhere, in projectEntry, the Project's entry
+// in ~/.claude.json. It reports whether equip knows an entry.
+func (e Extension) claudeState(settings settingsFile, projectEntry jsonObject) (State, bool) {
 	switch {
 	case e.Kind != MCPServer:
 		return e.Kind.claude().state(settings.entries[e.Kind][e.Key])
@@ -129,7 +129,7 @@ func (e Extension) claudeState(settings settingsFile, lists jsonObject) (State, 
 		return e.lists.state(settings.keys, e.name())
 	}
 
-	return e.lists.state(lists, e.name())
+	return e.lists.state(projectEntry, e.name())
 }
 
 // pluginState reads one enabledPlugins value, reporting whether equip knows it.

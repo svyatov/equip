@@ -238,13 +238,23 @@ func (m *model) detail(row equip.Row, ext equip.Detail) string {
 	}
 
 	lines = append(lines, m.contents(ext.Contents)...)
+	lines = append(lines, m.locations(ext)...)
 
-	lines = append(lines, "", "Locations")
+	return strings.Join(lines, "\n")
+}
+
+// locations are the detail pane lines of where ext comes from.
+func (m *model) locations(ext equip.Detail) []string {
+	lines := []string{"", "Locations"}
+	if ext.BuiltIn {
+		lines = append(lines, "  "+m.style.dim.Render("built into Claude Code"))
+	}
+
 	for _, loc := range ext.Locations {
 		lines = append(lines, "  "+loc.Path+"  "+m.style.dim.Render(loc.Agent.String()))
 	}
 
-	return strings.Join(lines, "\n")
+	return lines
 }
 
 // costLine is the detail pane line of the cost in each agent of ext, of kind.

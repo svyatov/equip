@@ -17,7 +17,10 @@ const mcpPrefix = "mcp:"
 
 // name is what the list shows of the extension: an MCP server's name without
 // its prefix, else its key.
-func (e Extension) name() string { return strings.TrimPrefix(e.Key, mcpPrefix) }
+func (e Extension) name() string { return keyName(e.Key) }
+
+// keyName is the name in key: an MCP server's without its prefix, else the key.
+func keyName(key string) string { return strings.TrimPrefix(key, mcpPrefix) }
 
 // jsonObject is a JSON object with every value kept raw.
 type jsonObject map[string]json.RawMessage
@@ -172,13 +175,13 @@ func writeClaudeJSON(machine Machine, project Project, exts []Extension, overrid
 	}
 
 	projects := config.object("projects")
-	entry := projects.object(project.Path)
+	projectEntry := projects.object(project.Path)
 
-	if !writeLists(entry, exts, overrides, false) {
+	if !writeLists(projectEntry, exts, overrides, false) {
 		return nil
 	}
 
-	data, err := indentJSON(config.with("projects", projects.with(project.Path, entry)))
+	data, err := indentJSON(config.with("projects", projects.with(project.Path, projectEntry)))
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", path, err)
 	}
@@ -196,11 +199,9 @@ func claudeJSONPath(machine Machine) string { return filepath.Join(machine.Home,
 // without starting any.
 func discoverServers(machine Machine, project Project) ([]Extension, error) {
 	path := claudeJSONPath(machine)
-
-	config, err := readJSONObject(path)
-	if err != nil {
-		return nil, err
-	}
+	// A ~/.claude.json equip cannot read lists no servers, so skills and
+	// plugins still open. A save reads it again and writes nothing.
+	config, _ := readJSONObject(path)
 
 	mcpJSONPath := filepath.Join(project.checkout, ".mcp.json")
 
@@ -216,11 +217,15 @@ func discoverServers(machine Machine, project Project) ([]Extension, error) {
 	addServers(byName, mcpJSON.object("mcpServers"), mcpJSONPath, mcpJSONLists())
 	addServers(byName, config.object("projects").object(project.Path).object("mcpServers"), path, claudeJSONLists(On))
 
+	err = rejectMCPJSONServers(byName, machine, project)
+	if err != nil {
+		return nil, err
+	}
+
 	for name, fallback := range machine.ClaudeBuiltins {
 		byName[name] = &Extension{
 			Kind: MCPServer, Key: mcpPrefix + name, Description: "", cost: map[Agent]int{}, fallback: fallback,
-			Locations: []Location{{Path: "built into Claude Code", Agent: ClaudeCode}}, contents: nil, hooks: false,
-			lists: claudeJSONLists(fallback),
+			Locations: nil, contents: nil, hooks: false, lists: claudeJSONLists(fallback), builtIn: true,
 		}
 	}
 
@@ -232,6 +237,27 @@ func discoverServers(machine Machine, project Project) ([]Extension, error) {
 	return exts, nil
 }
 
+// rejectMCPJSONServers makes each .mcp.json server in byName that the user's
+// or the Project's shared settings reject default to off. A rejection in any
+// settings file wins in Claude Code, so the local file equip writes cannot
+// turn such a server on.
+func rejectMCPJSONServers(byName map[string]*Extension, machine Machine, project Project) error {
+	for _, dir := range []string{machine.Home, project.Path} {
+		settings, err := readSettings(filepath.Join(dir, ".claude", "settings.json"))
+		if err != nil {
+			return err
+		}
+
+		for _, name := range jsonObject(settings.keys).list(mcpJSONLists().off) {
+			if ext := byName[name]; ext != nil && ext.lists.settings {
+				ext.fallback = Off
+			}
+		}
+	}
+
+	return nil
+}
+
 // addServers adds each server in servers, read from path, to byName, with its
 // state in lists.
 func addServers(byName map[string]*Extension, servers jsonObject, path string, lists mcpLists) {
@@ -240,7 +266,7 @@ func addServers(byName map[string]*Extension, servers jsonObject, path string, l
 		if ext == nil {
 			ext = &Extension{
 				Kind: MCPServer, Key: mcpPrefix + name, Description: "", cost: map[Agent]int{}, fallback: On,
-				Locations: nil, contents: nil, hooks: false, lists: lists,
+				Locations: nil, contents: nil, hooks: false, lists: lists, builtIn: false,
 			}
 			byName[name] = ext
 		}

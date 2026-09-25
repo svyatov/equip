@@ -448,3 +448,13 @@ func TestDetailPaneNamesTheKind(t *testing.T) {
 		t.Errorf("line %q does not name the kind", got)
 	}
 }
+
+func TestDetailPaneSaysABuiltInServerIsBuiltIntoClaudeCode(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.ClaudeBuiltins = map[string]equip.State{"computer-use": equip.Off}
+
+	if line(newModel(t, machine), "built into Claude Code") == "" {
+		t.Error("detail pane does not say the server is built into Claude Code")
+	}
+}
