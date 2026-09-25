@@ -27,7 +27,12 @@ func locate(m Machine, dir string) (Project, error) {
 	}
 	// Read in dir: the main checkout may be on an unborn branch while this
 	// worktree has history. Fails with no commits, which leaves no root commit.
+	// Newest first, so the last root is the oldest: merging in an unrelated
+	// history keeps the root commit.
 	commits, _ := m.Git(dir, "rev-list", "--max-parents=0", "HEAD")
-	commit, _, _ := strings.Cut(commits, "\n")
+	commit := strings.TrimSpace(commits)
+	if _, last, ok := strings.CutLast(commit, "\n"); ok {
+		commit = last
+	}
 	return Project{Path: root, RootCommit: commit}, nil
 }

@@ -90,6 +90,20 @@ func TestProjectReportsRootCommit(t *testing.T) {
 	}
 }
 
+func TestProjectKeepsOldestRootCommitAfterMergingUnrelatedHistory(t *testing.T) {
+	m := equiptest.New(t)
+	repo := m.Repo("app")
+	oldest := m.Commit(repo)
+	m.RunGit(repo, "switch", "-q", "--orphan", "other")
+	m.Commit(repo)
+	m.RunGit(repo, "switch", "-q", "main")
+	m.RunGit(repo, "merge", "-q", "--allow-unrelated-histories", "-m", "merge", "other")
+
+	if got := open(t, m, repo).Project.RootCommit; got != oldest {
+		t.Errorf("RootCommit = %q, want the oldest root %q", got, oldest)
+	}
+}
+
 func TestProjectReportsRootCommitWhenMainCheckoutHasNoCommits(t *testing.T) {
 	m := equiptest.New(t)
 	repo := m.Repo("app")
