@@ -77,6 +77,18 @@ func TestProjectReportsRootCommit(t *testing.T) {
 	}
 }
 
+func TestProjectReportsRootCommitWhenMainCheckoutHasNoCommits(t *testing.T) {
+	m := equiptest.New(t)
+	repo := m.Repo("app")
+	root := m.Commit(repo)
+	wt := m.Worktree(repo, "app-feature")
+	m.RunGit(repo, "switch", "-q", "--orphan", "fresh")
+
+	if got := open(t, m, wt).Project.RootCommit; got != root {
+		t.Errorf("RootCommit = %q, want %q", got, root)
+	}
+}
+
 func TestProjectHasNoRootCommitWithoutCommits(t *testing.T) {
 	m := equiptest.New(t)
 	repo := m.Repo("app")

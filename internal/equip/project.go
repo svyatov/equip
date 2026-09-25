@@ -20,8 +20,9 @@ func locate(m Machine, dir string) (Project, error) {
 	}
 	line, _, _ := strings.Cut(out, "\n")
 	root := strings.TrimPrefix(line, "worktree ")
-	// Fails with no commits, which leaves no root commit.
-	commits, _ := m.Git(root, "rev-list", "--max-parents=0", "HEAD")
+	// Read in dir: the main checkout may be on an unborn branch while this
+	// worktree has history. Fails with no commits, which leaves no root commit.
+	commits, _ := m.Git(dir, "rev-list", "--max-parents=0", "HEAD")
 	commit, _, _ := strings.Cut(commits, "\n")
 	return Project{Path: root, RootCommit: commit}, nil
 }
