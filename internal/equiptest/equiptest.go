@@ -48,12 +48,13 @@ func New(tb testing.TB) *Machine {
 	home := filepath.Join(root, "home")
 
 	base := equip.Machine{
-		Home:       home,
-		ConfigHome: filepath.Join(home, ".config"),
-		StateHome:  filepath.Join(home, ".local", "state"),
-		CacheHome:  filepath.Join(home, ".cache"),
-		CodexHome:  filepath.Join(home, ".codex"),
-		WorkDir:    root,
+		Home:        home,
+		ConfigHome:  filepath.Join(home, ".config"),
+		StateHome:   filepath.Join(home, ".local", "state"),
+		CacheHome:   filepath.Join(home, ".cache"),
+		CodexHome:   filepath.Join(home, ".codex"),
+		CodexSystem: filepath.Join(root, "etc", "codex"),
+		WorkDir:     root,
 		Git: equip.GitRunner(append(env,
 			"HOME="+home,
 			"GIT_CONFIG_GLOBAL="+os.DevNull,

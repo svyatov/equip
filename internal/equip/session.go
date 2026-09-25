@@ -2,7 +2,9 @@ package equip
 
 import (
 	"errors"
+	"fmt"
 	"maps"
+	"path/filepath"
 	"slices"
 )
 
@@ -16,6 +18,7 @@ type Project struct {
 	Path       string // symlinks resolved
 	RootCommit string // empty outside git or with no commits
 	gitDir     string // the main checkout's .git; empty outside git
+	checkout   string // the root of the checkout equip runs in: a worktree's own; Path outside git
 }
 
 // State is how an extension takes part in a Project's sessions.
@@ -37,13 +40,14 @@ func (s State) String() string {
 
 // Session is one open Project.
 type Session struct {
-	overrides map[string]State // pending, by extension key
-	saved     map[string]State // the overrides at the last save
-	disk      map[string]State // Claude Code's entries for exts, as last read or written
-	outside   map[string]bool  // changed outside equip since the last save
-	machine   Machine
-	project   Project
-	exts      []Extension
+	overrides  map[string]State // pending, by extension key
+	saved      map[string]State // the overrides at the last save
+	disk       map[string]State // Claude Code's entries for claudeExts, as last read or written
+	outside    map[string]bool  // changed outside equip since the last save
+	machine    Machine
+	project    Project
+	exts       []Extension
+	claudeExts []Extension // the exts Claude Code has
 }
 
 // View is what the user sees of a Session.
@@ -67,12 +71,15 @@ type Row struct {
 
 // Open finds the Project of dir and discovers its extensions.
 func Open(machine Machine, dir string) (*Session, error) {
-	project, err := locate(machine, dir)
+	// Resolved, as ~/.claude.json keys projects that way.
+	dir, err := filepath.EvalSymlinks(dir)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("locate project: %w", err)
 	}
 
-	exts, err := discover(machine)
+	project := locate(machine, dir)
+
+	exts, err := discover(machine, project, dir)
 	if err != nil {
 		return nil, err
 	}
@@ -81,21 +88,24 @@ func Open(machine Machine, dir string) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
+
+	claudeExts := slices.DeleteFunc(slices.Clone(exts), func(e Extension) bool { return !e.has(ClaudeCode) })
 	// ponytail: broken settings read as no entries here; Save reports them.
-	disk, _ := readClaude(project, exts)
+	disk, _ := readClaude(project, claudeExts)
 	if saved == nil {
 		// A first open imports the states set by hand, so a save keeps them.
 		saved = disk
 	}
 
 	session := &Session{
-		machine:   machine,
-		project:   project,
-		exts:      exts,
-		overrides: maps.Clone(saved),
-		saved:     saved,
-		disk:      map[string]State{},
-		outside:   map[string]bool{},
+		machine:    machine,
+		project:    project,
+		exts:       exts,
+		claudeExts: claudeExts,
+		overrides:  maps.Clone(saved),
+		saved:      saved,
+		disk:       map[string]State{},
+		outside:    map[string]bool{},
 	}
 	session.take(disk)
 
@@ -129,6 +139,37 @@ func (s *Session) View() View {
 	return View{Project: s.project, Rows: rows, Unsaved: s.unsavedCount()}
 }
 
+// Detail is what the detail pane shows of one extension.
+type Detail struct {
+	NotApplied  map[Agent]string // why an agent that has it does not get its state
+	Description string
+	Agents      []Agent // the agents that have it
+	Sources     []Source
+}
+
+// Detail returns the detail of the extension with key.
+func (s *Session) Detail(key string) Detail {
+	i := slices.IndexFunc(s.exts, func(e Extension) bool { return e.Key == key })
+	if i < 0 {
+		return Detail{Description: "", Agents: nil, Sources: nil, NotApplied: nil}
+	}
+
+	ext := s.exts[i]
+	detail := Detail{Description: ext.Description, Agents: nil, Sources: ext.Sources, NotApplied: map[Agent]string{}}
+
+	for _, src := range ext.Sources {
+		if !slices.Contains(detail.Agents, src.Agent) {
+			detail.Agents = append(detail.Agents, src.Agent)
+		}
+	}
+
+	if ext.has(Codex) {
+		detail.NotApplied[Codex] = "Codex has no per-project skill setting"
+	}
+
+	return detail
+}
+
 // DropOverride removes the Override for key, so the extension falls back.
 func (s *Session) DropOverride(key string) { delete(s.overrides, key) }
 
@@ -136,7 +177,7 @@ func (s *Session) DropOverride(key string) { delete(s.overrides, key) }
 // Code's entries changed since they were read, it writes nothing, imports the
 // changes and returns ErrChangedSinceOpen.
 func (s *Session) Save() error {
-	now, err := readClaude(s.project, s.exts)
+	now, err := readClaude(s.project, s.claudeExts)
 	if err != nil {
 		return err
 	}
@@ -150,14 +191,14 @@ func (s *Session) Save() error {
 		return nil
 	}
 
-	err = writeClaude(s.machine, s.project, s.exts, s.overrides)
+	err = writeClaude(s.machine, s.project, s.claudeExts, s.overrides)
 	if err != nil {
 		return err
 	}
 	// Set before the record write, so a failed one does not make equip's own
 	// entries look changed outside.
 	s.disk = map[string]State{}
-	for _, e := range s.exts {
+	for _, e := range s.claudeExts {
 		if st, ok := s.overrides[e.Key]; ok {
 			s.disk[e.Key] = st
 		}
@@ -180,7 +221,7 @@ func (s *Session) Save() error {
 func (s *Session) take(now map[string]State) bool {
 	changed := false
 
-	for _, e := range s.exts {
+	for _, e := range s.claudeExts {
 		key := e.Key
 		if !differ(now, s.disk, key) {
 			continue
@@ -226,11 +267,11 @@ func (s *Session) unsavedCount() int {
 }
 
 // unsaved reports whether a save would change the Override for key or, for
-// an installed extension, its entry on disk.
+// an extension Claude Code has, its entry on disk.
 func (s *Session) unsaved(key string) bool {
-	installed := slices.ContainsFunc(s.exts, func(e Extension) bool { return e.Key == key })
+	inClaude := slices.ContainsFunc(s.claudeExts, func(e Extension) bool { return e.Key == key })
 
-	return differ(s.overrides, s.saved, key) || installed && differ(s.overrides, s.disk, key)
+	return differ(s.overrides, s.saved, key) || inClaude && differ(s.overrides, s.disk, key)
 }
 
 // differ reports whether a and b hold different states for key.

@@ -17,12 +17,13 @@ import (
 type Machine struct {
 	Git GitFunc
 
-	Home       string
-	ConfigHome string // $XDG_CONFIG_HOME
-	StateHome  string // $XDG_STATE_HOME
-	CacheHome  string // $XDG_CACHE_HOME
-	CodexHome  string // $CODEX_HOME
-	WorkDir    string
+	Home        string
+	ConfigHome  string // $XDG_CONFIG_HOME
+	StateHome   string // $XDG_STATE_HOME
+	CacheHome   string // $XDG_CACHE_HOME
+	CodexHome   string // $CODEX_HOME
+	CodexSystem string // /etc/codex
+	WorkDir     string
 }
 
 // GitFunc runs git with args in dir and returns its standard output.
@@ -45,13 +46,14 @@ func MachineFromEnv() (Machine, error) {
 	}
 
 	return Machine{
-		Home:       home,
-		ConfigHome: env("XDG_CONFIG_HOME", ".config"),
-		StateHome:  env("XDG_STATE_HOME", ".local", "state"),
-		CacheHome:  env("XDG_CACHE_HOME", ".cache"),
-		CodexHome:  env("CODEX_HOME", ".codex"),
-		WorkDir:    workDir,
-		Git:        GitRunner(nil),
+		Home:        home,
+		ConfigHome:  env("XDG_CONFIG_HOME", ".config"),
+		StateHome:   env("XDG_STATE_HOME", ".local", "state"),
+		CacheHome:   env("XDG_CACHE_HOME", ".cache"),
+		CodexHome:   env("CODEX_HOME", ".codex"),
+		CodexSystem: "/etc/codex",
+		WorkDir:     workDir,
+		Git:         GitRunner(nil),
 	}, nil
 }
 

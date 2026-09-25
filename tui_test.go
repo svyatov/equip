@@ -249,3 +249,25 @@ func TestQuitWithUnsavedChangesAsksFirst(t *testing.T) {
 		t.Error("y did not quit")
 	}
 }
+
+func TestDetailPaneShowsDescriptionAgentsSourcesAndCodexNote(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	claude := machine.Skill(machine.ClaudeSkills(), "review")
+	codex := machine.Skill(filepath.Join(machine.Home, ".agents", "skills"), "review")
+	tui := newModel(t, machine)
+
+	for _, want := range []string{"The review skill.", "Claude Code, Codex", "not applied in Codex: "} {
+		if line(tui, want) == "" {
+			t.Errorf("view does not show %q:\n%s", want, tui.View().Content)
+		}
+	}
+
+	if got := line(tui, claude); !strings.Contains(got, "Claude Code") {
+		t.Errorf("source line %q does not name Claude Code", got)
+	}
+
+	if got := line(tui, codex); !strings.Contains(got, "Codex") {
+		t.Errorf("source line %q does not name Codex", got)
+	}
+}

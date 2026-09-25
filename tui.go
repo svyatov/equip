@@ -27,6 +27,9 @@ func newStyles() styles {
 	}
 }
 
+// descriptionWidth is the width the detail pane wraps a description at.
+const descriptionWidth = 60
+
 // glyph is the list mark of st.
 func glyph(st equip.State) string {
 	return [...]string{equip.On: "●", equip.ManualOnly: "◐", equip.Off: "○"}[st]
@@ -95,7 +98,8 @@ func (m *model) View() tea.View {
 
 	panes := []string{m.style.pane.Render(strings.Join(list, "\n"))}
 	if m.cur < len(session.Rows) {
-		panes = append(panes, m.style.pane.Render(m.detail(session.Rows[m.cur])))
+		row := session.Rows[m.cur]
+		panes = append(panes, m.style.pane.Render(m.detail(row, m.s.Detail(row.Name))))
 	}
 
 	footer := m.style.dim.Render("↑↓ move  1-3 set state  x drop override  s save  q quit")
@@ -153,9 +157,27 @@ func (m *model) quit() tea.Cmd {
 	return tea.Quit
 }
 
-// detail is the detail pane of row: its origin and the states to pick from.
-func (m *model) detail(row equip.Row) string {
-	lines := []string{m.style.cur.Render(row.Name), ""}
+// detail is the detail pane of row: what it is, which agents have it, its
+// origin, the states to pick from and where it comes from.
+func (m *model) detail(row equip.Row, ext equip.Detail) string {
+	agents := make([]string, 0, len(ext.Agents))
+	for _, agent := range ext.Agents {
+		agents = append(agents, agent.String())
+	}
+
+	lines := []string{
+		m.style.cur.Render(row.Name),
+		m.style.dim.Width(descriptionWidth).Render(ext.Description),
+		"",
+		"Agents  " + strings.Join(agents, ", "),
+	}
+
+	for _, agent := range ext.Agents {
+		if reason, ok := ext.NotApplied[agent]; ok {
+			lines = append(lines, "        "+m.style.dim.Render("not applied in "+agent.String()+": "+reason))
+		}
+	}
+
 	if row.Override {
 		lines = append(lines,
 			"Origin  "+m.style.warn.Render("override")+", set by hand here",
@@ -177,6 +199,11 @@ func (m *model) detail(row equip.Row) string {
 		}
 
 		lines = append(lines, fmt.Sprintf("  (%s) %d %s", radio, index+1, state))
+	}
+
+	lines = append(lines, "", "Sources")
+	for _, src := range ext.Sources {
+		lines = append(lines, "  "+src.Path+"  "+m.style.dim.Render(src.Agent.String()))
 	}
 
 	return strings.Join(lines, "\n")
