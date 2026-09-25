@@ -22,6 +22,9 @@ const (
 	Codex
 )
 
+// Agents returns the agents.
+func Agents() []Agent { return []Agent{ClaudeCode, Codex} }
+
 func (a Agent) String() string { return [...]string{ClaudeCode: "Claude Code", Codex: "Codex"}[a] }
 
 // Location is a file or directory an agent reads an extension from.
@@ -33,7 +36,7 @@ type Location struct {
 // Extension is one skill, plugin or MCP server, the same in every agent that
 // has it.
 type Extension struct {
-	cost        map[Agent]int // estimated tokens when on, from the agent's first copy
+	cost        map[Agent]int // estimated tokens when on
 	Key         string        // a skill's key is its directory name
 	Description string
 	Locations   []Location // in discovery order
@@ -130,8 +133,9 @@ func (inv *inventory) add(agent Agent, root string) int {
 			inv.byKey[entry.Name()] = ext
 		}
 
-		if !ext.has(agent) {
-			ext.cost[agent] = skillCost(agent, entry.Name(), data)
+		// Claude Code loads the first Location of a skill; Codex lists every one.
+		if agent == Codex || !ext.has(agent) {
+			ext.cost[agent] += skillCost(agent, entry.Name(), data)
 		}
 
 		ext.Description = cmp.Or(ext.Description, field(data, "description"))
@@ -152,28 +156,47 @@ func (inv *inventory) missing(root string, err error) bool {
 // skillCost estimates the tokens the skill named name, with SKILL.md skill,
 // puts into agent's sessions when on.
 func skillCost(agent Agent, name string, skill []byte) int {
+	// Claude Code lists no skill the model cannot call.
+	if agent == ClaudeCode && field(skill, "disable-model-invocation") == "true" {
+		return 0
+	}
+
 	text := []rune(field(skill, "description"))
 	if agent == ClaudeCode {
 		text = append(text, []rune(field(skill, "when_to_use"))...)
 	}
 
-	maxChars := [...]int{ClaudeCode: claudeCodeSkillChars, Codex: codexSkillChars}[agent]
+	maxChars := agent.listing().maxChars
 
 	return tokens(agent, len(name)+len(string(text[:min(len(text), maxChars)])))
 }
 
+// skillListing is how an agent lists skills in a session's context.
+type skillListing struct {
+	maxChars      int // the characters it keeps of a skill's text
+	bytesPerToken int // of its model's text
+	introTokens   int // of a fixed block, paid once when any skill is listed
+}
+
 const (
-	// The characters each agent's skill listing keeps of a skill's text.
-	claudeCodeSkillChars = 1536
-	codexSkillChars      = 1024
-	// The UTF-8 bytes per token of each agent's model.
+	claudeCodeSkillChars    = 1536
 	claudeCodeBytesPerToken = 3
+	codexSkillChars         = 1024
 	codexBytesPerToken      = 4
+	codexSkillsIntroTokens  = 700
 )
+
+// listing is how agent lists skills.
+func (a Agent) listing() skillListing {
+	return [...]skillListing{
+		ClaudeCode: {maxChars: claudeCodeSkillChars, bytesPerToken: claudeCodeBytesPerToken, introTokens: 0},
+		Codex:      {maxChars: codexSkillChars, bytesPerToken: codexBytesPerToken, introTokens: codexSkillsIntroTokens},
+	}[a]
+}
 
 // tokens estimates the tokens of text with n UTF-8 bytes in agent, rounded up.
 func tokens(agent Agent, n int) int {
-	perToken := [...]int{ClaudeCode: claudeCodeBytesPerToken, Codex: codexBytesPerToken}[agent]
+	perToken := agent.listing().bytesPerToken
 
 	return (n + perToken - 1) / perToken
 }

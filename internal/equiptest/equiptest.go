@@ -142,3 +142,6 @@ func (m *Machine) Skill(skills, name string) string {
 
 // ClaudeSkills is the Claude Code user skills dir.
 func (m *Machine) ClaudeSkills() string { return filepath.Join(m.Home, ".claude", "skills") }
+
+// CodexSkills is the Codex user skills dir.
+func (m *Machine) CodexSkills() string { return filepath.Join(m.Home, ".agents", "skills") }

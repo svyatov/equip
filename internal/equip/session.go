@@ -120,17 +120,20 @@ func (s *Session) SetState(key string, st State) { s.overrides[key] = st }
 // View returns the current view.
 func (s *Session) View() View {
 	rows := make([]Row, 0, len(s.exts))
-	totals := map[Agent]int{ClaudeCode: 0, Codex: 0}
+	totals := map[Agent]int{}
 
 	for _, ext := range s.exts {
 		state, override := s.state(ext.Key)
-		for agent := range totals {
+		cost := 0
+
+		for _, agent := range Agents() {
 			totals[agent] += ext.costIn(agent, state)
+			cost = max(cost, ext.costIn(agent, state))
 		}
 
 		rows = append(rows, Row{
 			Name:           ext.Key,
-			Cost:           max(ext.costIn(ClaudeCode, state), ext.costIn(Codex, state)),
+			Cost:           cost,
 			State:          state,
 			Override:       override,
 			Fallback:       On,
@@ -139,9 +142,10 @@ func (s *Session) View() View {
 		})
 	}
 
-	// Codex lists its skills after a fixed intro of about 700 tokens.
-	if totals[Codex] > 0 {
-		totals[Codex] += 700
+	for agent, total := range totals {
+		if total > 0 {
+			totals[agent] += agent.listing().introTokens
+		}
 	}
 
 	return View{Project: s.project, Rows: rows, Unsaved: s.unsavedCount(), Totals: totals}

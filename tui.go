@@ -81,7 +81,7 @@ func (m *model) View() tea.View {
 	session := m.s.View()
 
 	top := []string{m.style.top.Render("equip  " + session.Project.Path)}
-	for _, agent := range []equip.Agent{equip.ClaudeCode, equip.Codex} {
+	for _, agent := range equip.Agents() {
 		top = append(top, agent.String()+" "+cost(session.Totals[agent]))
 	}
 
