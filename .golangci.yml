@@ -10,7 +10,6 @@ linters:
     - exhaustruct # zero values are valid by design
     - exhaustruct_v5 # the same linter under its new name
     - gomodguard # deprecated; depguard owns the import budget
-    - varnamelen # short names in short scopes are the Go idiom
     - wsl # deprecated; wsl_v5 replaces it
 
   settings:
@@ -68,6 +67,11 @@ linters:
     nolintlint:
       require-explanation: true
       require-specific: true
+
+    varnamelen:
+      # On is a State, named in the GLOSSARY.
+      ignore-names:
+        - On
 
     wrapcheck:
       # An error from equip's own packages already carries its context.

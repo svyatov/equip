@@ -35,7 +35,7 @@ func MachineFromEnv() (Machine, error) {
 		return Machine{}, fmt.Errorf("find home: %w", err)
 	}
 
-	wd, err := os.Getwd()
+	workDir, err := os.Getwd()
 	if err != nil {
 		return Machine{}, fmt.Errorf("find working dir: %w", err)
 	}
@@ -50,7 +50,7 @@ func MachineFromEnv() (Machine, error) {
 		StateHome:  env("XDG_STATE_HOME", ".local", "state"),
 		CacheHome:  env("XDG_CACHE_HOME", ".cache"),
 		CodexHome:  env("CODEX_HOME", ".codex"),
-		WorkDir:    wd,
+		WorkDir:    workDir,
 		Git:        GitRunner(nil),
 	}, nil
 }

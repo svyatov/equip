@@ -47,9 +47,7 @@ func New(tb testing.TB) *Machine {
 
 	home := filepath.Join(root, "home")
 
-	m := &Machine{
-		Root:       root,
-		t:          tb,
+	base := equip.Machine{
 		Home:       home,
 		ConfigHome: filepath.Join(home, ".config"),
 		StateHome:  filepath.Join(home, ".local", "state"),
@@ -64,11 +62,15 @@ func New(tb testing.TB) *Machine {
 			"GIT_COMMITTER_NAME=equip", "GIT_COMMITTER_EMAIL=equip@example.com",
 		)),
 	}
-	for _, d := range []string{m.ConfigHome, m.StateHome, m.CacheHome, m.CodexHome, filepath.Join(home, ".claude")} {
-		m.Mkdir(d)
+	machine := &Machine{Machine: base, Root: root, t: tb}
+
+	for _, dir := range []string{
+		machine.ConfigHome, machine.StateHome, machine.CacheHome, machine.CodexHome, filepath.Join(home, ".claude"),
+	} {
+		machine.Mkdir(dir)
 	}
 
-	return m
+	return machine
 }
 
 // Mkdir creates dir and its parents and returns it.

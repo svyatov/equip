@@ -11,13 +11,13 @@ import (
 
 // locate finds the Project of dir: the main checkout's root in git, else dir.
 // The path has symlinks resolved, as ~/.claude.json keys projects that way.
-func locate(m Machine, dir string) (Project, error) {
+func locate(machine Machine, dir string) (Project, error) {
 	dir, err := filepath.EvalSymlinks(dir)
 	if err != nil {
 		return Project{}, fmt.Errorf("locate project: %w", err)
 	}
 
-	out, err := m.Git(dir, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel")
+	out, err := machine.Git(dir, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel")
 	if err != nil {
 		// ponytail: any git failure (no repo, no git binary) reads as outside
 		// git; match git's exit status if a real repo ever fails here.
@@ -35,7 +35,7 @@ func locate(m Machine, dir string) (Project, error) {
 	// worktree has history. Fails with no commits, which leaves no root commit.
 	// Newest first, so the last root is the oldest: merging in an unrelated
 	// history keeps the root commit.
-	commits, _ := m.Git(dir, "rev-list", "--max-parents=0", "HEAD")
+	commits, _ := machine.Git(dir, "rev-list", "--max-parents=0", "HEAD")
 
 	commit := strings.TrimSpace(commits)
 	if _, last, ok := strings.CutLast(commit, "\n"); ok {
@@ -48,18 +48,18 @@ func locate(m Machine, dir string) (Project, error) {
 // exclude adds rel, a path in the Project, to the main checkout's
 // .git/info/exclude unless git already ignores it. Outside git it does
 // nothing.
-func exclude(m Machine, p Project, rel string) error {
-	if p.gitDir == "" {
+func exclude(machine Machine, project Project, rel string) error {
+	if project.gitDir == "" {
 		return nil
 	}
 	// ponytail: any check-ignore failure reads as not ignored, which at worst
 	// adds a line git did not need.
-	_, err := m.Git(p.Path, "check-ignore", "-q", rel)
+	_, err := machine.Git(project.Path, "check-ignore", "-q", rel)
 	if err == nil {
 		return nil
 	}
 
-	path := filepath.Join(p.gitDir, "info", "exclude")
+	path := filepath.Join(project.gitDir, "info", "exclude")
 
 	data, err := os.ReadFile(path) //nolint:gosec // git names the path
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {

@@ -10,10 +10,10 @@ import (
 	"github.com/svyatov/equip/internal/equiptest"
 )
 
-func open(t *testing.T, m *equiptest.Machine, dir string) equip.View {
+func open(t *testing.T, machine *equiptest.Machine, dir string) equip.View {
 	t.Helper()
 
-	s, err := equip.Open(m.Machine, dir)
+	s, err := equip.Open(machine.Machine, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -23,11 +23,11 @@ func open(t *testing.T, m *equiptest.Machine, dir string) equip.View {
 
 func TestProjectIsRepoRootFromSubdirectory(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	sub := m.Mkdir(filepath.Join(repo, "lib", "deep"))
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	sub := machine.Mkdir(filepath.Join(repo, "lib", "deep"))
 
-	if got := open(t, m, sub).Project.Path; got != repo {
+	if got := open(t, machine, sub).Project.Path; got != repo {
 		t.Errorf("Project.Path = %q, want %q", got, repo)
 	}
 }
@@ -35,11 +35,11 @@ func TestProjectIsRepoRootFromSubdirectory(t *testing.T) {
 func TestHarnessIgnoresInheritedGitEnvironment(t *testing.T) {
 	victim := filepath.Join(t.TempDir(), "victim.git")
 	t.Setenv("GIT_DIR", victim)
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Commit(repo)
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Commit(repo)
 
-	if got := open(t, m, repo).Project.Path; got != repo {
+	if got := open(t, machine, repo).Project.Path; got != repo {
 		t.Errorf("Project.Path = %q, want %q", got, repo)
 	}
 
@@ -51,91 +51,91 @@ func TestHarnessIgnoresInheritedGitEnvironment(t *testing.T) {
 
 func TestProjectIsSubmoduleCheckoutInsideSubmodule(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	lib := m.Repo("lib")
-	m.Commit(lib)
-	super := m.Repo("super")
-	m.RunGit(super, "-c", "protocol.file.allow=always", "submodule", "add", "-q", lib, "mod")
+	machine := equiptest.New(t)
+	lib := machine.Repo("lib")
+	machine.Commit(lib)
+	super := machine.Repo("super")
+	machine.RunGit(super, "-c", "protocol.file.allow=always", "submodule", "add", "-q", lib, "mod")
 	mod := filepath.Join(super, "mod")
 
-	if got := open(t, m, mod).Project.Path; got != mod {
+	if got := open(t, machine, mod).Project.Path; got != mod {
 		t.Errorf("Project.Path = %q, want %q", got, mod)
 	}
 }
 
 func TestProjectIsTheDirectoryOutsideGit(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	dir := m.Mkdir(filepath.Join(m.Root, "scratch", "notes"))
+	machine := equiptest.New(t)
+	dir := machine.Mkdir(filepath.Join(machine.Root, "scratch", "notes"))
 
-	if got := open(t, m, dir).Project.Path; got != dir {
+	if got := open(t, machine, dir).Project.Path; got != dir {
 		t.Errorf("Project.Path = %q, want %q", got, dir)
 	}
 }
 
 func TestProjectPathHasSymlinksResolved(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	dir := m.Mkdir(filepath.Join(m.Root, "scratch"))
+	machine := equiptest.New(t)
+	dir := machine.Mkdir(filepath.Join(machine.Root, "scratch"))
 
-	link := filepath.Join(m.Root, "link")
+	link := filepath.Join(machine.Root, "link")
 
 	err := os.Symlink(dir, link)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	if got := open(t, m, link).Project.Path; got != dir {
+	if got := open(t, machine, link).Project.Path; got != dir {
 		t.Errorf("Project.Path = %q, want %q", got, dir)
 	}
 }
 
 func TestProjectReportsRootCommit(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	root := m.Commit(repo)
-	m.Commit(repo)
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	root := machine.Commit(repo)
+	machine.Commit(repo)
 
-	if got := open(t, m, repo).Project.RootCommit; got != root {
+	if got := open(t, machine, repo).Project.RootCommit; got != root {
 		t.Errorf("RootCommit = %q, want %q", got, root)
 	}
 }
 
 func TestProjectKeepsOldestRootCommitAfterMergingUnrelatedHistory(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	oldest := m.Commit(repo)
-	m.RunGit(repo, "switch", "-q", "--orphan", "other")
-	m.Commit(repo)
-	m.RunGit(repo, "switch", "-q", "main")
-	m.RunGit(repo, "merge", "-q", "--allow-unrelated-histories", "-m", "merge", "other")
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	oldest := machine.Commit(repo)
+	machine.RunGit(repo, "switch", "-q", "--orphan", "other")
+	machine.Commit(repo)
+	machine.RunGit(repo, "switch", "-q", "main")
+	machine.RunGit(repo, "merge", "-q", "--allow-unrelated-histories", "-m", "merge", "other")
 
-	if got := open(t, m, repo).Project.RootCommit; got != oldest {
+	if got := open(t, machine, repo).Project.RootCommit; got != oldest {
 		t.Errorf("RootCommit = %q, want the oldest root %q", got, oldest)
 	}
 }
 
 func TestProjectReportsRootCommitWhenMainCheckoutHasNoCommits(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	root := m.Commit(repo)
-	wt := m.Worktree(repo, "app-feature")
-	m.RunGit(repo, "switch", "-q", "--orphan", "fresh")
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	root := machine.Commit(repo)
+	wt := machine.Worktree(repo, "app-feature")
+	machine.RunGit(repo, "switch", "-q", "--orphan", "fresh")
 
-	if got := open(t, m, wt).Project.RootCommit; got != root {
+	if got := open(t, machine, wt).Project.RootCommit; got != root {
 		t.Errorf("RootCommit = %q, want %q", got, root)
 	}
 }
 
 func TestProjectHasNoRootCommitWithoutCommits(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
 
-	if got := open(t, m, repo).Project.RootCommit; got != "" {
+	if got := open(t, machine, repo).Project.RootCommit; got != "" {
 		t.Errorf("RootCommit = %q, want none", got)
 	}
 }
@@ -152,12 +152,12 @@ func names(v equip.View) []string {
 func TestViewListsClaudeCodeUserSkillsSortedByName(t *testing.T) {
 	t.Parallel()
 
-	m := equiptest.New(t)
+	machine := equiptest.New(t)
 	for _, name := range []string{"zeta", "alpha", "mid"} {
-		m.Skill(m.ClaudeSkills(), name)
+		machine.Skill(machine.ClaudeSkills(), name)
 	}
 
-	got := names(open(t, m, m.Root))
+	got := names(open(t, machine, machine.Root))
 	if want := []string{"alpha", "mid", "zeta"}; !slices.Equal(got, want) {
 		t.Errorf("rows = %q, want %q", got, want)
 	}
@@ -165,17 +165,17 @@ func TestViewListsClaudeCodeUserSkillsSortedByName(t *testing.T) {
 
 func TestViewSkipsEntriesWithoutSkillFile(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	m.Skill(m.ClaudeSkills(), "real")
-	m.Skill(filepath.Join(m.ClaudeSkills(), "synced"), "from-claude-ai")
-	m.Mkdir(filepath.Join(m.ClaudeSkills(), "empty"))
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "real")
+	machine.Skill(filepath.Join(machine.ClaudeSkills(), "synced"), "from-claude-ai")
+	machine.Mkdir(filepath.Join(machine.ClaudeSkills(), "empty"))
 
-	err := os.WriteFile(filepath.Join(m.ClaudeSkills(), "README.md"), nil, 0o644)
+	err := os.WriteFile(filepath.Join(machine.ClaudeSkills(), "README.md"), nil, 0o644)
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got := names(open(t, m, m.Root))
+	got := names(open(t, machine, machine.Root))
 	if want := []string{"real"}; !slices.Equal(got, want) {
 		t.Errorf("rows = %q, want %q", got, want)
 	}
@@ -183,16 +183,16 @@ func TestViewSkipsEntriesWithoutSkillFile(t *testing.T) {
 
 func TestViewFollowsSymlinkedSkillDirectories(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	src := m.Skill(filepath.Join(m.Root, "repos", "tools"), "source-name")
-	m.Mkdir(m.ClaudeSkills())
+	machine := equiptest.New(t)
+	src := machine.Skill(filepath.Join(machine.Root, "repos", "tools"), "source-name")
+	machine.Mkdir(machine.ClaudeSkills())
 
-	err := os.Symlink(src, filepath.Join(m.ClaudeSkills(), "linked"))
+	err := os.Symlink(src, filepath.Join(machine.ClaudeSkills(), "linked"))
 	if err != nil {
 		t.Fatal(err)
 	}
 
-	got := names(open(t, m, m.Root))
+	got := names(open(t, machine, machine.Root))
 	if want := []string{"linked"}; !slices.Equal(got, want) {
 		t.Errorf("rows = %q, want %q", got, want)
 	}
@@ -200,13 +200,13 @@ func TestViewFollowsSymlinkedSkillDirectories(t *testing.T) {
 
 func TestProjectIsMainCheckoutRootFromWorktree(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Commit(repo)
-	wt := m.Worktree(repo, "app-feature")
-	sub := m.Mkdir(filepath.Join(wt, "lib"))
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Commit(repo)
+	wt := machine.Worktree(repo, "app-feature")
+	sub := machine.Mkdir(filepath.Join(wt, "lib"))
 
-	if got := open(t, m, sub).Project.Path; got != repo {
+	if got := open(t, machine, sub).Project.Path; got != repo {
 		t.Errorf("Project.Path = %q, want %q", got, repo)
 	}
 }

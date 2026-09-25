@@ -21,18 +21,19 @@ type record struct {
 	} `toml:"overrides"`
 }
 
-// recordPath is the record file of p, one per path, so two clones of a repo
-// keep their own.
-func recordPath(m Machine, p Project) string {
-	sum := sha256.Sum256([]byte(p.Path))
+// recordPath is the record file of project, one per path, so two clones of a
+// repo keep their own.
+func recordPath(machine Machine, project Project) string {
+	sum := sha256.Sum256([]byte(project.Path))
+	name := filepath.Base(project.Path) + "-" + hex.EncodeToString(sum[:8]) + ".toml"
 
-	return filepath.Join(m.StateHome, "equip", filepath.Base(p.Path)+"-"+hex.EncodeToString(sum[:8])+".toml")
+	return filepath.Join(machine.StateHome, "equip", name)
 }
 
-// readRecord reads the Overrides in the record of p. With no record, it
+// readRecord reads the Overrides in the record of project. With no record, it
 // returns nil.
-func readRecord(m Machine, p Project) (map[string]State, error) {
-	path := recordPath(m, p)
+func readRecord(machine Machine, project Project) (map[string]State, error) {
+	path := recordPath(machine, project)
 
 	data, err := os.ReadFile(path) //nolint:gosec // equip builds the path
 	if errors.Is(err, fs.ErrNotExist) {
@@ -78,9 +79,9 @@ func parseState(name string) (State, bool) {
 	return 0, false
 }
 
-// writeRecord writes the record of p with overrides.
-func writeRecord(m Machine, p Project, overrides map[string]State) error {
-	rec := record{Path: p.Path, RootCommit: p.RootCommit}
+// writeRecord writes the record of project with overrides.
+func writeRecord(machine Machine, project Project, overrides map[string]State) error {
+	rec := record{Path: project.Path, RootCommit: project.RootCommit}
 
 	rec.Overrides.Skills = map[string]string{}
 	for key, st := range overrides {
@@ -92,5 +93,5 @@ func writeRecord(m Machine, p Project, overrides map[string]State) error {
 		return fmt.Errorf("encode record: %w", err)
 	}
 
-	return writeFile(recordPath(m, p), data)
+	return writeFile(recordPath(machine, project), data)
 }

@@ -30,12 +30,12 @@ func main() {
 }
 
 func run(args []string, stdout io.Writer) error {
-	fs := flag.NewFlagSet("equip", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
+	flags := flag.NewFlagSet("equip", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
 
-	version := fs.Bool("version", false, "print the build version")
+	version := flags.Bool("version", false, "print the build version")
 
-	err := fs.Parse(args)
+	err := flags.Parse(args)
 	if errors.Is(err, flag.ErrHelp) {
 		return printLine(stdout, usage)
 	}
@@ -44,8 +44,8 @@ func run(args []string, stdout io.Writer) error {
 		return fmt.Errorf("parse flags: %w", err)
 	}
 
-	if fs.NArg() > 0 {
-		return fmt.Errorf("%w %q\n\n%s", errUnexpectedArg, fs.Arg(0), usage)
+	if flags.NArg() > 0 {
+		return fmt.Errorf("%w %q\n\n%s", errUnexpectedArg, flags.Arg(0), usage)
 	}
 
 	if *version {
@@ -54,17 +54,17 @@ func run(args []string, stdout io.Writer) error {
 		return printLine(stdout, "equip", info.Main.Version)
 	}
 
-	m, err := equip.MachineFromEnv()
+	machine, err := equip.MachineFromEnv()
 	if err != nil {
 		return err
 	}
 
-	s, err := equip.Open(m, m.WorkDir)
+	session, err := equip.Open(machine, machine.WorkDir)
 	if err != nil {
 		return err
 	}
 
-	_, err = tea.NewProgram(newTUI(s)).Run()
+	_, err = tea.NewProgram(newTUI(session)).Run()
 	if err != nil {
 		return fmt.Errorf("run the TUI: %w", err)
 	}

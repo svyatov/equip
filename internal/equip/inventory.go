@@ -16,8 +16,8 @@ type Extension struct {
 
 // discover finds the installed extensions, sorted by key, without running
 // anything.
-func discover(m Machine) ([]Extension, error) {
-	dir := filepath.Join(m.Home, ".claude", "skills")
+func discover(machine Machine) ([]Extension, error) {
+	dir := filepath.Join(machine.Home, ".claude", "skills")
 	// os.ReadDir sorts by name.
 	entries, err := os.ReadDir(dir)
 	if errors.Is(err, fs.ErrNotExist) {
@@ -30,14 +30,14 @@ func discover(m Machine) ([]Extension, error) {
 
 	var exts []Extension
 
-	for _, e := range entries {
+	for _, entry := range entries {
 		// Stat follows symlinks, as Claude Code does.
-		_, err := os.Stat(filepath.Join(dir, e.Name(), "SKILL.md"))
+		_, err := os.Stat(filepath.Join(dir, entry.Name(), "SKILL.md"))
 		if err != nil {
 			continue
 		}
 
-		exts = append(exts, Extension{Key: e.Name()})
+		exts = append(exts, Extension{Key: entry.Name()})
 	}
 
 	return exts, nil

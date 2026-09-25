@@ -14,33 +14,33 @@ import (
 
 func TestFirstOpenImportsHandSetStatesAsOverrides(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "docs")
-	m.Skill(m.ClaudeSkills(), "review")
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "docs")
+	machine.Skill(machine.ClaudeSkills(), "review")
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"docs": "user-invocable-only", "review": "off"}}`)
 
-	v := session(t, m, repo).View()
+	view := newSession(t, machine, repo).View()
 
 	want := []equip.Row{
 		{Name: "docs", State: equip.ManualOnly, Override: true, Fallback: equip.On},
 		{Name: "review", State: equip.Off, Override: true, Fallback: equip.On},
 	}
-	if !slices.Equal(v.Rows, want) || v.Unsaved != 0 {
-		t.Errorf("rows = %+v, Unsaved = %d, want %+v and 0", v.Rows, v.Unsaved, want)
+	if !slices.Equal(view.Rows, want) || view.Unsaved != 0 {
+		t.Errorf("rows = %+v, Unsaved = %d, want %+v and 0", view.Rows, view.Unsaved, want)
 	}
 }
 
 func TestFirstSaveRecordsTheImportedStates(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "off"}}`)
 
-	save(t, session(t, m, repo))
+	save(t, newSession(t, machine, repo))
 
-	got := readRecord(t, m)["overrides"]
+	got := readRecord(t, machine)["overrides"]
 	if want := map[string]any{"skills": map[string]any{"review": "off"}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("record overrides = %v, want %v", got, want)
 	}
@@ -48,16 +48,16 @@ func TestFirstSaveRecordsTheImportedStates(t *testing.T) {
 
 func TestQuittingWithoutSavingLeavesHandEditsToImportAgain(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
-	savedOff(t, m, repo)
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	savedOff(t, machine, repo)
 
 	const edit = `{"skillOverrides": {"review": "on"}}`
 	writeFile(t, settingsLocal(repo), edit)
-	session(t, m, repo).SetState("review", equip.ManualOnly)
+	newSession(t, machine, repo).SetState("review", equip.ManualOnly)
 
-	v := session(t, m, repo).View()
+	view := newSession(t, machine, repo).View()
 
 	if data, _ := os.ReadFile(settingsLocal(repo)); string(data) != edit {
 		t.Errorf("settings = %s, want the hand edit", data)
@@ -67,61 +67,61 @@ func TestQuittingWithoutSavingLeavesHandEditsToImportAgain(t *testing.T) {
 		Name: "review", State: equip.On, Override: true, Fallback: equip.On, Unsaved: true,
 		ChangedOutside: true,
 	}
-	if v.Rows[0] != want {
-		t.Errorf("row = %+v, want %+v", v.Rows[0], want)
+	if view.Rows[0] != want {
+		t.Errorf("row = %+v, want %+v", view.Rows[0], want)
 	}
 }
 
 func TestSaveKeepsAnImportAndClearsItsNote(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
-	savedOff(t, m, repo)
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	savedOff(t, machine, repo)
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "on"}}`)
-	s := session(t, m, repo)
+	session := newSession(t, machine, repo)
 
-	save(t, s)
+	save(t, session)
 
 	want := equip.Row{Name: "review", State: equip.On, Override: true, Fallback: equip.On}
-	if v := s.View(); v.Rows[0] != want || v.Unsaved != 0 {
-		t.Errorf("row = %+v, Unsaved = %d, want %+v and 0", v.Rows[0], v.Unsaved, want)
+	if view := session.View(); view.Rows[0] != want || view.Unsaved != 0 {
+		t.Errorf("row = %+v, Unsaved = %d, want %+v and 0", view.Rows[0], view.Unsaved, want)
 	}
 
-	got := readRecord(t, m)["overrides"]
+	got := readRecord(t, machine)["overrides"]
 	if want := map[string]any{"skills": map[string]any{"review": "on"}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("record overrides = %v, want %v", got, want)
 	}
 }
 
 // savedOff opens repo, sets review off and saves.
-func savedOff(t *testing.T, m *equiptest.Machine, repo string) {
+func savedOff(t *testing.T, machine *equiptest.Machine, repo string) {
 	t.Helper()
-	s := session(t, m, repo)
-	s.SetState("review", equip.Off)
-	save(t, s)
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
+	save(t, session)
 }
 
 func TestEntryMissingOnDiskShowsTheRecordStateUnsaved(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
-	savedOff(t, m, repo)
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	savedOff(t, machine, repo)
 	writeFile(t, settingsLocal(repo), `{}`)
 
-	v := session(t, m, repo).View()
+	view := newSession(t, machine, repo).View()
 
 	want := equip.Row{Name: "review", State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true}
-	if v.Rows[0] != want || v.Unsaved != 1 {
-		t.Errorf("row = %+v, Unsaved = %d, want %+v and 1", v.Rows[0], v.Unsaved, want)
+	if view.Rows[0] != want || view.Unsaved != 1 {
+		t.Errorf("row = %+v, Unsaved = %d, want %+v and 1", view.Rows[0], view.Unsaved, want)
 	}
 }
 
 func TestEntryChangedOnDiskIsImportedAsAnUnsavedOverride(t *testing.T) {
 	t.Parallel()
 
-	for name, tc := range map[string]struct {
+	for name, testCase := range map[string]struct {
 		saved    bool // whether the record has an Override for review
 		settings string
 		want     equip.State
@@ -131,29 +131,29 @@ func TestEntryChangedOnDiskIsImportedAsAnUnsavedOverride(t *testing.T) {
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			m := equiptest.New(t)
-			repo := m.Repo("app")
-			m.Skill(m.ClaudeSkills(), "review")
-			m.Skill(m.ClaudeSkills(), "docs")
+			machine := equiptest.New(t)
+			repo := machine.Repo("app")
+			machine.Skill(machine.ClaudeSkills(), "review")
+			machine.Skill(machine.ClaudeSkills(), "docs")
 
-			if tc.saved {
-				savedOff(t, m, repo)
+			if testCase.saved {
+				savedOff(t, machine, repo)
 			} else {
-				s := session(t, m, repo)
-				s.SetState("docs", equip.Off)
-				save(t, s)
+				session := newSession(t, machine, repo)
+				session.SetState("docs", equip.Off)
+				save(t, session)
 			}
 
-			writeFile(t, settingsLocal(repo), tc.settings)
+			writeFile(t, settingsLocal(repo), testCase.settings)
 
-			v := session(t, m, repo).View()
+			view := newSession(t, machine, repo).View()
 
 			want := equip.Row{
-				Name: "review", State: tc.want, Override: true, Fallback: equip.On, Unsaved: true,
+				Name: "review", State: testCase.want, Override: true, Fallback: equip.On, Unsaved: true,
 				ChangedOutside: true,
 			}
-			if v.Rows[1] != want {
-				t.Errorf("row = %+v, want %+v", v.Rows[1], want)
+			if view.Rows[1] != want {
+				t.Errorf("row = %+v, want %+v", view.Rows[1], want)
 			}
 		})
 	}
@@ -161,18 +161,18 @@ func TestEntryChangedOnDiskIsImportedAsAnUnsavedOverride(t *testing.T) {
 
 func TestSaveAfterAnOutsideChangeWritesNothingAndImportsIt(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "docs")
-	m.Skill(m.ClaudeSkills(), "review")
-	savedOff(t, m, repo)
-	s := session(t, m, repo)
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "docs")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	savedOff(t, machine, repo)
+	session := newSession(t, machine, repo)
 
 	const outside = `{"skillOverrides": {"review": "on"}}`
 	writeFile(t, settingsLocal(repo), outside)
-	s.SetState("docs", equip.ManualOnly)
+	session.SetState("docs", equip.ManualOnly)
 
-	err := s.Save()
+	err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
@@ -181,7 +181,7 @@ func TestSaveAfterAnOutsideChangeWritesNothingAndImportsIt(t *testing.T) {
 		t.Errorf("settings = %s, want them untouched", data)
 	}
 
-	got := readRecord(t, m)["overrides"]
+	got := readRecord(t, machine)["overrides"]
 	if want := map[string]any{"skills": map[string]any{"review": "off"}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("record overrides = %v, want %v", got, want)
 	}
@@ -193,80 +193,80 @@ func TestSaveAfterAnOutsideChangeWritesNothingAndImportsIt(t *testing.T) {
 			ChangedOutside: true,
 		},
 	}
-	if v := s.View(); !slices.Equal(v.Rows, want) {
-		t.Errorf("rows = %+v, want %+v", v.Rows, want)
+	if view := session.View(); !slices.Equal(view.Rows, want) {
+		t.Errorf("rows = %+v, want %+v", view.Rows, want)
 	}
 }
 
 func TestSaveReportsSettingsBrokenSinceOpen(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
-	savedOff(t, m, repo)
-	s := session(t, m, repo)
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	savedOff(t, machine, repo)
+	session := newSession(t, machine, repo)
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": `)
 
-	err := s.Save()
+	err := session.Save()
 	if err == nil || errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Errorf("Save = %v, want the read error", err)
 	}
 
-	if v := s.View(); v.Unsaved != 0 {
-		t.Errorf("Unsaved = %d, want 0", v.Unsaved)
+	if view := session.View(); view.Unsaved != 0 {
+		t.Errorf("Unsaved = %d, want 0", view.Unsaved)
 	}
 }
 
 func TestNameOnlyOnDiskMatchesARecordedOn(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
-	s := session(t, m, repo)
-	s.SetState("review", equip.On)
-	save(t, s)
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.On)
+	save(t, session)
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "name-only"}}`)
 
 	want := equip.Row{Name: "review", State: equip.On, Override: true, Fallback: equip.On}
-	if v := session(t, m, repo).View(); v.Rows[0] != want {
-		t.Errorf("row = %+v, want %+v", v.Rows[0], want)
+	if view := newSession(t, machine, repo).View(); view.Rows[0] != want {
+		t.Errorf("row = %+v, want %+v", view.Rows[0], want)
 	}
 }
 
 func TestSaveAfterAnImportIsRemovedOutsideDropsIt(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
-	m.Skill(m.ClaudeSkills(), "docs")
-	s := session(t, m, repo)
-	s.SetState("docs", equip.Off)
-	save(t, s)
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	machine.Skill(machine.ClaudeSkills(), "docs")
+	session := newSession(t, machine, repo)
+	session.SetState("docs", equip.Off)
+	save(t, session)
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"docs": "off", "review": "on"}}`)
-	s = session(t, m, repo)
+	session = newSession(t, machine, repo)
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"docs": "off"}}`)
 
-	err := s.Save()
+	err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
 
 	want := equip.Row{Name: "review", State: equip.On, Fallback: equip.On}
-	if v := s.View(); v.Rows[1] != want || v.Unsaved != 0 {
-		t.Errorf("row = %+v, Unsaved = %d, want %+v and 0", v.Rows[1], v.Unsaved, want)
+	if view := session.View(); view.Rows[1] != want || view.Unsaved != 0 {
+		t.Errorf("row = %+v, Unsaved = %d, want %+v and 0", view.Rows[1], view.Unsaved, want)
 	}
 }
 
 func TestSaveAfterAnOutsideRemovalWritesNothing(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
-	savedOff(t, m, repo)
-	s := session(t, m, repo)
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	savedOff(t, machine, repo)
+	session := newSession(t, machine, repo)
 	writeFile(t, settingsLocal(repo), `{}`)
 
-	err := s.Save()
+	err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
@@ -276,25 +276,25 @@ func TestSaveAfterAnOutsideRemovalWritesNothing(t *testing.T) {
 	}
 
 	want := equip.Row{Name: "review", State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true}
-	if v := s.View(); v.Rows[0] != want {
-		t.Errorf("row = %+v, want %+v", v.Rows[0], want)
+	if view := session.View(); view.Rows[0] != want {
+		t.Errorf("row = %+v, want %+v", view.Rows[0], want)
 	}
 }
 
 func TestSavingADroppedImportRemovesItsEntry(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
-	savedOff(t, m, repo)
-	s := session(t, m, repo)
-	s.DropOverride("review")
-	save(t, s)
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	savedOff(t, machine, repo)
+	session := newSession(t, machine, repo)
+	session.DropOverride("review")
+	save(t, session)
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "on"}}`)
-	s = session(t, m, repo)
+	session = newSession(t, machine, repo)
 
-	s.DropOverride("review")
-	save(t, s)
+	session.DropOverride("review")
+	save(t, session)
 
 	got := readJSON(t, settingsLocal(repo))["skillOverrides"]
 	if want := map[string]any{}; !reflect.DeepEqual(got, want) {
@@ -304,36 +304,36 @@ func TestSavingADroppedImportRemovesItsEntry(t *testing.T) {
 
 func TestSaveAfterAnOutsideChangeBackShowsTheRecordState(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
-	savedOff(t, m, repo)
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	savedOff(t, machine, repo)
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "on"}}`)
-	s := session(t, m, repo)
+	session := newSession(t, machine, repo)
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "off"}}`)
 
-	err := s.Save()
+	err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
 
 	want := equip.Row{Name: "review", State: equip.Off, Override: true, Fallback: equip.On}
-	if v := s.View(); v.Rows[0] != want || v.Unsaved != 0 {
-		t.Errorf("row = %+v, Unsaved = %d, want %+v and 0", v.Rows[0], v.Unsaved, want)
+	if view := session.View(); view.Rows[0] != want || view.Unsaved != 0 {
+		t.Errorf("row = %+v, Unsaved = %d, want %+v and 0", view.Rows[0], view.Unsaved, want)
 	}
 }
 
 func TestSaveMarksAPendingToggleReplacedByAnOutsideChange(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
-	savedOff(t, m, repo)
-	s := session(t, m, repo)
-	s.SetState("review", equip.ManualOnly)
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	savedOff(t, machine, repo)
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.ManualOnly)
 	writeFile(t, settingsLocal(repo), `{}`)
 
-	err := s.Save()
+	err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
@@ -341,31 +341,31 @@ func TestSaveMarksAPendingToggleReplacedByAnOutsideChange(t *testing.T) {
 	want := equip.Row{
 		Name: "review", State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true, ChangedOutside: true,
 	}
-	if v := s.View(); v.Rows[0] != want {
-		t.Errorf("row = %+v, want %+v", v.Rows[0], want)
+	if view := session.View(); view.Rows[0] != want {
+		t.Errorf("row = %+v, want %+v", view.Rows[0], want)
 	}
 }
 
 func TestUnknownValuesOnDiskAreNotImportedAndSaveKeepsThem(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
+	machine := equiptest.New(t)
 
-	repo := m.Repo("app")
+	repo := machine.Repo("app")
 	for _, name := range []string{"docs", "lint", "review"} {
-		m.Skill(m.ClaudeSkills(), name)
+		machine.Skill(machine.ClaudeSkills(), name)
 	}
 
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"lint": 1, "review": "sometimes"}}`)
 
-	s := session(t, m, repo)
-	for _, r := range s.View().Rows {
+	session := newSession(t, machine, repo)
+	for _, r := range session.View().Rows {
 		if r.Override {
 			t.Errorf("row %+v imported an unknown value", r)
 		}
 	}
 
-	s.SetState("docs", equip.Off)
-	save(t, s)
+	session.SetState("docs", equip.Off)
+	save(t, session)
 
 	got := readJSON(t, settingsLocal(repo))["skillOverrides"]
 	if want := map[string]any{"docs": "off", "lint": 1.0, "review": "sometimes"}; !reflect.DeepEqual(got, want) {
@@ -375,16 +375,16 @@ func TestUnknownValuesOnDiskAreNotImportedAndSaveKeepsThem(t *testing.T) {
 
 func TestSaveAfterAFailedRecordWriteSucceeds(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
-	s := session(t, m, repo)
-	s.SetState("review", equip.Off)
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
 
-	records := filepath.Join(m.StateHome, "equip")
+	records := filepath.Join(machine.StateHome, "equip")
 	writeFile(t, records, "") // a file where the records dir belongs
 
-	err := s.Save()
+	err := session.Save()
 	if err == nil {
 		t.Fatal("Save wrote a record into a file")
 	}
@@ -394,7 +394,7 @@ func TestSaveAfterAFailedRecordWriteSucceeds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = s.Save()
+	err = session.Save()
 	if err != nil {
 		t.Errorf("Save = %v, want it to write", err)
 	}

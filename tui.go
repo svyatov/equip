@@ -49,58 +49,60 @@ func newTUI(s *equip.Session) *model {
 func (m *model) Init() tea.Cmd { return nil }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	k, ok := msg.(tea.KeyPressMsg)
+	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return m, nil
 	}
 
+	key := keyMsg.String()
+
 	m.flash = ""
 	if m.quitting {
 		m.quitting = false
-		if k.String() == "y" {
+		if key == "y" {
 			return m, tea.Quit
 		}
 
 		return m, nil
 	}
 
-	cmd := m.press(k.String())
+	cmd := m.press(key)
 
 	return m, cmd
 }
 
 func (m *model) View() tea.View {
-	v := m.s.View()
+	session := m.s.View()
 
-	top := m.style.top.Render("equip  " + v.Project.Path)
-	if v.Unsaved > 0 {
-		top += "  " + m.style.warn.Render(fmt.Sprintf("%d unsaved", v.Unsaved))
+	top := m.style.top.Render("equip  " + session.Project.Path)
+	if session.Unsaved > 0 {
+		top += "  " + m.style.warn.Render(fmt.Sprintf("%d unsaved", session.Unsaved))
 	}
 
-	list := make([]string, 0, len(v.Rows))
-	for i, r := range v.Rows {
-		mark, name := "  ", r.Name
+	list := make([]string, 0, len(session.Rows))
+	for i, row := range session.Rows {
+		mark, name := "  ", row.Name
 		if i == m.cur {
 			mark, name = m.style.cur.Render("▸ "), m.style.cur.Render(name)
 		}
 
-		if r.Unsaved {
+		if row.Unsaved {
 			name += m.style.warn.Render("*")
 		}
 
-		list = append(list, mark+glyph(r.State)+" "+name)
+		list = append(list, mark+glyph(row.State)+" "+name)
 	}
 
 	panes := []string{m.style.pane.Render(strings.Join(list, "\n"))}
-	if m.cur < len(v.Rows) {
-		panes = append(panes, m.style.pane.Render(m.detail(v.Rows[m.cur])))
+	if m.cur < len(session.Rows) {
+		panes = append(panes, m.style.pane.Render(m.detail(session.Rows[m.cur])))
 	}
 
 	footer := m.style.dim.Render("↑↓ move  1-3 set state  x drop override  s save  q quit")
 
 	switch {
 	case m.quitting:
-		footer = m.style.warn.Render(fmt.Sprintf("%d unsaved changes. Quit without saving? y/n", v.Unsaved))
+		footer = m.style.warn.Render(fmt.Sprintf("%d unsaved changes. Quit without saving? y/n", session.Unsaved))
 	case m.flash != "":
 		footer = m.flash
 	}
@@ -151,30 +153,30 @@ func (m *model) quit() tea.Cmd {
 	return tea.Quit
 }
 
-// detail is the detail pane of r: its origin and the states to pick from.
-func (m *model) detail(r equip.Row) string {
-	lines := []string{m.style.cur.Render(r.Name), ""}
-	if r.Override {
+// detail is the detail pane of row: its origin and the states to pick from.
+func (m *model) detail(row equip.Row) string {
+	lines := []string{m.style.cur.Render(row.Name), ""}
+	if row.Override {
 		lines = append(lines,
 			"Origin  "+m.style.warn.Render("override")+", set by hand here",
-			m.style.dim.Render("        without it: "+r.Fallback.String()+" (default)"))
+			m.style.dim.Render("        without it: "+row.Fallback.String()+" (default)"))
 	} else {
 		lines = append(lines, "Origin  default")
 	}
 
-	if r.ChangedOutside {
+	if row.ChangedOutside {
 		lines = append(lines, "        "+m.style.warn.Render("changed outside equip in Claude Code"))
 	}
 
 	lines = append(lines, "", "State")
 
-	for i, st := range equip.States() {
+	for index, state := range equip.States() {
 		radio := " "
-		if st == r.State {
-			radio = glyph(st)
+		if state == row.State {
+			radio = glyph(state)
 		}
 
-		lines = append(lines, fmt.Sprintf("  (%s) %d %s", radio, i+1, st))
+		lines = append(lines, fmt.Sprintf("  (%s) %d %s", radio, index+1, state))
 	}
 
 	return strings.Join(lines, "\n")

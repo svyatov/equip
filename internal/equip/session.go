@@ -37,7 +37,7 @@ func (s State) String() string {
 
 // Session is one open Project.
 type Session struct {
-	m         Machine
+	machine   Machine
 	project   Project
 	exts      []Extension
 	overrides map[string]State // pending, by extension key
@@ -66,40 +66,40 @@ type Row struct {
 }
 
 // Open finds the Project of dir and discovers its extensions.
-func Open(m Machine, dir string) (*Session, error) {
-	p, err := locate(m, dir)
+func Open(machine Machine, dir string) (*Session, error) {
+	project, err := locate(machine, dir)
 	if err != nil {
 		return nil, err
 	}
 
-	exts, err := discover(m)
+	exts, err := discover(machine)
 	if err != nil {
 		return nil, err
 	}
 
-	saved, err := readRecord(m, p)
+	saved, err := readRecord(machine, project)
 	if err != nil {
 		return nil, err
 	}
 	// ponytail: broken settings read as no entries here; Save reports them.
-	disk, _ := readClaude(p, exts)
+	disk, _ := readClaude(project, exts)
 	if saved == nil {
 		// A first open imports the states set by hand, so a save keeps them.
 		saved = disk
 	}
 
-	s := &Session{
-		m:         m,
-		project:   p,
+	session := &Session{
+		machine:   machine,
+		project:   project,
 		exts:      exts,
 		overrides: maps.Clone(saved),
 		saved:     saved,
 		disk:      map[string]State{},
 		outside:   map[string]bool{},
 	}
-	s.take(disk)
+	session.take(disk)
 
-	return s, nil
+	return session, nil
 }
 
 // SetState makes st an Override for the extension with key.
@@ -107,7 +107,7 @@ func (s *Session) SetState(key string, st State) { s.overrides[key] = st }
 
 // View returns the current view.
 func (s *Session) View() View {
-	v := View{Project: s.project}
+	view := View{Project: s.project}
 	for _, e := range s.exts {
 		// With no presets, a skill falls back to Claude Code's default: on.
 		r := Row{Name: e.Key, State: On, Fallback: On, Unsaved: s.unsaved(e.Key), ChangedOutside: s.outside[e.Key]}
@@ -115,12 +115,12 @@ func (s *Session) View() View {
 			r.State, r.Override = st, true
 		}
 
-		v.Rows = append(v.Rows, r)
+		view.Rows = append(view.Rows, r)
 	}
 
-	v.Unsaved = s.unsavedCount()
+	view.Unsaved = s.unsavedCount()
 
-	return v
+	return view
 }
 
 // DropOverride removes the Override for key, so the extension falls back.
@@ -144,7 +144,7 @@ func (s *Session) Save() error {
 		return nil
 	}
 
-	err = writeClaude(s.m, s.project, s.exts, s.overrides)
+	err = writeClaude(s.machine, s.project, s.exts, s.overrides)
 	if err != nil {
 		return err
 	}
@@ -157,7 +157,7 @@ func (s *Session) Save() error {
 		}
 	}
 
-	err = writeRecord(s.m, s.project, s.overrides)
+	err = writeRecord(s.machine, s.project, s.overrides)
 	if err != nil {
 		return err
 	}
@@ -181,17 +181,17 @@ func (s *Session) take(now map[string]State) bool {
 		}
 
 		changed = true
-		st, ok := now[key]
-		imported := ok && differ(now, s.saved, key)
+		state, set := now[key]
+		imported := set && differ(now, s.saved, key)
 		// A pending toggle the change replaces was changed outside too.
 		s.outside[key] = imported || differ(s.overrides, s.saved, key) && !s.outside[key]
 		if !imported {
 			// Missing or as recorded: the row shows the record's state.
-			st, ok = s.saved[key]
+			state, set = s.saved[key]
 		}
 
-		if ok {
-			s.overrides[key] = st
+		if set {
+			s.overrides[key] = state
 		} else {
 			delete(s.overrides, key)
 		}
@@ -208,15 +208,15 @@ func (s *Session) unsavedCount() int {
 	maps.Copy(keys, s.overrides)
 	maps.Copy(keys, s.disk)
 
-	n := 0
+	count := 0
 
 	for key := range keys {
 		if s.unsaved(key) {
-			n++
+			count++
 		}
 	}
 
-	return n
+	return count
 }
 
 // unsaved reports whether a save would change the Override for key or, for

@@ -25,23 +25,23 @@ func writeFile(path string, data []byte) error {
 		return fmt.Errorf("create dir: %w", err)
 	}
 
-	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*")
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*")
 	if err != nil {
 		return fmt.Errorf("create temp file: %w", err)
 	}
 
-	defer func() { _ = os.Remove(f.Name()) }() // fails once renamed
+	defer func() { _ = os.Remove(tmp.Name()) }() // fails once renamed
 	// The temp file starts at 0600; an existing file keeps its own mode.
 	fi, statErr := os.Stat(path)
 	if statErr == nil {
-		err = f.Chmod(fi.Mode().Perm())
+		err = tmp.Chmod(fi.Mode().Perm())
 	}
 
 	if err == nil {
-		_, err = f.Write(data)
+		_, err = tmp.Write(data)
 	}
 
-	if cerr := f.Close(); err == nil {
+	if cerr := tmp.Close(); err == nil {
 		err = cerr
 	}
 
@@ -49,7 +49,7 @@ func writeFile(path string, data []byte) error {
 		return fmt.Errorf("write temp file: %w", err)
 	}
 
-	err = os.Rename(f.Name(), path)
+	err = os.Rename(tmp.Name(), path)
 	if err != nil {
 		return fmt.Errorf("replace file: %w", err)
 	}
