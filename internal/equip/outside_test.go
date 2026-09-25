@@ -126,12 +126,12 @@ func TestEntryChangedOnDiskIsImportedAsAnUnsavedOverride(t *testing.T) {
 	t.Parallel()
 
 	for name, testCase := range map[string]struct {
-		saved    bool // whether the record has an Override for review
 		settings string
 		want     equip.State
+		saved    bool // whether the record has an Override for review
 	}{
-		"another value": {true, `{"skillOverrides": {"review": "on"}}`, equip.On},
-		"none wanted":   {false, `{"skillOverrides": {"docs": "off", "review": "user-invocable-only"}}`, equip.ManualOnly},
+		"another value": {`{"skillOverrides": {"review": "on"}}`, equip.On, true},
+		"none wanted":   {`{"skillOverrides": {"docs": "off", "review": "user-invocable-only"}}`, equip.ManualOnly, false},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

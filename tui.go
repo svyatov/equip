@@ -34,11 +34,11 @@ func glyph(st equip.State) string {
 
 // model is the Bubble Tea root model over a Session.
 type model struct {
-	s        *equip.Session
 	style    styles
+	s        *equip.Session
+	flash    string
 	cur      int  // the highlighted row
 	quitting bool // asking to quit with unsaved changes
-	flash    string
 }
 
 // newTUI is the model of a fresh TUI over s.

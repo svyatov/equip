@@ -37,13 +37,13 @@ func (s State) String() string {
 
 // Session is one open Project.
 type Session struct {
-	machine   Machine
-	project   Project
-	exts      []Extension
 	overrides map[string]State // pending, by extension key
 	saved     map[string]State // the overrides at the last save
 	disk      map[string]State // Claude Code's entries for exts, as last read or written
 	outside   map[string]bool  // changed outside equip since the last save
+	machine   Machine
+	project   Project
+	exts      []Extension
 }
 
 // View is what the user sees of a Session.
@@ -57,8 +57,8 @@ type View struct {
 type Row struct {
 	Name     string
 	State    State
-	Override bool  // State was set by hand in this Project
 	Fallback State // the state without the Override
+	Override bool  // State was set by hand in this Project
 	Unsaved  bool
 	// ChangedOutside reports that the row changed through an edit outside
 	// equip in Claude Code.

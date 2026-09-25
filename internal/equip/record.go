@@ -14,9 +14,9 @@ import (
 
 // record is what equip keeps of a Project on this machine.
 type record struct {
+	Overrides  recordOverrides `toml:"overrides"`
 	Path       string          `toml:"path"`
 	RootCommit string          `toml:"root_commit"`
-	Overrides  recordOverrides `toml:"overrides"`
 }
 
 // recordOverrides are the Overrides in a record, by extension kind.

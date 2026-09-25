@@ -21,8 +21,8 @@ const (
 type Machine struct {
 	equip.Machine
 
-	Root string // the temp dir, symlinks resolved
 	t    testing.TB
+	Root string // the temp dir, symlinks resolved
 }
 
 // New builds a machine whose home, XDG dirs and git config all live in a

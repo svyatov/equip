@@ -15,14 +15,14 @@ import (
 // Machine is everything equip reads from the environment. No other part of
 // equip reads the environment.
 type Machine struct {
+	Git GitFunc
+
 	Home       string
 	ConfigHome string // $XDG_CONFIG_HOME
 	StateHome  string // $XDG_STATE_HOME
 	CacheHome  string // $XDG_CACHE_HOME
 	CodexHome  string // $CODEX_HOME
 	WorkDir    string
-
-	Git GitFunc
 }
 
 // GitFunc runs git with args in dir and returns its standard output.

@@ -57,8 +57,6 @@ linters:
 
     govet:
       enable-all: true
-      disable:
-        - fieldalignment # field order follows meaning; no struct here is hot
 
     ireturn:
       # The defaults, plus the model interface bubbletea's Update must return.
