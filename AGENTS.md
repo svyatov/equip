@@ -1,6 +1,6 @@
 ## Checks
 
-`task lint` and `task cover` run what CI runs; both pass before a commit. `task` alone lists the rest. Install the pre-commit hook once with `go tool lefthook install`.
+`mise run lint` and `mise run cover` run what CI runs; both pass before a commit. `mise tasks` lists the rest. Install the tools and the pre-commit hook once with `mise install && mise x -- lefthook install`.
 
 ## Agent skills
 

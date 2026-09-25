@@ -1,14 +1,14 @@
-# Install once: go tool lefthook install
+# Install once: mise install && mise x -- lefthook install
 
 pre-commit:
   jobs:
     - name: fmt
       glob: "*.go"
-      run: golangci-lint fmt {staged_files}
+      run: mise x -- golangci-lint fmt {staged_files}
       stage_fixed: true
     - name: lint
-      glob: &go ["*.go", "go.mod", "go.sum", ".golangci.yml"]
-      run: task lint
+      glob: &go ["*.go", "go.mod", "go.sum", ".golangci.yml", "mise.toml"]
+      run: mise run lint
     - name: test
       glob: *go
-      run: task test
+      run: mise run test

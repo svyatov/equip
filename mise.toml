@@ -1,0 +1,43 @@
+# https://mise.jdx.dev
+#
+# The same commands CI and lefthook run, so a local pass means what a green
+# check means. Go itself comes from go.mod. Dependabot does not read this file,
+# so bump the pins by hand with `mise up --bump`.
+
+[tools]
+golangci-lint = "2.13.2"
+lefthook = "2.1.14"
+"go:golang.org/x/vuln/cmd/govulncheck" = "1.8.0"
+
+[tasks.build]
+description = "Compile every package, discarding the output"
+run = "go build ./..."
+
+[tasks.test]
+description = "Race and shuffle, without the coverage instrumentation"
+run = "go test -race -shuffle=on ./..."
+
+[tasks.cover]
+description = "The full test run, failing under the coverage gate"
+# Below the measured number on purpose, so a small refactor does not fail it.
+env = { GATE = "88" }
+run = [
+  "go test -race -shuffle=on -coverpkg=./... -coverprofile=cover.out ./...",
+  "go tool cover -func=cover.out | tail -1",
+  """go tool cover -func=cover.out | awk -v gate="$GATE" '/^total:/ { gsub(/%/, "", $3); if ($3 + 0 < gate) { print "coverage " $3 "% is under the " gate "% gate"; exit 1 } }'""",
+]
+
+[tasks.lint]
+description = "A tidy and verified go.mod, no pending go fix modernization, golangci-lint, the formatter check, and no em or en dash"
+run = [
+  "go mod tidy -diff",
+  "go mod verify",
+  "go fix -diff ./...",
+  "golangci-lint run",
+  "golangci-lint fmt --diff",
+  "scripts/check-dashes.sh",
+]
+
+[tasks.vuln]
+description = "Known vulnerabilities in the code paths equip actually calls"
+run = "govulncheck ./..."
