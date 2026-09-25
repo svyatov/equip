@@ -83,7 +83,7 @@ func TestViewListsCodexUserAndSystemSkills(t *testing.T) {
 	}
 }
 
-func TestSkillInSeveralDirsOfBothAgentsIsOneRowWithEverySource(t *testing.T) {
+func TestSkillInSeveralDirsOfBothAgentsIsOneRowWithEveryLocation(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	repo := machine.Repo("app")
@@ -99,13 +99,13 @@ func TestSkillInSeveralDirsOfBothAgentsIsOneRowWithEverySource(t *testing.T) {
 
 	detail := session.Detail("review")
 
-	wantSources := []equip.Source{
+	wantLocations := []equip.Location{
 		{Path: claude, Agent: equip.ClaudeCode},
 		{Path: project, Agent: equip.ClaudeCode},
 		{Path: codex, Agent: equip.Codex},
 	}
-	if !slices.Equal(detail.Sources, wantSources) {
-		t.Errorf("Sources = %+v, want %+v", detail.Sources, wantSources)
+	if !slices.Equal(detail.Locations, wantLocations) {
+		t.Errorf("Locations = %+v, want %+v", detail.Locations, wantLocations)
 	}
 
 	if want := []equip.Agent{equip.ClaudeCode, equip.Codex}; !slices.Equal(detail.Agents, want) {
@@ -156,22 +156,22 @@ func TestSaveWritesNoClaudeCodeEntryForACodexOnlySkill(t *testing.T) {
 	}
 }
 
-func TestSkillDirReachedTwiceIsOneSource(t *testing.T) {
+func TestSkillDirReachedTwiceIsOneLocation(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	claude := machine.Skill(machine.ClaudeSkills(), "review")
 	agents := machine.Skill(filepath.Join(machine.Home, ".agents", "skills"), "review")
 	codex := machine.Skill(filepath.Join(machine.CodexHome, "skills"), "review")
 
-	got := newSession(t, machine, machine.Home).Detail("review").Sources
+	got := newSession(t, machine, machine.Home).Detail("review").Locations
 
-	want := []equip.Source{
+	want := []equip.Location{
 		{Path: claude, Agent: equip.ClaudeCode},
 		{Path: agents, Agent: equip.Codex},
 		{Path: codex, Agent: equip.Codex},
 	}
 	if !slices.Equal(got, want) {
-		t.Errorf("Sources = %+v, want %+v", got, want)
+		t.Errorf("Locations = %+v, want %+v", got, want)
 	}
 }
 

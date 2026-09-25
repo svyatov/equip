@@ -144,22 +144,22 @@ type Detail struct {
 	NotApplied  map[Agent]string // why an agent that has it does not get its state
 	Description string
 	Agents      []Agent // the agents that have it
-	Sources     []Source
+	Locations   []Location
 }
 
 // Detail returns the detail of the extension with key.
 func (s *Session) Detail(key string) Detail {
 	i := slices.IndexFunc(s.exts, func(e Extension) bool { return e.Key == key })
 	if i < 0 {
-		return Detail{Description: "", Agents: nil, Sources: nil, NotApplied: nil}
+		return Detail{Description: "", Agents: nil, Locations: nil, NotApplied: nil}
 	}
 
 	ext := s.exts[i]
-	detail := Detail{Description: ext.Description, Agents: nil, Sources: ext.Sources, NotApplied: map[Agent]string{}}
+	detail := Detail{Description: ext.Description, Agents: nil, Locations: ext.Locations, NotApplied: map[Agent]string{}}
 
-	for _, src := range ext.Sources {
-		if !slices.Contains(detail.Agents, src.Agent) {
-			detail.Agents = append(detail.Agents, src.Agent)
+	for _, loc := range ext.Locations {
+		if !slices.Contains(detail.Agents, loc.Agent) {
+			detail.Agents = append(detail.Agents, loc.Agent)
 		}
 	}
 
