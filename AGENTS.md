@@ -1,3 +1,7 @@
+## Checks
+
+`task lint` and `task cover` run what CI runs; both pass before a commit. `task` alone lists the rest. Install the pre-commit hook once with `go tool lefthook install`.
+
 ## Agent skills
 
 ### Issue tracker
