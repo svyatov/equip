@@ -52,3 +52,7 @@ _Avoid_: Exception, pin
 - An **Extension** is identified by its kind and its name (for a **Plugin**, its name and **Marketplace**). Two **Agents** have the same extension when both match; skills that share a name are one extension, wherever they live
 - A **Preset** or **Override** may name an **Extension** that is not installed on this machine; it takes effect once the extension is installed
 - A **State** changed outside equip becomes an **Override** once the user saves
+- A **Preset** can be shared across machines; a **Project**'s choice of **Presets** and its **Overrides** belong to one machine
+- A **Preset** keeps its identity when renamed, so every **Project** that uses it still does
+- A **Preset** changed or deleted outside equip applies to a **Project** once the user saves there; it never becomes an **Override**
+- A **Project** keeps its **Presets** and **Overrides** when its repository moves
