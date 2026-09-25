@@ -24,8 +24,8 @@ const (
 
 func (a Agent) String() string { return [...]string{ClaudeCode: "Claude Code", Codex: "Codex"}[a] }
 
-// Source is a directory an agent loads an extension from.
-type Source struct {
+// Location is a file or directory an agent reads an extension from.
+type Location struct {
 	Path  string
 	Agent Agent
 }
@@ -35,19 +35,19 @@ type Source struct {
 type Extension struct {
 	Key         string // a skill's key is its directory name
 	Description string
-	Sources     []Source // in discovery order
+	Locations   []Location // in discovery order
 }
 
 // has reports whether agent loads the extension.
 func (e Extension) has(agent Agent) bool {
-	return slices.ContainsFunc(e.Sources, func(s Source) bool { return s.Agent == agent })
+	return slices.ContainsFunc(e.Locations, func(s Location) bool { return s.Agent == agent })
 }
 
 // discover finds the extensions installed for a session started in dir,
 // sorted by key, without running anything.
 func discover(machine Machine, project Project, dir string) ([]Extension, error) {
 	personal := filepath.Join(machine.Home, ".claude", "skills")
-	inv := inventory{byKey: map[string]*Extension{}, seen: map[Source]bool{}, err: nil, required: personal}
+	inv := inventory{byKey: map[string]*Extension{}, seen: map[Location]bool{}, err: nil, required: personal}
 	inv.add(ClaudeCode, personal)
 
 	parents := upTo(dir, project.checkout)
@@ -89,9 +89,9 @@ func discover(machine Machine, project Project, dir string) ([]Extension, error)
 // inventory collects the skills of the dirs discover reads.
 type inventory struct {
 	byKey    map[string]*Extension
-	seen     map[Source]bool // the dirs read, by the agent that reads them
-	err      error           // the first dir that failed to list
-	required string          // the one dir that fails when it cannot be listed
+	seen     map[Location]bool // the dirs read, by the agent that reads them
+	err      error             // the first dir that failed to list
+	required string            // the one dir that fails when it cannot be listed
 }
 
 // add adds the skills agent loads from root and returns how many it found.
@@ -99,11 +99,11 @@ type inventory struct {
 func (inv *inventory) add(agent Agent, root string) int {
 	// os.ReadDir sorts by name.
 	entries, err := os.ReadDir(root)
-	if inv.err != nil || inv.missing(root, err) || inv.seen[Source{Path: root, Agent: agent}] {
+	if inv.err != nil || inv.missing(root, err) || inv.seen[Location{Path: root, Agent: agent}] {
 		return 0
 	}
 
-	inv.seen[Source{Path: root, Agent: agent}] = true
+	inv.seen[Location{Path: root, Agent: agent}] = true
 
 	if err != nil {
 		inv.err = fmt.Errorf("list skills: %w", err)
@@ -125,12 +125,12 @@ func (inv *inventory) add(agent Agent, root string) int {
 
 		ext := inv.byKey[entry.Name()]
 		if ext == nil {
-			ext = &Extension{Key: entry.Name(), Description: "", Sources: nil}
+			ext = &Extension{Key: entry.Name(), Description: "", Locations: nil}
 			inv.byKey[entry.Name()] = ext
 		}
 
 		ext.Description = cmp.Or(ext.Description, description(data))
-		ext.Sources = append(ext.Sources, Source{Path: path, Agent: agent})
+		ext.Locations = append(ext.Locations, Location{Path: path, Agent: agent})
 	}
 
 	return found

@@ -250,7 +250,7 @@ func TestQuitWithUnsavedChangesAsksFirst(t *testing.T) {
 	}
 }
 
-func TestDetailPaneShowsDescriptionAgentsSourcesAndCodexNote(t *testing.T) {
+func TestDetailPaneShowsDescriptionAgentsLocationsAndCodexNote(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	claude := machine.Skill(machine.ClaudeSkills(), "review")
@@ -264,10 +264,10 @@ func TestDetailPaneShowsDescriptionAgentsSourcesAndCodexNote(t *testing.T) {
 	}
 
 	if got := line(tui, claude); !strings.Contains(got, "Claude Code") {
-		t.Errorf("source line %q does not name Claude Code", got)
+		t.Errorf("location line %q does not name Claude Code", got)
 	}
 
 	if got := line(tui, codex); !strings.Contains(got, "Codex") {
-		t.Errorf("source line %q does not name Codex", got)
+		t.Errorf("location line %q does not name Codex", got)
 	}
 }

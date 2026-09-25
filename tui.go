@@ -201,9 +201,9 @@ func (m *model) detail(row equip.Row, ext equip.Detail) string {
 		lines = append(lines, fmt.Sprintf("  (%s) %d %s", radio, index+1, state))
 	}
 
-	lines = append(lines, "", "Sources")
-	for _, src := range ext.Sources {
-		lines = append(lines, "  "+src.Path+"  "+m.style.dim.Render(src.Agent.String()))
+	lines = append(lines, "", "Locations")
+	for _, loc := range ext.Locations {
+		lines = append(lines, "  "+loc.Path+"  "+m.style.dim.Render(loc.Agent.String()))
 	}
 
 	return strings.Join(lines, "\n")
