@@ -34,13 +34,16 @@ func MachineFromEnv() (Machine, error) {
 	if err != nil {
 		return Machine{}, err
 	}
+
 	wd, err := os.Getwd()
 	if err != nil {
 		return Machine{}, err
 	}
+
 	env := func(key string, def ...string) string {
 		return cmp.Or(os.Getenv(key), filepath.Join(append([]string{home}, def...)...))
 	}
+
 	return Machine{
 		Home:       home,
 		ConfigHome: env("XDG_CONFIG_HOME", ".config"),
@@ -59,10 +62,12 @@ func GitRunner(env []string) GitFunc {
 		cmd := exec.Command("git", args...) //nolint:gosec,noctx // equip builds git's args itself; nothing cancels git yet
 		cmd.Dir = dir
 		cmd.Env = env
+
 		out, err := cmd.Output()
 		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 			err = fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(ee.Stderr)))
 		}
+
 		return string(out), err
 	}
 }

@@ -15,12 +15,14 @@ func locate(m Machine, dir string) (Project, error) {
 	if err != nil {
 		return Project{}, err
 	}
+
 	out, err := m.Git(dir, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel")
 	if err != nil {
 		// ponytail: any git failure (no repo, no git binary) reads as outside
 		// git; match git's exit status if a real repo ever fails here.
 		return Project{Path: dir}, nil //nolint:nilerr // outside git is not an error
 	}
+
 	common, root, _ := strings.Cut(strings.TrimSpace(out), "\n")
 	// A worktree shares the main checkout's .git, whose parent is the main
 	// checkout. A submodule's lives under .git/modules, so it keeps its own
@@ -33,10 +35,12 @@ func locate(m Machine, dir string) (Project, error) {
 	// Newest first, so the last root is the oldest: merging in an unrelated
 	// history keeps the root commit.
 	commits, _ := m.Git(dir, "rev-list", "--max-parents=0", "HEAD")
+
 	commit := strings.TrimSpace(commits)
 	if _, last, ok := strings.CutLast(commit, "\n"); ok {
 		commit = last
 	}
+
 	return Project{Path: root, RootCommit: commit, gitDir: common}, nil
 }
 
@@ -49,16 +53,21 @@ func exclude(m Machine, p Project, rel string) error {
 	}
 	// ponytail: any check-ignore failure reads as not ignored, which at worst
 	// adds a line git did not need.
-	if _, err := m.Git(p.Path, "check-ignore", "-q", rel); err == nil {
+	_, err := m.Git(p.Path, "check-ignore", "-q", rel)
+	if err == nil {
 		return nil
 	}
+
 	path := filepath.Join(p.gitDir, "info", "exclude")
+
 	data, err := os.ReadFile(path) //nolint:gosec // git names the path
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
 		return err
 	}
+
 	if len(data) > 0 && data[len(data)-1] != '\n' {
 		data = append(data, '\n')
 	}
+
 	return writeFile(path, append(data, "/"+rel+"\n"...))
 }

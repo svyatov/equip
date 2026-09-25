@@ -26,6 +26,7 @@ type record struct {
 // keep their own.
 func recordPath(m Machine, p Project) string {
 	sum := sha256.Sum256([]byte(p.Path))
+
 	return filepath.Join(m.StateHome, "equip", filepath.Base(p.Path)+"-"+hex.EncodeToString(sum[:8])+".toml")
 }
 
@@ -33,44 +34,57 @@ func recordPath(m Machine, p Project) string {
 // returns nil.
 func readRecord(m Machine, p Project) (map[string]State, error) {
 	path := recordPath(m, p)
+
 	data, err := os.ReadFile(path) //nolint:gosec // equip builds the path
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil //nolint:nilnil // no record is not an error
 	}
+
 	if err != nil {
 		return nil, err
 	}
+
 	var rec record
-	if err := toml.Unmarshal(data, &rec); err != nil {
+
+	err = toml.Unmarshal(data, &rec)
+	if err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
+
 	overrides := map[string]State{}
+
 	for key, name := range rec.Overrides.Skills {
 		st, ok := parseState(name)
 		if !ok {
 			return nil, fmt.Errorf("read %s: skill %q has unknown state %q", path, key, name)
 		}
+
 		overrides[key] = st
 	}
+
 	return overrides, nil
 }
 
 // parseState reads a state as State.String spells it.
 func parseState(name string) (State, bool) {
 	i := slices.Index(stateNames[:], name)
+
 	return State(i), i >= 0
 }
 
 // writeRecord writes the record of p with overrides.
 func writeRecord(m Machine, p Project, overrides map[string]State) error {
 	rec := record{Path: p.Path, RootCommit: p.RootCommit}
+
 	rec.Overrides.Skills = map[string]string{}
 	for key, st := range overrides {
 		rec.Overrides.Skills[key] = st.String()
 	}
+
 	data, err := toml.Marshal(rec)
 	if err != nil {
 		return err
 	}
+
 	return writeFile(recordPath(m, p), data)
 }

@@ -7,14 +7,18 @@ import (
 
 func TestFlags(t *testing.T) {
 	t.Parallel()
+
 	for _, tc := range []struct{ arg, want string }{
 		{"--help", "Usage: equip [--help] [--version]\n"},
 		{"--version", "equip "},
 	} {
 		var out strings.Builder
-		if err := run([]string{tc.arg}, &out); err != nil {
+
+		err := run([]string{tc.arg}, &out)
+		if err != nil {
 			t.Errorf("%s: %v", tc.arg, err)
 		}
+
 		if !strings.HasPrefix(out.String(), tc.want) {
 			t.Errorf("%s printed %q, want it to start with %q", tc.arg, out.String(), tc.want)
 		}
@@ -23,7 +27,9 @@ func TestFlags(t *testing.T) {
 
 func TestArgumentsAreRejected(t *testing.T) {
 	t.Parallel()
-	if err := run([]string{"--version", "extra"}, &strings.Builder{}); err == nil {
+
+	err := run([]string{"--version", "extra"}, &strings.Builder{})
+	if err == nil {
 		t.Error("run accepted a positional argument")
 	}
 }

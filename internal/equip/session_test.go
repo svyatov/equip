@@ -12,10 +12,12 @@ import (
 
 func open(t *testing.T, m *equiptest.Machine, dir string) equip.View {
 	t.Helper()
+
 	s, err := equip.Open(m.Machine, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	return s.View()
 }
 
@@ -40,7 +42,9 @@ func TestHarnessIgnoresInheritedGitEnvironment(t *testing.T) {
 	if got := open(t, m, repo).Project.Path; got != repo {
 		t.Errorf("Project.Path = %q, want %q", got, repo)
 	}
-	if _, err := os.Stat(victim); err == nil {
+
+	_, err := os.Stat(victim)
+	if err == nil {
 		t.Errorf("git wrote to the inherited GIT_DIR %s", victim)
 	}
 }
@@ -73,8 +77,11 @@ func TestProjectPathHasSymlinksResolved(t *testing.T) {
 	t.Parallel()
 	m := equiptest.New(t)
 	dir := m.Mkdir(filepath.Join(m.Root, "scratch"))
+
 	link := filepath.Join(m.Root, "link")
-	if err := os.Symlink(dir, link); err != nil {
+
+	err := os.Symlink(dir, link)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -138,11 +145,13 @@ func names(v equip.View) []string {
 	for _, r := range v.Rows {
 		out = append(out, r.Name)
 	}
+
 	return out
 }
 
 func TestViewListsClaudeCodeUserSkillsSortedByName(t *testing.T) {
 	t.Parallel()
+
 	m := equiptest.New(t)
 	for _, name := range []string{"zeta", "alpha", "mid"} {
 		m.Skill(m.ClaudeSkills(), name)
@@ -160,7 +169,9 @@ func TestViewSkipsEntriesWithoutSkillFile(t *testing.T) {
 	m.Skill(m.ClaudeSkills(), "real")
 	m.Skill(filepath.Join(m.ClaudeSkills(), "synced"), "from-claude-ai")
 	m.Mkdir(filepath.Join(m.ClaudeSkills(), "empty"))
-	if err := os.WriteFile(filepath.Join(m.ClaudeSkills(), "README.md"), nil, 0o644); err != nil {
+
+	err := os.WriteFile(filepath.Join(m.ClaudeSkills(), "README.md"), nil, 0o644)
+	if err != nil {
 		t.Fatal(err)
 	}
 
@@ -175,7 +186,9 @@ func TestViewFollowsSymlinkedSkillDirectories(t *testing.T) {
 	m := equiptest.New(t)
 	src := m.Skill(filepath.Join(m.Root, "repos", "tools"), "source-name")
 	m.Mkdir(m.ClaudeSkills())
-	if err := os.Symlink(src, filepath.Join(m.ClaudeSkills(), "linked")); err != nil {
+
+	err := os.Symlink(src, filepath.Join(m.ClaudeSkills(), "linked"))
+	if err != nil {
 		t.Fatal(err)
 	}
 

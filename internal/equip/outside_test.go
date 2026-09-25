@@ -52,6 +52,7 @@ func TestQuittingWithoutSavingLeavesHandEditsToImportAgain(t *testing.T) {
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
 	savedOff(t, m, repo)
+
 	const edit = `{"skillOverrides": {"review": "on"}}`
 	writeFile(t, settingsLocal(repo), edit)
 	session(t, m, repo).SetState("review", equip.ManualOnly)
@@ -61,6 +62,7 @@ func TestQuittingWithoutSavingLeavesHandEditsToImportAgain(t *testing.T) {
 	if data, _ := os.ReadFile(settingsLocal(repo)); string(data) != edit {
 		t.Errorf("settings = %s, want the hand edit", data)
 	}
+
 	want := equip.Row{
 		Name: "review", State: equip.On, Override: true, Fallback: equip.On, Unsaved: true,
 		ChangedOutside: true,
@@ -85,6 +87,7 @@ func TestSaveKeepsAnImportAndClearsItsNote(t *testing.T) {
 	if v := s.View(); v.Rows[0] != want || v.Unsaved != 0 {
 		t.Errorf("row = %+v, Unsaved = %d, want %+v and 0", v.Rows[0], v.Unsaved, want)
 	}
+
 	got := readRecord(t, m)["overrides"]
 	if want := map[string]any{"skills": map[string]any{"review": "on"}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("record overrides = %v, want %v", got, want)
@@ -117,6 +120,7 @@ func TestEntryMissingOnDiskShowsTheRecordStateUnsaved(t *testing.T) {
 
 func TestEntryChangedOnDiskIsImportedAsAnUnsavedOverride(t *testing.T) {
 	t.Parallel()
+
 	for name, tc := range map[string]struct {
 		saved    bool // whether the record has an Override for review
 		settings string
@@ -131,6 +135,7 @@ func TestEntryChangedOnDiskIsImportedAsAnUnsavedOverride(t *testing.T) {
 			repo := m.Repo("app")
 			m.Skill(m.ClaudeSkills(), "review")
 			m.Skill(m.ClaudeSkills(), "docs")
+
 			if tc.saved {
 				savedOff(t, m, repo)
 			} else {
@@ -138,6 +143,7 @@ func TestEntryChangedOnDiskIsImportedAsAnUnsavedOverride(t *testing.T) {
 				s.SetState("docs", equip.Off)
 				save(t, s)
 			}
+
 			writeFile(t, settingsLocal(repo), tc.settings)
 
 			v := session(t, m, repo).View()
@@ -161,21 +167,25 @@ func TestSaveAfterAnOutsideChangeWritesNothingAndImportsIt(t *testing.T) {
 	m.Skill(m.ClaudeSkills(), "review")
 	savedOff(t, m, repo)
 	s := session(t, m, repo)
+
 	const outside = `{"skillOverrides": {"review": "on"}}`
 	writeFile(t, settingsLocal(repo), outside)
 	s.SetState("docs", equip.ManualOnly)
 
-	if err := s.Save(); !errors.Is(err, equip.ErrChangedSinceOpen) {
+	err := s.Save()
+	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
 
 	if data, _ := os.ReadFile(settingsLocal(repo)); string(data) != outside {
 		t.Errorf("settings = %s, want them untouched", data)
 	}
+
 	got := readRecord(t, m)["overrides"]
 	if want := map[string]any{"skills": map[string]any{"review": "off"}}; !reflect.DeepEqual(got, want) {
 		t.Errorf("record overrides = %v, want %v", got, want)
 	}
+
 	want := []equip.Row{
 		{Name: "docs", State: equip.ManualOnly, Override: true, Fallback: equip.On, Unsaved: true},
 		{
@@ -197,9 +207,11 @@ func TestSaveReportsSettingsBrokenSinceOpen(t *testing.T) {
 	s := session(t, m, repo)
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": `)
 
-	if err := s.Save(); err == nil || errors.Is(err, equip.ErrChangedSinceOpen) {
+	err := s.Save()
+	if err == nil || errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Errorf("Save = %v, want the read error", err)
 	}
+
 	if v := s.View(); v.Unsaved != 0 {
 		t.Errorf("Unsaved = %d, want 0", v.Unsaved)
 	}
@@ -234,7 +246,8 @@ func TestSaveAfterAnImportIsRemovedOutsideDropsIt(t *testing.T) {
 	s = session(t, m, repo)
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"docs": "off"}}`)
 
-	if err := s.Save(); !errors.Is(err, equip.ErrChangedSinceOpen) {
+	err := s.Save()
+	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
 
@@ -253,13 +266,15 @@ func TestSaveAfterAnOutsideRemovalWritesNothing(t *testing.T) {
 	s := session(t, m, repo)
 	writeFile(t, settingsLocal(repo), `{}`)
 
-	if err := s.Save(); !errors.Is(err, equip.ErrChangedSinceOpen) {
+	err := s.Save()
+	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
 
 	if data, _ := os.ReadFile(settingsLocal(repo)); string(data) != `{}` {
 		t.Errorf("settings = %s, want them untouched", data)
 	}
+
 	want := equip.Row{Name: "review", State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true}
 	if v := s.View(); v.Rows[0] != want {
 		t.Errorf("row = %+v, want %+v", v.Rows[0], want)
@@ -297,7 +312,8 @@ func TestSaveAfterAnOutsideChangeBackShowsTheRecordState(t *testing.T) {
 	s := session(t, m, repo)
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "off"}}`)
 
-	if err := s.Save(); !errors.Is(err, equip.ErrChangedSinceOpen) {
+	err := s.Save()
+	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
 
@@ -317,7 +333,8 @@ func TestSaveMarksAPendingToggleReplacedByAnOutsideChange(t *testing.T) {
 	s.SetState("review", equip.ManualOnly)
 	writeFile(t, settingsLocal(repo), `{}`)
 
-	if err := s.Save(); !errors.Is(err, equip.ErrChangedSinceOpen) {
+	err := s.Save()
+	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
 
@@ -330,11 +347,14 @@ func TestSaveMarksAPendingToggleReplacedByAnOutsideChange(t *testing.T) {
 func TestUnknownValuesOnDiskAreNotImportedAndSaveKeepsThem(t *testing.T) {
 	t.Parallel()
 	m := equiptest.New(t)
+
 	repo := m.Repo("app")
 	for _, name := range []string{"docs", "lint", "review"} {
 		m.Skill(m.ClaudeSkills(), name)
 	}
+
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"lint": 1, "review": "sometimes"}}`)
+
 	s := session(t, m, repo)
 	for _, r := range s.View().Rows {
 		if r.Override {
@@ -358,16 +378,22 @@ func TestSaveAfterAFailedRecordWriteSucceeds(t *testing.T) {
 	m.Skill(m.ClaudeSkills(), "review")
 	s := session(t, m, repo)
 	s.SetState("review", equip.Off)
+
 	records := filepath.Join(m.StateHome, "equip")
 	writeFile(t, records, "") // a file where the records dir belongs
-	if err := s.Save(); err == nil {
+
+	err := s.Save()
+	if err == nil {
 		t.Fatal("Save wrote a record into a file")
 	}
-	if err := os.Remove(records); err != nil {
+
+	err = os.Remove(records)
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	if err := s.Save(); err != nil {
+	err = s.Save()
+	if err != nil {
 		t.Errorf("Save = %v, want it to write", err)
 	}
 }

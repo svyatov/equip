@@ -16,13 +16,10 @@ linters:
     - gomodguard # deprecated; depguard owns the import budget
     - lll # gofumpt owns layout
     - mnd
-    - nlreturn # blank-line style
-    - noinlineerr # `if err := f(); err != nil` is the Go idiom
     - nonamedreturns # named results document two-value returns
     - varnamelen # short names in short scopes are the Go idiom
     - wrapcheck # an os error already names its path
-    - wsl # blank-line style
-    - wsl_v5 # blank-line style
+    - wsl # deprecated; wsl_v5 replaces it
 
   settings:
     depguard:

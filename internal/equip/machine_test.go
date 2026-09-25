@@ -17,7 +17,9 @@ func TestMachineFromEnvUsesXDGVariablesWithHomeDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	got := [...]string{m.Home, m.ConfigHome, m.StateHome, m.CacheHome, m.CodexHome}
+
 	want := [...]string{"/home/u", "/cfg", "/home/u/.local/state", "/home/u/.cache", "/codex"}
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)

@@ -68,10 +68,12 @@ func Open(m Machine, dir string) (*Session, error) {
 	if err != nil {
 		return nil, err
 	}
+
 	exts, err := discover(m)
 	if err != nil {
 		return nil, err
 	}
+
 	saved, err := readRecord(m, p)
 	if err != nil {
 		return nil, err
@@ -82,8 +84,10 @@ func Open(m Machine, dir string) (*Session, error) {
 		// A first open imports the states set by hand, so a save keeps them.
 		saved = disk
 	}
+
 	s := &Session{m: m, project: p, exts: exts, overrides: maps.Clone(saved), saved: saved, disk: map[string]State{}, outside: map[string]bool{}}
 	s.take(disk)
+
 	return s, nil
 }
 
@@ -92,11 +96,13 @@ func Open(m Machine, dir string) (*Session, error) {
 // Override. It reports whether any entry changed.
 func (s *Session) take(now map[string]State) bool {
 	changed := false
+
 	for _, e := range s.exts {
 		key := e.Key
 		if !differ(now, s.disk, key) {
 			continue
 		}
+
 		changed = true
 		st, ok := now[key]
 		imported := ok && differ(now, s.saved, key)
@@ -106,13 +112,16 @@ func (s *Session) take(now map[string]State) bool {
 			// Missing or as recorded: the row shows the record's state.
 			st, ok = s.saved[key]
 		}
+
 		if ok {
 			s.overrides[key] = st
 		} else {
 			delete(s.overrides, key)
 		}
 	}
+
 	s.disk = now
+
 	return changed
 }
 
@@ -128,9 +137,12 @@ func (s *Session) View() View {
 		if st, ok := s.overrides[e.Key]; ok {
 			r.State, r.Override = st, true
 		}
+
 		v.Rows = append(v.Rows, r)
 	}
+
 	v.Unsaved = s.unsavedCount()
+
 	return v
 }
 
@@ -139,12 +151,15 @@ func (s *Session) unsavedCount() int {
 	keys := maps.Clone(s.saved)
 	maps.Copy(keys, s.overrides)
 	maps.Copy(keys, s.disk)
+
 	n := 0
+
 	for key := range keys {
 		if s.unsaved(key) {
 			n++
 		}
 	}
+
 	return n
 }
 
@@ -152,6 +167,7 @@ func (s *Session) unsavedCount() int {
 // an installed extension, its entry on disk.
 func (s *Session) unsaved(key string) bool {
 	installed := slices.ContainsFunc(s.exts, func(e Extension) bool { return e.Key == key })
+
 	return differ(s.overrides, s.saved, key) || installed && differ(s.overrides, s.disk, key)
 }
 
@@ -159,6 +175,7 @@ func (s *Session) unsaved(key string) bool {
 func differ(a, b map[string]State, key string) bool {
 	st, ok := a[key]
 	was, wasOK := b[key]
+
 	return ok != wasOK || st != was
 }
 
@@ -173,6 +190,7 @@ func (s *Session) Save() error {
 	if err != nil {
 		return err
 	}
+
 	if s.take(now) {
 		return ErrChangedSinceOpen
 	}
@@ -181,7 +199,9 @@ func (s *Session) Save() error {
 	if s.unsavedCount() == 0 && len(s.saved) == 0 {
 		return nil
 	}
-	if err := writeClaude(s.m, s.project, s.exts, s.overrides); err != nil {
+
+	err = writeClaude(s.m, s.project, s.exts, s.overrides)
+	if err != nil {
 		return err
 	}
 	// Set before the record write, so a failed one does not make equip's own
@@ -192,10 +212,14 @@ func (s *Session) Save() error {
 			s.disk[e.Key] = st
 		}
 	}
-	if err := writeRecord(s.m, s.project, s.overrides); err != nil {
+
+	err = writeRecord(s.m, s.project, s.overrides)
+	if err != nil {
 		return err
 	}
+
 	s.saved = maps.Clone(s.overrides)
 	clear(s.outside)
+
 	return nil
 }

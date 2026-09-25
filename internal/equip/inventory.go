@@ -22,16 +22,22 @@ func discover(m Machine) ([]Extension, error) {
 	if errors.Is(err, fs.ErrNotExist) {
 		return nil, nil
 	}
+
 	if err != nil {
 		return nil, err
 	}
+
 	var exts []Extension
+
 	for _, e := range entries {
 		// Stat follows symlinks, as Claude Code does.
-		if _, err := os.Stat(filepath.Join(dir, e.Name(), "SKILL.md")); err != nil {
+		_, err := os.Stat(filepath.Join(dir, e.Name(), "SKILL.md"))
+		if err != nil {
 			continue
 		}
+
 		exts = append(exts, Extension{Key: e.Name()})
 	}
+
 	return exts, nil
 }

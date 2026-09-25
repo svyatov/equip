@@ -21,6 +21,7 @@ var skillStates = func() map[string]State {
 	for st, v := range skillValues {
 		states[v] = st
 	}
+
 	return states
 }()
 
@@ -33,16 +34,20 @@ func readSettings(path string) (settings, skills map[string]json.RawMessage, mis
 	// Raw values keep every other key exactly as it was.
 	settings = map[string]json.RawMessage{}
 	skills = map[string]json.RawMessage{}
+
 	data, err := os.ReadFile(path) //nolint:gosec // equip builds the path
 	if errors.Is(err, fs.ErrNotExist) {
 		return settings, skills, true, nil
 	}
+
 	if err == nil {
 		err = json.Unmarshal(data, &settings)
 	}
+
 	if raw, ok := settings["skillOverrides"]; ok && err == nil {
 		err = json.Unmarshal(raw, &skills)
 	}
+
 	if err != nil {
 		return nil, nil, false, fmt.Errorf("read %s: %w", path, err)
 	}
@@ -50,6 +55,7 @@ func readSettings(path string) (settings, skills map[string]json.RawMessage, mis
 	if skills == nil {
 		skills = map[string]json.RawMessage{}
 	}
+
 	return settings, skills, false, nil
 }
 
@@ -57,23 +63,28 @@ func readSettings(path string) (settings, skills map[string]json.RawMessage, mis
 // Project. A value equip does not know reads as no entry.
 func readClaude(p Project, exts []Extension) (map[string]State, error) {
 	states := map[string]State{}
+
 	_, skills, _, err := readSettings(filepath.Join(p.Path, settingsRel))
 	if err != nil {
 		return states, err
 	}
+
 	for _, e := range exts {
 		if st, ok := skillState(skills[e.Key]); ok {
 			states[e.Key] = st
 		}
 	}
+
 	return states, nil
 }
 
 // skillState reads one skillOverrides value, reporting whether equip knows it.
 func skillState(raw json.RawMessage) (State, bool) {
 	var v string
+
 	_ = json.Unmarshal(raw, &v) // leaves v empty on a non-string
 	st, ok := skillStates[v]
+
 	return st, ok
 }
 
@@ -81,12 +92,15 @@ func skillState(raw json.RawMessage) (State, bool) {
 // .claude/settings.local.json, keeping every key equip does not own.
 func writeClaude(m Machine, p Project, exts []Extension, overrides map[string]State) error {
 	path := filepath.Join(p.Path, settingsRel)
+
 	settings, skills, created, err := readSettings(path)
 	if err != nil {
 		return err
 	}
+
 	for _, e := range exts {
 		st, ok := overrides[e.Key]
+
 		_, known := skillState(skills[e.Key])
 		switch {
 		case !ok && known:
@@ -99,23 +113,32 @@ func writeClaude(m Machine, p Project, exts []Extension, overrides map[string]St
 			skills[e.Key] = json.RawMessage(strconv.Quote(skillValues[st]))
 		}
 	}
+
 	out := map[string]any{"skillOverrides": skills}
+
 	for key, v := range settings {
 		if key != "skillOverrides" {
 			out[key] = v
 		}
 	}
+
 	var buf bytes.Buffer
+
 	enc := json.NewEncoder(&buf)
 	enc.SetEscapeHTML(false) // keeps "&&" in permission rules readable
 	enc.SetIndent("", "  ")
-	if err := enc.Encode(out); err != nil {
+
+	err = enc.Encode(out)
+	if err != nil {
 		return err
 	}
+
 	if created {
-		if err := exclude(m, p, settingsRel); err != nil {
+		err := exclude(m, p, settingsRel)
+		if err != nil {
 			return err
 		}
 	}
+
 	return writeFile(path, buf.Bytes())
 }
