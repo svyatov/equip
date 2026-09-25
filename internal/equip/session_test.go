@@ -29,6 +29,21 @@ func TestProjectIsRepoRootFromSubdirectory(t *testing.T) {
 	}
 }
 
+func TestHarnessIgnoresInheritedGitEnvironment(t *testing.T) {
+	victim := filepath.Join(t.TempDir(), "victim.git")
+	t.Setenv("GIT_DIR", victim)
+	m := equiptest.New(t)
+	repo := m.Repo("app")
+	m.Commit(repo)
+
+	if got := open(t, m, repo).Project.Path; got != repo {
+		t.Errorf("Project.Path = %q, want %q", got, repo)
+	}
+	if _, err := os.Stat(victim); err == nil {
+		t.Errorf("git wrote to the inherited GIT_DIR %s", victim)
+	}
+}
+
 func TestProjectIsTheDirectoryOutsideGit(t *testing.T) {
 	m := equiptest.New(t)
 	dir := m.Mkdir(filepath.Join(m.Root, "scratch", "notes"))

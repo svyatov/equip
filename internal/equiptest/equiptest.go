@@ -19,9 +19,18 @@ type Machine struct {
 }
 
 // New builds a machine whose home, XDG dirs and git config all live in a
-// fresh temp dir. The user's own git config is never read.
+// fresh temp dir. The user's own git config is never read, and inherited
+// GIT_* variables (a git hook sets GIT_DIR) are cleared for the test.
 func New(t testing.TB) *Machine {
 	t.Helper()
+	for _, kv := range os.Environ() {
+		if k, _, _ := strings.Cut(kv, "="); strings.HasPrefix(k, "GIT_") {
+			t.Setenv(k, "") // restores the variable after the test
+			if err := os.Unsetenv(k); err != nil {
+				t.Fatal(err)
+			}
+		}
+	}
 	root, err := filepath.EvalSymlinks(t.TempDir())
 	if err != nil {
 		t.Fatal(err)
