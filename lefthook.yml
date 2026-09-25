@@ -1,0 +1,17 @@
+# Install once: go tool lefthook install
+
+pre-commit:
+  jobs:
+    - name: fmt
+      glob: "*.go"
+      run: golangci-lint fmt {staged_files}
+      stage_fixed: true
+    - name: lint
+      glob: &go ["*.go", "go.mod", "go.sum", ".golangci.yml"]
+      run: golangci-lint run
+    - name: tidy
+      glob: *go
+      run: go mod tidy -diff
+    - name: test
+      glob: *go
+      run: go test -race ./...
