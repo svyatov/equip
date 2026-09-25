@@ -409,3 +409,52 @@ func TestDetailPaneShowsTheCostInEachAgent(t *testing.T) {
 		t.Errorf("cost line %q does not show both costs", got)
 	}
 }
+
+func TestMCPServerRowAndDetailPaneShowTheCostAsUnknown(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.WriteFile(filepath.Join(machine.Home, ".claude.json"), `{"mcpServers": {"github": {"command": "gh"}}}`)
+	tui := newModel(t, machine)
+
+	if got := line(tui, "github"); !strings.Contains(got, "unknown") {
+		t.Errorf("row line %q does not show the cost as unknown", got)
+	}
+
+	if got := line(tui, "Cost  "); !strings.Contains(got, "Claude Code unknown") {
+		t.Errorf("cost line %q does not show the cost as unknown", got)
+	}
+}
+
+func TestStateKeysSetTheHighlightedMCPServer(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.WriteFile(filepath.Join(machine.Home, ".claude.json"), `{"mcpServers": {"github": {"command": "gh"}}}`)
+	tui := newModel(t, machine)
+
+	press(tui, key('2'))
+
+	if got := line(tui, "github"); !strings.Contains(got, "○") {
+		t.Errorf("row line %q, want github off", got)
+	}
+}
+
+func TestDetailPaneNamesTheKind(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.WriteFile(filepath.Join(machine.Home, ".claude.json"), `{"mcpServers": {"github": {"command": "gh"}}}`)
+
+	// The list and the detail pane's title share the first line.
+	if got := line(newModel(t, machine), "github"); !strings.Contains(got, "MCP server") {
+		t.Errorf("line %q does not name the kind", got)
+	}
+}
+
+func TestDetailPaneSaysABuiltInServerIsBuiltIntoClaudeCode(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.ClaudeBuiltins = map[string]equip.State{"computer-use": equip.Off}
+
+	if line(newModel(t, machine), "built into Claude Code") == "" {
+		t.Error("detail pane does not say the server is built into Claude Code")
+	}
+}

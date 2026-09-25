@@ -55,14 +55,17 @@ type Extension struct {
 	Description string
 	Locations   []Location // in discovery order
 	contents    []Content  // a plugin's, as when it is on
+	lists       mcpLists   // an MCP server's
 	Kind        Kind
 	fallback    State // the agent's default, without an Override
 	hooks       bool  // a plugin's
+	builtIn     bool  // built into Claude Code, so read from no Location
 }
 
 // has reports whether agent loads the extension.
 func (e Extension) has(agent Agent) bool {
-	return slices.ContainsFunc(e.Locations, func(s Location) bool { return s.Agent == agent })
+	return e.builtIn && agent == ClaudeCode ||
+		slices.ContainsFunc(e.Locations, func(s Location) bool { return s.Agent == agent })
 }
 
 // discover finds the extensions installed for a session started in dir,
@@ -103,11 +106,20 @@ func discover(machine Machine, project Project, dir string) ([]Extension, error)
 		return nil, err
 	}
 
+	servers, err := discoverServers(machine, project)
+	if err != nil {
+		return nil, err
+	}
+
+	exts = append(exts, servers...)
+
 	for _, ext := range inv.byKey {
 		exts = append(exts, *ext)
 	}
 
-	slices.SortFunc(exts, func(a, b Extension) int { return cmp.Compare(a.Key, b.Key) })
+	slices.SortFunc(exts, func(a, b Extension) int {
+		return cmp.Or(cmp.Compare(a.name(), b.name()), cmp.Compare(a.Kind, b.Kind))
+	})
 
 	return exts, nil
 }
@@ -153,7 +165,7 @@ func (inv *inventory) add(agent Agent, root string) int {
 		if ext == nil {
 			ext = &Extension{
 				Kind: Skill, Key: entry.Name(), Description: "", Locations: nil, cost: map[Agent]int{}, fallback: On,
-				contents: nil, hooks: false,
+				contents: nil, hooks: false, lists: mcpLists{on: "", off: "", settings: false}, builtIn: false,
 			}
 			inv.byKey[entry.Name()] = ext
 		}

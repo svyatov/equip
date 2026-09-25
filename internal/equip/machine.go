@@ -16,6 +16,9 @@ import (
 // equip reads the environment.
 type Machine struct {
 	Git GitFunc
+	// ClaudeBuiltins are the MCP servers built into Claude Code, each with its
+	// default state.
+	ClaudeBuiltins map[string]State
 
 	Home        string
 	ConfigHome  string // $XDG_CONFIG_HOME
@@ -54,6 +57,9 @@ func MachineFromEnv() (Machine, error) {
 		CodexSystem: "/etc/codex",
 		WorkDir:     workDir,
 		Git:         GitRunner(nil),
+		// As of Claude Code 2.1.282, computer-use is the one built-in that is
+		// off until enabled.
+		ClaudeBuiltins: map[string]State{"claude-in-chrome": On, "computer-use": Off},
 	}, nil
 }
 

@@ -36,7 +36,8 @@ func TestSetStateMakesAnUnsavedOverride(t *testing.T) {
 	view := session.View()
 
 	want := equip.Row{
-		Name: "review", Cost: 0, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true, ChangedOutside: false,
+		Key: "review", Name: "review", Kind: equip.Skill,
+		Cost: 0, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true, ChangedOutside: false,
 	}
 	if view.Rows[0] != want {
 		t.Errorf("row = %+v, want %+v", view.Rows[0], want)
@@ -57,7 +58,8 @@ func TestDropOverrideReturnsSkillToDefault(t *testing.T) {
 	session.DropOverride("review")
 
 	want := equip.Row{
-		Name: "review", Cost: 8, State: equip.On, Override: false, Fallback: equip.On, Unsaved: false, ChangedOutside: false,
+		Key: "review", Name: "review", Kind: equip.Skill,
+		Cost: 8, State: equip.On, Override: false, Fallback: equip.On, Unsaved: false, ChangedOutside: false,
 	}
 
 	view := session.View()
@@ -336,7 +338,9 @@ func TestSaveWritesTheProjectRecord(t *testing.T) {
 	want := map[string]any{
 		"path":        repo,
 		"root_commit": root,
-		"overrides":   map[string]any{"skills": map[string]any{"review": "manual-only"}, "plugins": map[string]any{}},
+		"overrides": map[string]any{
+			"skills": map[string]any{"review": "manual-only"}, "plugins": map[string]any{}, "mcp_servers": map[string]any{},
+		},
 	}
 	if got := readRecord(t, machine); !reflect.DeepEqual(got, want) {
 		t.Errorf("record = %v, want %v", got, want)
@@ -355,7 +359,8 @@ func TestReopenShowsSavedOverrides(t *testing.T) {
 	view := newSession(t, machine, repo).View()
 
 	want := equip.Row{
-		Name: "review", Cost: 0, State: equip.ManualOnly, Override: true, Fallback: equip.On, Unsaved: false,
+		Key: "review", Name: "review", Kind: equip.Skill,
+		Cost: 0, State: equip.ManualOnly, Override: true, Fallback: equip.On, Unsaved: false,
 		ChangedOutside: false,
 	}
 	if view.Rows[0] != want || view.Unsaved != 0 {

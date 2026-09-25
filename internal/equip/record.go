@@ -24,7 +24,19 @@ type record struct {
 
 // recordTable is the record table that holds the Overrides of kind k.
 func (k Kind) recordTable() string {
-	return [...]string{Skill: "skills", Plugin: "plugins"}[k]
+	return [...]string{Skill: "skills", Plugin: "plugins", MCPServer: "mcp_servers"}[k]
+}
+
+// kinds are the kinds, each with its own record table.
+func kinds() []Kind { return []Kind{Skill, Plugin, MCPServer} }
+
+// keyOf is the key of the extension of kind k named name in its record table.
+func (k Kind) keyOf(name string) string {
+	if k == MCPServer {
+		return mcpPrefix + name
+	}
+
+	return name
 }
 
 // recordPath is the record file of project, one per path, so two clones of a
@@ -55,14 +67,14 @@ func readRecord(machine Machine, project Project, disk map[string]State) (map[st
 		}
 	}
 
-	for _, kind := range []Kind{Skill, Plugin} {
-		for key, name := range rec.Overrides[kind.recordTable()] {
-			st, ok := parseState(name)
+	for _, kind := range kinds() {
+		for name, value := range rec.Overrides[kind.recordTable()] {
+			st, ok := parseState(value)
 			if !ok || !slices.Contains(kind.claude().states, st) {
-				return nil, fmt.Errorf("read %s: %s %q: %w %q", path, kind, key, errUnknownState, name)
+				return nil, fmt.Errorf("read %s: %s %q: %w %q", path, kind, name, errUnknownState, value)
 			}
 
-			overrides[key] = st
+			overrides[kind.keyOf(name)] = st
 		}
 	}
 
@@ -109,10 +121,13 @@ func parseState(name string) (State, bool) {
 // writeRecord writes the record of project with overrides.
 func writeRecord(machine Machine, project Project, overrides map[string]State) error {
 	// Every kind gets its table, empty too, so a read knows the record knows it.
-	byKind := map[string]map[string]string{Skill.recordTable(): {}, Plugin.recordTable(): {}}
+	byKind := map[string]map[string]string{}
+	for _, kind := range kinds() {
+		byKind[kind.recordTable()] = map[string]string{}
+	}
 
 	for key, state := range overrides {
-		byKind[keyKind(key).recordTable()][key] = state.String()
+		byKind[keyKind(key).recordTable()][keyName(key)] = state.String()
 	}
 
 	rec := record{Path: project.Path, RootCommit: project.RootCommit, Overrides: byKind}

@@ -125,8 +125,9 @@ func TestSaveRecordsPluginOverridesApartFromSkills(t *testing.T) {
 	save(t, session)
 
 	want := map[string]any{
-		"skills":  map[string]any{"review": "manual-only"},
-		"plugins": map[string]any{"github@official": "off"},
+		"skills":      map[string]any{"review": "manual-only"},
+		"plugins":     map[string]any{"github@official": "off"},
+		"mcp_servers": map[string]any{},
 	}
 	if got := readRecord(t, machine)["overrides"]; !reflect.DeepEqual(got, want) {
 		t.Errorf("overrides = %v, want %v", got, want)
@@ -145,7 +146,7 @@ func TestPluginDefaultsToItsStateInUserSettings(t *testing.T) {
 	writeFile(t, filepath.Join(machine.Home, ".claude", "settings.json"), `{"enabledPlugins": {"github@official": false}}`)
 
 	want := equip.Row{
-		Name: "github@official", Cost: 0, State: equip.Off, Fallback: equip.Off,
+		Key: "github@official", Name: "github@official", Kind: equip.Plugin, Cost: 0, State: equip.Off, Fallback: equip.Off,
 		Override: false, Unsaved: false, ChangedOutside: false,
 	}
 	if got := row(t, open(t, machine, repo), "github@official"); got != want {

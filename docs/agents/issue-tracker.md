@@ -5,7 +5,8 @@ Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all o
 ## Conventions
 
 - **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
-- **Read an issue**: `gh issue view <number> --json title,state,labels,body,comments --jq '.title, .state, ([.labels[].name] | join(", ")), .body, (.comments[] | "--- \(.author.login): \(.body)")'`. Piped, `gh issue view --comments` prints the comments alone, without the body.
+- **Read an issue**: `gh issue view <number> --json title,state,labels,body,comments --jq '.title, .state, ([.labels[].name] | join(", ")), .body, (.comments[] | "--- \(.author.login): \(.body)")'`. Piped, `gh issue view --comments` prints the comments alone, without the body. A parent spec such as #13 overflows the tool output limit, so read it by section.
+- **Read a section**: `gh issue view <number> --json body --jq .body | awk '/^## <Heading>/{p=1;print;next} p&&/^## /{exit} p'` prints one `## ` section with its `###` subsections.
 - **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
 - **List children**: the open issues whose `## Parent` section names `<number>`: `gh issue list --state open --limit 200 --json number,title,body --jq '.[] | select(.body | test("## Parent\s+#<number>\b")) | "\(.number) \(.title)"'`, plus any sub-issues (`gh api repos/{owner}/{repo}/issues/<number>/sub_issues --jq '.[] | select(.state == "open") | "\(.number) \(.title)"'`).
 - **Comment on an issue**: `gh issue comment <number> --body "..."`

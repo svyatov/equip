@@ -60,7 +60,9 @@ type View struct {
 
 // Row is one extension in the list.
 type Row struct {
+	Key      string // what SetState, Detail and DropOverride take
 	Name     string
+	Kind     Kind
 	Cost     int // estimated tokens: the higher of the agents' costs
 	State    State
 	Fallback State // the state without the Override
@@ -88,7 +90,7 @@ func Open(machine Machine, dir string) (*Session, error) {
 
 	claudeExts := slices.DeleteFunc(slices.Clone(exts), func(e Extension) bool { return !e.has(ClaudeCode) })
 	// ponytail: broken settings read as no entries here; Save reports them.
-	disk, _ := readClaude(project, claudeExts)
+	disk, _ := readClaude(machine, project, claudeExts)
 
 	saved, err := readRecord(machine, project, disk)
 	if err != nil {
@@ -135,7 +137,9 @@ func (s *Session) View() View {
 		}
 
 		rows = append(rows, Row{
-			Name:           ext.Key,
+			Key:            ext.Key,
+			Name:           ext.name(),
+			Kind:           ext.Kind,
 			Cost:           cost,
 			State:          state,
 			Override:       override,
@@ -175,6 +179,7 @@ type Detail struct {
 	States      []State   // the states the user can pick
 	Contents    []Content // a plugin's skills
 	Hooks       bool      // a plugin has hooks, whose output adds an unknown cost
+	BuiltIn     bool      // built into Claude Code, so it has no Locations
 }
 
 // Content is one extension inside a plugin. It follows its plugin and is
@@ -193,14 +198,14 @@ func (s *Session) Detail(key string) Detail {
 	if !ok {
 		return Detail{
 			Description: "", Marketplace: "", Agents: nil, Locations: nil, NotApplied: nil, Costs: nil, States: nil,
-			Contents: nil, Hooks: false,
+			Contents: nil, Hooks: false, BuiltIn: false,
 		}
 	}
 
 	detail := Detail{
 		Description: ext.Description, Marketplace: marketplaceOf(ext.Key), Agents: nil, Locations: ext.Locations,
 		NotApplied: map[Agent]string{}, Costs: map[Agent]int{}, States: ext.Kind.claude().states,
-		Contents: nil, Hooks: ext.hooks,
+		Contents: nil, Hooks: ext.hooks, BuiltIn: ext.builtIn,
 	}
 	state, _ := s.state(ext)
 
@@ -213,10 +218,10 @@ func (s *Session) Detail(key string) Detail {
 		detail.Contents = append(detail.Contents, content)
 	}
 
-	for _, loc := range ext.Locations {
-		if !slices.Contains(detail.Agents, loc.Agent) {
-			detail.Agents = append(detail.Agents, loc.Agent)
-			detail.Costs[loc.Agent] = ext.costIn(loc.Agent, state)
+	for _, agent := range Agents() {
+		if ext.has(agent) {
+			detail.Agents = append(detail.Agents, agent)
+			detail.Costs[agent] = ext.costIn(agent, state)
 		}
 	}
 
@@ -234,7 +239,7 @@ func (s *Session) DropOverride(key string) { delete(s.overrides, key) }
 // Code's entries changed since they were read, it writes nothing, imports the
 // changes and returns ErrChangedSinceOpen.
 func (s *Session) Save() error {
-	now, err := readClaude(s.project, s.claudeExts)
+	now, err := readClaude(s.machine, s.project, s.claudeExts)
 	if err != nil {
 		return err
 	}
@@ -250,16 +255,18 @@ func (s *Session) Save() error {
 
 	err = writeClaude(s.machine, s.project, s.claudeExts, s.overrides)
 	if err != nil {
+		// A file written before the failure holds equip's own entries, which
+		// the next save must not read as changed outside.
+		landed, readErr := readClaude(s.machine, s.project, s.claudeExts)
+		if readErr == nil {
+			s.disk = landed
+		}
+
 		return err
 	}
 	// Set before the record write, so a failed one does not make equip's own
 	// entries look changed outside.
-	s.disk = map[string]State{}
-	for _, e := range s.claudeExts {
-		if st, ok := s.overrides[e.Key]; ok {
-			s.disk[e.Key] = st
-		}
-	}
+	s.disk = s.entries()
 
 	err = writeRecord(s.machine, s.project, s.overrides)
 	if err != nil {
@@ -349,9 +356,21 @@ func (s *Session) unsavedCount() int {
 // unsaved reports whether a save would change the Override for key or, for
 // an extension Claude Code has, its entry on disk.
 func (s *Session) unsaved(key string) bool {
-	inClaude := slices.ContainsFunc(s.claudeExts, func(e Extension) bool { return e.Key == key })
+	return differ(s.overrides, s.saved, key) || differ(s.entries(), s.disk, key)
+}
 
-	return differ(s.overrides, s.saved, key) || inClaude && differ(s.overrides, s.disk, key)
+// entries are the entries a save leaves in Claude Code's config for the
+// pending Overrides.
+func (s *Session) entries() map[string]State {
+	entries := map[string]State{}
+
+	for _, e := range s.claudeExts {
+		if st, ok := s.overrides[e.Key]; ok && e.entry(st) {
+			entries[e.Key] = st
+		}
+	}
+
+	return entries
 }
 
 // differ reports whether a and b hold different states for key.

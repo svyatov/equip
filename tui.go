@@ -42,6 +42,16 @@ func glyph(st equip.State) string {
 // cost shows an estimate of tokens.
 func cost(tokens int) string { return fmt.Sprintf("~%d", tokens) }
 
+// costOf shows the cost of an extension of kind. An MCP server's is unknown
+// until it is measured.
+func costOf(kind equip.Kind, tokens int) string {
+	if kind == equip.MCPServer {
+		return "unknown"
+	}
+
+	return cost(tokens)
+}
+
 // model is the Bubble Tea root model over a Session.
 type model struct {
 	style    styles
@@ -104,13 +114,13 @@ func (m *model) View() tea.View {
 			name += m.style.warn.Render("*")
 		}
 
-		list = append(list, mark+glyph(row.State)+" "+name+" "+m.style.dim.Render(cost(row.Cost)))
+		list = append(list, mark+glyph(row.State)+" "+name+" "+m.style.dim.Render(costOf(row.Kind, row.Cost)))
 	}
 
 	panes := []string{m.style.pane.Render(strings.Join(list, "\n"))}
 	if m.cur < len(session.Rows) {
 		row := session.Rows[m.cur]
-		panes = append(panes, m.style.pane.Render(m.detail(row, m.s.Detail(row.Name))))
+		panes = append(panes, m.style.pane.Render(m.detail(row, m.s.Detail(row.Key))))
 	}
 
 	footer := m.style.dim.Render("↑↓ move  1-3 set state  x drop override  s save  q quit")
@@ -141,11 +151,11 @@ func (m *model) press(key string) tea.Cmd {
 		m.cur = max(min(m.cur+1, len(rows)-1), 0)
 	case "1", "2", "3":
 		if m.cur < len(rows) {
-			m.setState(rows[m.cur].Name, int(key[0]-'1'))
+			m.setState(rows[m.cur].Key, int(key[0]-'1'))
 		}
 	case "x":
 		if m.cur < len(rows) {
-			m.s.DropOverride(rows[m.cur].Name)
+			m.s.DropOverride(rows[m.cur].Key)
 		}
 	case "s":
 		err := m.s.Save()
@@ -185,7 +195,7 @@ func (m *model) detail(row equip.Row, ext equip.Detail) string {
 	}
 
 	lines := []string{
-		m.style.cur.Render(row.Name),
+		m.style.cur.Render(row.Name) + m.style.dim.Render("  "+row.Kind.String()),
 		m.style.dim.Width(descriptionWidth).Render(ext.Description),
 		"",
 	}
@@ -202,7 +212,7 @@ func (m *model) detail(row equip.Row, ext equip.Detail) string {
 		}
 	}
 
-	lines = append(lines, costLine(ext))
+	lines = append(lines, costLine(row.Kind, ext))
 
 	if row.Override {
 		lines = append(lines,
@@ -228,20 +238,30 @@ func (m *model) detail(row equip.Row, ext equip.Detail) string {
 	}
 
 	lines = append(lines, m.contents(ext.Contents)...)
-
-	lines = append(lines, "", "Locations")
-	for _, loc := range ext.Locations {
-		lines = append(lines, "  "+loc.Path+"  "+m.style.dim.Render(loc.Agent.String()))
-	}
+	lines = append(lines, m.locations(ext)...)
 
 	return strings.Join(lines, "\n")
 }
 
-// costLine is the detail pane line of ext's cost in each agent.
-func costLine(ext equip.Detail) string {
+// locations are the detail pane lines of where ext comes from.
+func (m *model) locations(ext equip.Detail) []string {
+	lines := []string{"", "Locations"}
+	if ext.BuiltIn {
+		lines = append(lines, "  "+m.style.dim.Render("built into Claude Code"))
+	}
+
+	for _, loc := range ext.Locations {
+		lines = append(lines, "  "+loc.Path+"  "+m.style.dim.Render(loc.Agent.String()))
+	}
+
+	return lines
+}
+
+// costLine is the detail pane line of the cost in each agent of ext, of kind.
+func costLine(kind equip.Kind, ext equip.Detail) string {
 	costs := make([]string, 0, len(ext.Agents))
 	for _, agent := range ext.Agents {
-		costs = append(costs, agent.String()+" "+cost(ext.Costs[agent]))
+		costs = append(costs, agent.String()+" "+costOf(kind, ext.Costs[agent]))
 	}
 
 	line := "Cost    " + strings.Join(costs, ", ")
@@ -261,12 +281,8 @@ func (m *model) contents(contents []equip.Content) []string {
 	lines := []string{"", "Contents  " + m.style.dim.Render("follow the plugin")}
 
 	for _, content := range contents {
-		tokens := cost(content.Cost)
-		if content.Kind == equip.MCPServer {
-			tokens = "unknown" // until it is measured
-		}
-
-		lines = append(lines, fmt.Sprintf("  %s %s %s %s %s", glyph(content.State), content.Kind, content.Name, tokens,
+		lines = append(lines, fmt.Sprintf("  %s %s %s %s %s", glyph(content.State), content.Kind, content.Name,
+			costOf(content.Kind, content.Cost),
 			m.style.dim.MaxWidth(shortDescriptionWidth).MaxHeight(1).Render(content.Description)))
 	}
 

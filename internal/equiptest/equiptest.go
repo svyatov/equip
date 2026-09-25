@@ -58,6 +58,9 @@ func New(tb testing.TB) *Machine {
 		CodexHome:   filepath.Join(home, ".codex"),
 		CodexSystem: filepath.Join(root, "etc", "codex"),
 		WorkDir:     root,
+		// None, so a test sees only the extensions it installs. A test of the
+		// built-ins sets them.
+		ClaudeBuiltins: nil,
 		Git: equip.GitRunner(append(env,
 			"HOME="+home,
 			"GIT_CONFIG_GLOBAL="+os.DevNull,
