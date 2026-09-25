@@ -369,10 +369,29 @@ func (m *Model) View() string {
 	lw, mw := 32, 46
 	rw := m.w - lw - mw
 	it := m.item()
+	mid := m.middle(it, mw-4, ph-2) // clamps the cursors the right pane reads
+	var right []string
+	switch {
+	case it == nil || m.confirm != "":
+		right = m.impact(it, rw-4)
+	case m.adding:
+		right = m.detail(at(m.candidates(it), m.acur), rw-4, ph-2)
+	case m.focus == paneMembers:
+		right = m.detail(at(m.rows(it), m.mcur), rw-4, ph-2)
+	default:
+		right = m.impact(it, rw-4)
+	}
 	return fit(m.header(), m.w) + "\n" + lipgloss.JoinHorizontal(lipgloss.Top,
 		box(m.library(lw-4), lw, ph, m.focus == paneLib && m.confirm == ""),
-		box(m.middle(it, mw-4, ph-2), mw, ph, m.focus == paneMembers && m.confirm == ""),
-		box(m.impact(it, rw-4), rw, ph, m.confirm != "")) + "\n" + fit(m.footer(), m.w)
+		box(mid, mw, ph, m.focus == paneMembers && m.confirm == ""),
+		box(right, rw, ph, m.confirm != "")) + "\n" + fit(m.footer(), m.w)
+}
+
+func at(exts []*data.Ext, i int) *data.Ext {
+	if i < 0 || i >= len(exts) {
+		return nil
+	}
+	return exts[i]
 }
 
 func (m *Model) header() string {
@@ -621,39 +640,83 @@ func (m *Model) impact(it *item, w int) []string {
 		} else {
 			add(sDim.Render("  not active here: no change here"))
 		}
-		add(sDim.Render(fmt.Sprintf("  w writes it to %d projects", len(users))), "")
+		add(sDim.Render(fmt.Sprintf("  w writes it to %d projects", len(users))))
 	}
+	return l
+}
 
-	var ovr []string
-	for _, e := range m.s.Exts {
-		if disagrees(e, it.p) {
-			says := map[bool]string{true: "on", false: "off"}[it.p.Members[e.Name]]
-			ovr = append(ovr, fit("  "+sState[e.State].Render(glyph[e.State])+" "+trunc(e.Name, w-20), w-15)+sDim.Render("preset says "+says))
+var kindName = map[data.Kind]string{data.Skill: "Skill", data.Plugin: "Plugin", data.MCP: "MCP server"}
+var sourceLabel = map[data.Kind]string{data.Skill: "Installed", data.Plugin: "Marketplace", data.MCP: "Configured"}
+
+// detail shows the extension highlighted in the members pane or the add list,
+// modeled on the main screen's detail pane.
+func (m *Model) detail(e *data.Ext, w, h int) []string {
+	if e == nil {
+		return []string{sDim.Render("No extension highlighted")}
+	}
+	l := []string{sAccent.Render(e.Name) + sDim.Render("  "+kindName[e.Kind]), ""}
+	add := func(s ...string) { l = append(l, s...) }
+	field := func(k, v string) { add(sDim.Render(fmt.Sprintf("%-12s", k)) + v) }
+	if e.Desc != "" {
+		add(wrap(e.Desc, w)...)
+		add("")
+	}
+	field(sourceLabel[e.Kind], trunc(e.Source, w-12))
+	has := func(a data.Agent, name string) string {
+		if e.Agents&a != 0 {
+			return sOK.Render("✓ " + name)
 		}
+		return sDim.Render("✗ " + name)
 	}
-	add(sBold.Render("Overrides that disagree") + sDim.Render(fmt.Sprintf("  %d, all kept", len(ovr))))
-	if len(ovr) == 0 {
-		add(sDim.Render("  none"))
+	field("Agents", has(data.Claude, "Claude Code")+"  "+has(data.Codex, "Codex"))
+	state := sState[e.State].Render(glyph[e.State] + " " + e.State.String())
+	switch {
+	case e.Origin == "override":
+		st, from := m.s.Fallback(e)
+		field("State", state+"  "+sWarn.Render("ovr"))
+		field("", sDim.Render(trunc("without it: "+st.String()+" ("+from+")", w-12)))
+	case e.Origin == "default" && len(m.s.Presets) == 0:
+		field("State", state+sDim.Render("  agent default"))
+	case e.Origin == "default":
+		field("State", state+sDim.Render("  no active preset"))
+	default:
+		field("State", state+sDim.Render(trunc("  "+e.Origin, w-12-lipgloss.Width(state))))
 	}
-	add(ovr...)
-
-	if rows := m.rows(it); len(rows) > 0 {
-		e := rows[max(0, min(m.mcur, len(rows)-1))]
-		var others []string
-		for _, p := range m.s.PresetsOf(e) {
-			switch {
-			case p == it.orig:
-			case slices.Contains(m.s.Presets, p):
-				others = append(others, sAccent.Render(p)+sDim.Render(" (active)"))
-			default:
-				others = append(others, p)
+	if e.Cost() > 0 {
+		field("Cost", data.Tokens(e.Cost())+" tokens now")
+	} else {
+		field("Cost", "0 now, "+data.Tokens(e.Tokens)+" when on")
+	}
+	var in []string
+	for _, p := range m.s.PresetsOf(e) {
+		if slices.Contains(m.s.Presets, p) {
+			p = sAccent.Render(p) + sDim.Render(" (active)")
+		}
+		in = append(in, p)
+	}
+	if len(in) == 0 {
+		in = []string{sDim.Render("none")}
+	}
+	field("Presets", strings.Join(in, ", "))
+	if e.Kind == data.Plugin {
+		add("", sBold.Render(fmt.Sprintf("Contents (%d)", len(e.Children))))
+		if len(e.Children) == 0 {
+			add(sDim.Render("  no skills or MCP servers"))
+		} else if e.State != data.On {
+			add(sDim.Render("  plugin is off: none of these load"))
+		}
+		for _, c := range e.Children {
+			kind := map[data.Kind]string{data.Skill: "skill", data.MCP: "mcp"}[c.Kind]
+			g := sState[c.State].Render(glyph[c.State])
+			if e.State != data.On {
+				g = sDim.Render(glyph[c.State])
 			}
+			add(fit(g+" "+trunc(c.Name, w-14), w-12)+sDim.Render(fmt.Sprintf("%-6s", kind))+fmt.Sprintf("%6s", data.Tokens(c.Tokens)),
+				"  "+sDim.Render(trunc(c.Desc, w-2)))
 		}
-		add("", sBold.Render(e.Name)+sDim.Render(" is also in"))
-		if len(others) == 0 {
-			others = []string{sDim.Render("no other preset")}
-		}
-		add("  " + strings.Join(others, ", "))
+	}
+	if len(l) > h {
+		l = append(l[:h-1], sDim.Render("  ↓ more"))
 	}
 	return l
 }
