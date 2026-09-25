@@ -16,7 +16,7 @@ func locate(m Machine, dir string) (Project, error) {
 	if err != nil {
 		// ponytail: any git failure (no repo, no git binary) reads as outside
 		// git; match git's exit status if a real repo ever fails here.
-		return Project{Path: dir}, nil
+		return Project{Path: dir}, nil //nolint:nilerr // outside git is not an error
 	}
 	common, root, _ := strings.Cut(strings.TrimSpace(out), "\n")
 	// A worktree shares the main checkout's .git, whose parent is the main

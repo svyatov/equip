@@ -56,7 +56,7 @@ func MachineFromEnv() (Machine, error) {
 // process environment.
 func GitRunner(env []string) GitFunc {
 	return func(dir string, args ...string) (string, error) {
-		cmd := exec.Command("git", args...)
+		cmd := exec.Command("git", args...) //nolint:gosec,noctx // equip builds git's args itself; nothing cancels git yet
 		cmd.Dir = dir
 		cmd.Env = append(os.Environ(), env...)
 		out, err := cmd.Output()

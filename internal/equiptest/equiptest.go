@@ -21,22 +21,24 @@ type Machine struct {
 // New builds a machine whose home, XDG dirs and git config all live in a
 // fresh temp dir. The user's own git config is never read, and inherited
 // GIT_* variables (a git hook sets GIT_DIR) are cleared for the test.
-func New(t testing.TB) *Machine {
-	t.Helper()
+func New(tb testing.TB) *Machine {
+	tb.Helper()
 	for _, kv := range os.Environ() {
 		if k, _, _ := strings.Cut(kv, "="); strings.HasPrefix(k, "GIT_") {
-			t.Setenv(k, "") // restores the variable after the test
+			tb.Setenv(k, "") // restores the variable after the test
 			if err := os.Unsetenv(k); err != nil {
-				t.Fatal(err)
+				tb.Fatal(err)
 			}
 		}
 	}
-	root, err := filepath.EvalSymlinks(t.TempDir())
+	root, err := filepath.EvalSymlinks(tb.TempDir())
 	if err != nil {
-		t.Fatal(err)
+		tb.Fatal(err)
 	}
 	home := filepath.Join(root, "home")
-	m := &Machine{Root: root, t: t, Machine: equip.Machine{
+	m := &Machine{
+		Root:       root,
+		t:          tb,
 		Home:       home,
 		ConfigHome: filepath.Join(home, ".config"),
 		StateHome:  filepath.Join(home, ".local", "state"),
@@ -50,7 +52,7 @@ func New(t testing.TB) *Machine {
 			"GIT_AUTHOR_NAME=equip", "GIT_AUTHOR_EMAIL=equip@example.com",
 			"GIT_COMMITTER_NAME=equip", "GIT_COMMITTER_EMAIL=equip@example.com",
 		}),
-	}}
+	}
 	for _, d := range []string{m.ConfigHome, m.StateHome, m.CacheHome, m.CodexHome, filepath.Join(home, ".claude")} {
 		m.Mkdir(d)
 	}
