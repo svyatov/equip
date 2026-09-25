@@ -52,13 +52,13 @@ func MachineFromEnv() (Machine, error) {
 	}, nil
 }
 
-// GitRunner returns a GitFunc that runs the git binary with env added to the
-// process environment.
+// GitRunner returns a GitFunc that runs the git binary with env as its whole
+// environment, or with the process environment when env is nil.
 func GitRunner(env []string) GitFunc {
 	return func(dir string, args ...string) (string, error) {
 		cmd := exec.Command("git", args...) //nolint:gosec,noctx // equip builds git's args itself; nothing cancels git yet
 		cmd.Dir = dir
-		cmd.Env = append(os.Environ(), env...)
+		cmd.Env = env
 		out, err := cmd.Output()
 		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
 			err = fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(ee.Stderr)))

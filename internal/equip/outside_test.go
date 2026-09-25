@@ -13,6 +13,7 @@ import (
 )
 
 func TestFirstOpenImportsHandSetStatesAsOverrides(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "docs")
@@ -31,6 +32,7 @@ func TestFirstOpenImportsHandSetStatesAsOverrides(t *testing.T) {
 }
 
 func TestFirstSaveRecordsTheImportedStates(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -45,6 +47,7 @@ func TestFirstSaveRecordsTheImportedStates(t *testing.T) {
 }
 
 func TestQuittingWithoutSavingLeavesHandEditsToImportAgain(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -68,6 +71,7 @@ func TestQuittingWithoutSavingLeavesHandEditsToImportAgain(t *testing.T) {
 }
 
 func TestSaveKeepsAnImportAndClearsItsNote(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -96,6 +100,7 @@ func savedOff(t *testing.T, m *equiptest.Machine, repo string) {
 }
 
 func TestEntryMissingOnDiskShowsTheRecordStateUnsaved(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -111,6 +116,7 @@ func TestEntryMissingOnDiskShowsTheRecordStateUnsaved(t *testing.T) {
 }
 
 func TestEntryChangedOnDiskIsImportedAsAnUnsavedOverride(t *testing.T) {
+	t.Parallel()
 	for name, tc := range map[string]struct {
 		saved    bool // whether the record has an Override for review
 		settings string
@@ -120,6 +126,7 @@ func TestEntryChangedOnDiskIsImportedAsAnUnsavedOverride(t *testing.T) {
 		"none wanted":   {false, `{"skillOverrides": {"docs": "off", "review": "user-invocable-only"}}`, equip.ManualOnly},
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			m := equiptest.New(t)
 			repo := m.Repo("app")
 			m.Skill(m.ClaudeSkills(), "review")
@@ -147,6 +154,7 @@ func TestEntryChangedOnDiskIsImportedAsAnUnsavedOverride(t *testing.T) {
 }
 
 func TestSaveAfterAnOutsideChangeWritesNothingAndImportsIt(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "docs")
@@ -181,6 +189,7 @@ func TestSaveAfterAnOutsideChangeWritesNothingAndImportsIt(t *testing.T) {
 }
 
 func TestSaveReportsSettingsBrokenSinceOpen(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -197,6 +206,7 @@ func TestSaveReportsSettingsBrokenSinceOpen(t *testing.T) {
 }
 
 func TestNameOnlyOnDiskMatchesARecordedOn(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -212,6 +222,7 @@ func TestNameOnlyOnDiskMatchesARecordedOn(t *testing.T) {
 }
 
 func TestSaveAfterAnImportIsRemovedOutsideDropsIt(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -234,6 +245,7 @@ func TestSaveAfterAnImportIsRemovedOutsideDropsIt(t *testing.T) {
 }
 
 func TestSaveAfterAnOutsideRemovalWritesNothing(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -255,6 +267,7 @@ func TestSaveAfterAnOutsideRemovalWritesNothing(t *testing.T) {
 }
 
 func TestSavingADroppedImportRemovesItsEntry(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -275,6 +288,7 @@ func TestSavingADroppedImportRemovesItsEntry(t *testing.T) {
 }
 
 func TestSaveAfterAnOutsideChangeBackShowsTheRecordState(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -294,6 +308,7 @@ func TestSaveAfterAnOutsideChangeBackShowsTheRecordState(t *testing.T) {
 }
 
 func TestSaveMarksAPendingToggleReplacedByAnOutsideChange(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -313,6 +328,7 @@ func TestSaveMarksAPendingToggleReplacedByAnOutsideChange(t *testing.T) {
 }
 
 func TestUnknownValuesOnDiskAreNotImportedAndSaveKeepsThem(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	for _, name := range []string{"docs", "lint", "review"} {
@@ -336,6 +352,7 @@ func TestUnknownValuesOnDiskAreNotImportedAndSaveKeepsThem(t *testing.T) {
 }
 
 func TestSaveAfterAFailedRecordWriteSucceeds(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")

@@ -14,21 +14,21 @@ import (
 // Machine is an equip.Machine on a temp dir, with helpers to build fixtures.
 type Machine struct {
 	equip.Machine
+
 	Root string // the temp dir, symlinks resolved
 	t    testing.TB
 }
 
 // New builds a machine whose home, XDG dirs and git config all live in a
-// fresh temp dir. The user's own git config is never read, and inherited
-// GIT_* variables (a git hook sets GIT_DIR) are cleared for the test.
+// fresh temp dir. The user's own git config is never read, and git never sees
+// an inherited GIT_* variable (a git hook sets GIT_DIR). The process
+// environment is left alone, so tests using New can run in parallel.
 func New(tb testing.TB) *Machine {
 	tb.Helper()
+	var env []string
 	for _, kv := range os.Environ() {
-		if k, _, _ := strings.Cut(kv, "="); strings.HasPrefix(k, "GIT_") {
-			tb.Setenv(k, "") // restores the variable after the test
-			if err := os.Unsetenv(k); err != nil {
-				tb.Fatal(err)
-			}
+		if !strings.HasPrefix(kv, "GIT_") {
+			env = append(env, kv)
 		}
 	}
 	root, err := filepath.EvalSymlinks(tb.TempDir())
@@ -45,13 +45,13 @@ func New(tb testing.TB) *Machine {
 		CacheHome:  filepath.Join(home, ".cache"),
 		CodexHome:  filepath.Join(home, ".codex"),
 		WorkDir:    root,
-		Git: equip.GitRunner([]string{
-			"HOME=" + home,
-			"GIT_CONFIG_GLOBAL=" + os.DevNull,
+		Git: equip.GitRunner(append(env,
+			"HOME="+home,
+			"GIT_CONFIG_GLOBAL="+os.DevNull,
 			"GIT_CONFIG_NOSYSTEM=1",
 			"GIT_AUTHOR_NAME=equip", "GIT_AUTHOR_EMAIL=equip@example.com",
 			"GIT_COMMITTER_NAME=equip", "GIT_COMMITTER_EMAIL=equip@example.com",
-		}),
+		)),
 	}
 	for _, d := range []string{m.ConfigHome, m.StateHome, m.CacheHome, m.CodexHome, filepath.Join(home, ".claude")} {
 		m.Mkdir(d)

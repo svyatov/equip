@@ -1,62 +1,146 @@
 version: "2"
 
+# Every linter is on, so one a new golangci-lint release adds starts checking
+# without anyone opting in. Each one turned off names its reason: it fires on a
+# deliberate choice of this codebase, not on a mistake.
+
 linters:
-  default: standard
-  enable:
-    # bugs
-    - asasalint
-    - bidichk
-    - durationcheck
-    - errchkjson
-    - errorlint
-    - exhaustive
-    - forcetypeassert
-    - gochecksumtype
-    - makezero
-    - nilerr
-    - nilnesserr
-    - nilnil
-    - reassign
-    - recvcheck
-    - unparam
-    - wastedassign
-    # security
-    - gosec
-    - noctx
-    # modern, idiomatic Go
-    - copyloopvar
-    - errname
-    - exptostd
-    - iface
-    - intrange
-    - mirror
-    - modernize
-    - perfsprint
-    - predeclared
-    - unconvert
-    - usestdlibvars
-    - usetesting
-    # review-level style
-    - asciicheck
-    - dupword
-    - gocheckcompilerdirectives
+  default: all
+  disable:
+    - cyclop # the complexity six are enabled once a function needs splitting
+    - err113 # a one-off error with its context in the message needs no sentinel
+    - exhaustruct # zero values are valid by design
+    - exhaustruct_v5 # the same linter under its new name
+    - funcorder # a helper method sits beside the exported method it serves
+    - funlen
+    - gochecknoglobals # the globals are lipgloss styles and lookup tables
     - gocognit
-    - gocritic
-    - misspell
-    - nolintlint
-    - revive
-    - thelper
+    - gocyclo
+    - gomodguard # deprecated; depguard owns the import budget
+    - ireturn # bubbletea's Update returns its own tea.Model interface
+    - lll # gofumpt owns layout
+    - maintidx
+    - mnd
+    - nestif
+    - nlreturn # blank-line style
+    - noinlineerr # `if err := f(); err != nil` is the Go idiom
+    - nonamedreturns # named results document two-value returns
+    - testpackage # the unit tests are white-box on purpose
+    - varnamelen # short names in short scopes are the Go idiom
+    - wrapcheck # an os error already names its path
+    - wsl # blank-line style
+    - wsl_v5 # blank-line style
+
   settings:
+    depguard:
+      # An allow list, so a new dependency fails here until someone adds it on
+      # purpose.
+      rules:
+        all:
+          allow:
+            - $gostd
+            - github.com/svyatov/equip
+            - charm.land/bubbletea/v2
+            - charm.land/lipgloss/v2
+            - github.com/pelletier/go-toml/v2
+
+    exhaustive:
+      # A default branch is the decision that the remaining cases are alike.
+      default-signifies-exhaustive: true
+
+    forbidigo:
+      # run() returns an error so every path is callable from a test, and
+      # printing goes to the writer it was handed. os.Exit is waived for
+      # main.go alone, in the exclusions below.
+      forbid:
+        - pattern: ^os\.Exit$
+          msg: return an error from run() instead; os.Exit belongs in main only
+        - pattern: ^fmt\.Print(f|ln)?$
+          msg: write to the writer run() passes in
+
+    gocritic:
+      enabled-tags:
+        - diagnostic
+        - style
+        - opinionated
+
+    godox:
+      keywords:
+        - TODO
+        - FIXME
+
+    govet:
+      enable-all: true
+      disable:
+        - fieldalignment # field order follows meaning; no struct here is hot
+
     nolintlint:
       require-explanation: true
       require-specific: true
+
+    revive:
+      # An explicit list: `enable-all-rules` is mostly add-constant and
+      # line-length-limit, which is noise, not review.
+      rules:
+        - name: blank-imports
+        - name: bool-literal-in-expr
+        - name: confusing-results
+        - name: constant-logical-expr
+        - name: context-as-argument
+        - name: context-keys-type
+        - name: datarace
+        - name: defer
+        - name: dot-imports
+        - name: duplicated-imports
+        - name: early-return
+        - name: empty-block
+        - name: error-naming
+        - name: error-return
+        - name: error-strings
+        - name: errorf
+        - name: exported
+        - name: identical-branches
+        - name: increment-decrement
+        - name: indent-error-flow
+        - name: modifies-parameter
+        - name: modifies-value-receiver
+        - name: package-comments
+        - name: range
+        - name: receiver-naming
+        - name: redefines-builtin-id
+        - name: redundant-import-alias
+        - name: string-of-int
+        - name: struct-tag
+        - name: superfluous-else
+        - name: time-equal
+        - name: time-naming
+        - name: unexported-naming
+        - name: unexported-return
+        - name: unnecessary-stmt
+        - name: unreachable-code
+        - name: unused-parameter
+        - name: use-any
+        - name: var-declaration
+        - name: var-naming
+        - name: waitgroup-by-value
+
   exclusions:
+    presets:
+      - std-error-handling
     rules:
+      # os.Exit is what main is for. Scoped by text so main.go keeps the
+      # fmt.Print rule.
+      - path: ^main\.go$
+        linters: [forbidigo]
+        text: os\.Exit
       # Fixture files in a test's temp dir need no tight permissions, and
       # tests read files by the paths they build.
       - path: (_test\.go|internal/equiptest/)
         linters: [gosec]
         text: G30[1246]
+      # A skill name repeated across table rows is test data, not a constant.
+      - path: _test\.go$
+        linters: [goconst]
 
 formatters:
   enable:
