@@ -14,11 +14,14 @@ import (
 
 // record is what equip keeps of a Project on this machine.
 type record struct {
-	Path       string `toml:"path"`
-	RootCommit string `toml:"root_commit"`
-	Overrides  struct {
-		Skills map[string]string `toml:"skills"`
-	} `toml:"overrides"`
+	Path       string          `toml:"path"`
+	RootCommit string          `toml:"root_commit"`
+	Overrides  recordOverrides `toml:"overrides"`
+}
+
+// recordOverrides are the Overrides in a record, by extension kind.
+type recordOverrides struct {
+	Skills map[string]string `toml:"skills"`
 }
 
 // recordPath is the record file of project, one per path, so two clones of a
@@ -81,12 +84,12 @@ func parseState(name string) (State, bool) {
 
 // writeRecord writes the record of project with overrides.
 func writeRecord(machine Machine, project Project, overrides map[string]State) error {
-	rec := record{Path: project.Path, RootCommit: project.RootCommit}
-
-	rec.Overrides.Skills = map[string]string{}
+	skills := map[string]string{}
 	for key, st := range overrides {
-		rec.Overrides.Skills[key] = st.String()
+		skills[key] = st.String()
 	}
+
+	rec := record{Path: project.Path, RootCommit: project.RootCommit, Overrides: recordOverrides{Skills: skills}}
 
 	data, err := toml.Marshal(rec)
 	if err != nil {

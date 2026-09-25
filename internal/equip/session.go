@@ -107,20 +107,26 @@ func (s *Session) SetState(key string, st State) { s.overrides[key] = st }
 
 // View returns the current view.
 func (s *Session) View() View {
-	view := View{Project: s.project}
-	for _, e := range s.exts {
-		// With no presets, a skill falls back to Claude Code's default: on.
-		r := Row{Name: e.Key, State: On, Fallback: On, Unsaved: s.unsaved(e.Key), ChangedOutside: s.outside[e.Key]}
-		if st, ok := s.overrides[e.Key]; ok {
-			r.State, r.Override = st, true
+	rows := make([]Row, 0, len(s.exts))
+
+	for _, ext := range s.exts {
+		state, override := s.overrides[ext.Key]
+		if !override {
+			// With no presets, a skill falls back to Claude Code's default: on.
+			state = On
 		}
 
-		view.Rows = append(view.Rows, r)
+		rows = append(rows, Row{
+			Name:           ext.Key,
+			State:          state,
+			Override:       override,
+			Fallback:       On,
+			Unsaved:        s.unsaved(ext.Key),
+			ChangedOutside: s.outside[ext.Key],
+		})
 	}
 
-	view.Unsaved = s.unsavedCount()
-
-	return view
+	return View{Project: s.project, Rows: rows, Unsaved: s.unsavedCount()}
 }
 
 // DropOverride removes the Override for key, so the extension falls back.

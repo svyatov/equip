@@ -43,7 +43,7 @@ type model struct {
 
 // newTUI is the model of a fresh TUI over s.
 func newTUI(s *equip.Session) *model {
-	return &model{s: s, style: newStyles()}
+	return &model{s: s, style: newStyles(), cur: 0, quitting: false, flash: ""}
 }
 
 func (m *model) Init() tea.Cmd { return nil }

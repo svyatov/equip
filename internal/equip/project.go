@@ -21,7 +21,7 @@ func locate(machine Machine, dir string) (Project, error) {
 	if err != nil {
 		// ponytail: any git failure (no repo, no git binary) reads as outside
 		// git; match git's exit status if a real repo ever fails here.
-		return Project{Path: dir}, nil //nolint:nilerr // outside git is not an error
+		return Project{Path: dir, RootCommit: "", gitDir: ""}, nil //nolint:nilerr // outside git is not an error
 	}
 
 	common, root, _ := strings.Cut(strings.TrimSpace(out), "\n")

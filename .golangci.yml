@@ -7,8 +7,7 @@ version: "2"
 linters:
   default: all
   disable:
-    - exhaustruct # zero values are valid by design
-    - exhaustruct_v5 # the same linter under its new name
+    - exhaustruct # deprecated; exhaustruct_v5 replaces it
     - gomodguard # deprecated; depguard owns the import budget
     - wsl # deprecated; wsl_v5 replaces it
 
@@ -28,6 +27,11 @@ linters:
     exhaustive:
       # A default branch is the decision that the remaining cases are alike.
       default-signifies-exhaustive: true
+
+    exhaustruct_v5:
+      # A bubbletea key message has fields that are meant to stay zero.
+      ignore-patterns:
+        - charm\.land/.*
 
     forbidigo:
       # run() returns an error so every path is callable from a test, and
