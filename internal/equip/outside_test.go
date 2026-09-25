@@ -3,6 +3,7 @@ package equip_test
 import (
 	"errors"
 	"os"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"testing"
@@ -59,7 +60,7 @@ func TestQuittingWithoutSavingLeavesHandEditsToImportAgain(t *testing.T) {
 	}
 	want := equip.Row{
 		Name: "review", State: equip.On, Override: true, Fallback: equip.On, Unsaved: true,
-		Note: "changed outside equip in Claude Code",
+		ChangedOutside: true,
 	}
 	if v.Rows[0] != want {
 		t.Errorf("row = %+v, want %+v", v.Rows[0], want)
@@ -136,7 +137,7 @@ func TestEntryChangedOnDiskIsImportedAsAnUnsavedOverride(t *testing.T) {
 
 			want := equip.Row{
 				Name: "review", State: tc.want, Override: true, Fallback: equip.On, Unsaved: true,
-				Note: "changed outside equip in Claude Code",
+				ChangedOutside: true,
 			}
 			if v.Rows[1] != want {
 				t.Errorf("row = %+v, want %+v", v.Rows[1], want)
@@ -171,7 +172,7 @@ func TestSaveAfterAnOutsideChangeWritesNothingAndImportsIt(t *testing.T) {
 		{Name: "docs", State: equip.ManualOnly, Override: true, Fallback: equip.On, Unsaved: true},
 		{
 			Name: "review", State: equip.On, Override: true, Fallback: equip.On, Unsaved: true,
-			Note: "changed outside equip in Claude Code",
+			ChangedOutside: true,
 		},
 	}
 	if v := s.View(); !slices.Equal(v.Rows, want) {
@@ -289,5 +290,67 @@ func TestSaveAfterAnOutsideChangeBackShowsTheRecordState(t *testing.T) {
 	want := equip.Row{Name: "review", State: equip.Off, Override: true, Fallback: equip.On}
 	if v := s.View(); v.Rows[0] != want || v.Unsaved != 0 {
 		t.Errorf("row = %+v, Unsaved = %d, want %+v and 0", v.Rows[0], v.Unsaved, want)
+	}
+}
+
+func TestSaveMarksAPendingToggleReplacedByAnOutsideChange(t *testing.T) {
+	m := equiptest.New(t)
+	repo := m.Repo("app")
+	m.Skill(m.ClaudeSkills(), "review")
+	savedOff(t, m, repo)
+	s := session(t, m, repo)
+	s.SetState("review", equip.ManualOnly)
+	writeFile(t, settingsLocal(repo), `{}`)
+
+	if err := s.Save(); !errors.Is(err, equip.ErrChangedSinceOpen) {
+		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
+	}
+
+	want := equip.Row{Name: "review", State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true, ChangedOutside: true}
+	if v := s.View(); v.Rows[0] != want {
+		t.Errorf("row = %+v, want %+v", v.Rows[0], want)
+	}
+}
+
+func TestUnknownValuesOnDiskAreNotImportedAndSaveKeepsThem(t *testing.T) {
+	m := equiptest.New(t)
+	repo := m.Repo("app")
+	for _, name := range []string{"docs", "lint", "review"} {
+		m.Skill(m.ClaudeSkills(), name)
+	}
+	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"lint": 1, "review": "sometimes"}}`)
+	s := session(t, m, repo)
+	for _, r := range s.View().Rows {
+		if r.Override {
+			t.Errorf("row %+v imported an unknown value", r)
+		}
+	}
+
+	s.SetState("docs", equip.Off)
+	save(t, s)
+
+	got := readJSON(t, settingsLocal(repo))["skillOverrides"]
+	if want := map[string]any{"docs": "off", "lint": 1.0, "review": "sometimes"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("skillOverrides = %v, want %v", got, want)
+	}
+}
+
+func TestSaveAfterAFailedRecordWriteSucceeds(t *testing.T) {
+	m := equiptest.New(t)
+	repo := m.Repo("app")
+	m.Skill(m.ClaudeSkills(), "review")
+	s := session(t, m, repo)
+	s.SetState("review", equip.Off)
+	records := filepath.Join(m.StateHome, "equip")
+	writeFile(t, records, "") // a file where the records dir belongs
+	if err := s.Save(); err == nil {
+		t.Fatal("Save wrote a record into a file")
+	}
+	if err := os.Remove(records); err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.Save(); err != nil {
+		t.Errorf("Save = %v, want it to write", err)
 	}
 }

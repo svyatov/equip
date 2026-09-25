@@ -40,7 +40,7 @@ type Session struct {
 	overrides map[string]State // pending, by extension key
 	saved     map[string]State // the overrides at the last save
 	disk      map[string]State // Claude Code's entries for exts, as last read or written
-	notes     map[string]string
+	outside   map[string]bool  // changed outside equip since the last save
 }
 
 // View is what the user sees of a Session.
@@ -57,7 +57,9 @@ type Row struct {
 	Override bool  // State was set by hand in this Project
 	Fallback State // the state without the Override
 	Unsaved  bool
-	Note     string // why the row changed, such as an edit outside equip
+	// ChangedOutside reports that the row changed through an edit outside
+	// equip in Claude Code.
+	ChangedOutside bool
 }
 
 // Open finds the Project of dir and discovers its extensions.
@@ -80,7 +82,7 @@ func Open(m Machine, dir string) (*Session, error) {
 		// A first open imports the states set by hand, so a save keeps them.
 		saved = disk
 	}
-	s := &Session{m: m, project: p, exts: exts, overrides: maps.Clone(saved), saved: saved, disk: map[string]State{}, notes: map[string]string{}}
+	s := &Session{m: m, project: p, exts: exts, overrides: maps.Clone(saved), saved: saved, disk: map[string]State{}, outside: map[string]bool{}}
 	s.take(disk)
 	return s, nil
 }
@@ -96,13 +98,13 @@ func (s *Session) take(now map[string]State) bool {
 			continue
 		}
 		changed = true
-		delete(s.notes, key)
 		st, ok := now[key]
-		if !ok || !differ(now, s.saved, key) {
+		imported := ok && differ(now, s.saved, key)
+		// A pending toggle the change replaces was changed outside too.
+		s.outside[key] = imported || differ(s.overrides, s.saved, key) && !s.outside[key]
+		if !imported {
 			// Missing or as recorded: the row shows the record's state.
 			st, ok = s.saved[key]
-		} else {
-			s.notes[key] = "changed outside equip in Claude Code"
 		}
 		if ok {
 			s.overrides[key] = st
@@ -122,21 +124,28 @@ func (s *Session) View() View {
 	v := View{Project: s.project}
 	for _, e := range s.exts {
 		// With no presets, a skill falls back to Claude Code's default: on.
-		r := Row{Name: e.Key, State: On, Fallback: On, Unsaved: s.unsaved(e.Key), Note: s.notes[e.Key]}
+		r := Row{Name: e.Key, State: On, Fallback: On, Unsaved: s.unsaved(e.Key), ChangedOutside: s.outside[e.Key]}
 		if st, ok := s.overrides[e.Key]; ok {
 			r.State, r.Override = st, true
 		}
 		v.Rows = append(v.Rows, r)
 	}
+	v.Unsaved = s.unsavedCount()
+	return v
+}
+
+// unsavedCount counts the pending changes a save would write.
+func (s *Session) unsavedCount() int {
 	keys := maps.Clone(s.saved)
 	maps.Copy(keys, s.overrides)
 	maps.Copy(keys, s.disk)
+	n := 0
 	for key := range keys {
 		if s.unsaved(key) {
-			v.Unsaved++
+			n++
 		}
 	}
-	return v
+	return n
 }
 
 // unsaved reports whether a save would change the Override for key or, for
@@ -169,22 +178,24 @@ func (s *Session) Save() error {
 	}
 	// Nothing to write. With saved Overrides, a save still writes them, so
 	// the record of a first open's imports gets created.
-	if s.View().Unsaved == 0 && len(s.saved) == 0 {
+	if s.unsavedCount() == 0 && len(s.saved) == 0 {
 		return nil
 	}
 	if err := writeClaude(s.m, s.project, s.exts, s.overrides); err != nil {
 		return err
 	}
-	if err := writeRecord(s.m, s.project, s.overrides); err != nil {
-		return err
-	}
-	s.saved = maps.Clone(s.overrides)
-	clear(s.notes)
+	// Set before the record write, so a failed one does not make equip's own
+	// entries look changed outside.
 	s.disk = map[string]State{}
 	for _, e := range s.exts {
 		if st, ok := s.overrides[e.Key]; ok {
 			s.disk[e.Key] = st
 		}
 	}
+	if err := writeRecord(s.m, s.project, s.overrides); err != nil {
+		return err
+	}
+	s.saved = maps.Clone(s.overrides)
+	clear(s.outside)
 	return nil
 }

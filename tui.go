@@ -117,8 +117,8 @@ func detail(r equip.Row) string {
 	} else {
 		lines = append(lines, "Origin  default")
 	}
-	if r.Note != "" {
-		lines = append(lines, "        "+warnStyle.Render(r.Note))
+	if r.ChangedOutside {
+		lines = append(lines, "        "+warnStyle.Render("changed outside equip in Claude Code"))
 	}
 	lines = append(lines, "", "State")
 	for i, st := range states {
