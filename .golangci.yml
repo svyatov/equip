@@ -52,10 +52,11 @@ linters:
       require-specific: true
   exclusions:
     rules:
-      # Fixture files in a test's temp dir need no tight permissions.
+      # Fixture files in a test's temp dir need no tight permissions, and
+      # tests read files by the paths they build.
       - path: (_test\.go|internal/equiptest/)
         linters: [gosec]
-        text: G30[16]
+        text: G30[1246]
 
 formatters:
   enable:

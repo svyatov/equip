@@ -1,6 +1,9 @@
 package equip
 
 import (
+	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"strings"
 )
@@ -34,5 +37,28 @@ func locate(m Machine, dir string) (Project, error) {
 	if _, last, ok := strings.CutLast(commit, "\n"); ok {
 		commit = last
 	}
-	return Project{Path: root, RootCommit: commit}, nil
+	return Project{Path: root, RootCommit: commit, gitDir: common}, nil
+}
+
+// exclude adds rel, a path in the Project, to the main checkout's
+// .git/info/exclude unless git already ignores it. Outside git it does
+// nothing.
+func exclude(m Machine, p Project, rel string) error {
+	if p.gitDir == "" {
+		return nil
+	}
+	// ponytail: any check-ignore failure reads as not ignored, which at worst
+	// adds a line git did not need.
+	if _, err := m.Git(p.Path, "check-ignore", "-q", rel); err == nil {
+		return nil
+	}
+	path := filepath.Join(p.gitDir, "info", "exclude")
+	data, err := os.ReadFile(path) //nolint:gosec // git names the path
+	if err != nil && !errors.Is(err, fs.ErrNotExist) {
+		return err
+	}
+	if len(data) > 0 && data[len(data)-1] != '\n' {
+		data = append(data, '\n')
+	}
+	return writeFile(path, append(data, "/"+rel+"\n"...))
 }

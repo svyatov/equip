@@ -5,6 +5,7 @@ go 1.27.1
 require (
 	charm.land/bubbletea/v2 v2.0.10
 	charm.land/lipgloss/v2 v2.0.6
+	github.com/pelletier/go-toml/v2 v2.4.3
 )
 
 require (
@@ -45,7 +46,6 @@ require (
 	github.com/mitchellh/mapstructure v1.5.0 // indirect
 	github.com/mitchellh/reflectwalk v1.0.2 // indirect
 	github.com/muesli/cancelreader v0.2.2 // indirect
-	github.com/pelletier/go-toml/v2 v2.4.3 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/schollz/progressbar/v3 v3.19.1 // indirect
 	github.com/spf13/afero v1.15.0 // indirect
