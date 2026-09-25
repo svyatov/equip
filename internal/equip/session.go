@@ -20,6 +20,10 @@ const (
 	Off
 )
 
+var stateNames = [...]string{On: "on", ManualOnly: "manual-only", Off: "off"}
+
+func (s State) String() string { return stateNames[s] }
+
 // Session is one open Project.
 type Session struct {
 	m         Machine

@@ -19,9 +19,8 @@ var (
 	curStyle  = lipgloss.NewStyle().Bold(true).Foreground(accent)
 	paneStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
 
-	states     = []equip.State{equip.On, equip.ManualOnly, equip.Off}
-	stateNames = map[equip.State]string{equip.On: "on", equip.ManualOnly: "manual-only", equip.Off: "off"}
-	glyphs     = map[equip.State]string{equip.On: "●", equip.ManualOnly: "◐", equip.Off: "○"}
+	states = []equip.State{equip.On, equip.ManualOnly, equip.Off}
+	glyphs = map[equip.State]string{equip.On: "●", equip.ManualOnly: "◐", equip.Off: "○"}
 )
 
 // model is the Bubble Tea root model over a Session.
@@ -114,7 +113,7 @@ func detail(r equip.Row) string {
 	if r.Override {
 		lines = append(lines,
 			"Origin  "+warnStyle.Render("override")+", set by hand here",
-			dimStyle.Render("        without it: "+stateNames[r.Fallback]+" (default)"))
+			dimStyle.Render("        without it: "+r.Fallback.String()+" (default)"))
 	} else {
 		lines = append(lines, "Origin  default")
 	}
@@ -124,7 +123,7 @@ func detail(r equip.Row) string {
 		if st == r.State {
 			radio = glyphs[st]
 		}
-		lines = append(lines, fmt.Sprintf("  (%s) %d %s", radio, i+1, stateNames[st]))
+		lines = append(lines, fmt.Sprintf("  (%s) %d %s", radio, i+1, st))
 	}
 	return strings.Join(lines, "\n")
 }
