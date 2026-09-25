@@ -1,6 +1,9 @@
 package equip_test
 
 import (
+	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -27,6 +30,25 @@ func TestViewListsClaudeCodeProjectSkillsFromStartDirUpToRepoRoot(t *testing.T) 
 
 	got := names(open(t, machine, start))
 	if want := []string{"at-root", "in-parent", "in-start"}; !slices.Equal(got, want) {
+		t.Errorf("rows = %q, want %q", got, want)
+	}
+}
+
+func TestSkillWalkStopsAtRepoRootTypedInAnotherCase(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(claudeProjectSkills(machine.Root), "above-repo")
+	machine.Skill(filepath.Join(machine.Repo("App"), ".agents", "skills"), "at-root")
+
+	typed := filepath.Join(machine.Root, "app")
+
+	_, err := os.Stat(typed)
+	if err != nil {
+		t.Skip("the file system is case-sensitive")
+	}
+
+	got := names(open(t, machine, typed))
+	if want := []string{"at-root"}; !slices.Equal(got, want) {
 		t.Errorf("rows = %q, want %q", got, want)
 	}
 }
@@ -153,6 +175,57 @@ func TestSkillDirReachedTwiceIsOneSource(t *testing.T) {
 	}
 }
 
+func TestSkillDirUnderAFileIsSkipped(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "review")
+	writeFile(t, machine.CodexSystem, "not a dir")
+
+	got := names(open(t, machine, machine.Root))
+	if want := []string{"review"}; !slices.Equal(got, want) {
+		t.Errorf("rows = %q, want %q", got, want)
+	}
+}
+
+// unreadable makes dir unreadable until the test ends.
+func unreadable(t *testing.T, dir string) {
+	t.Helper()
+
+	if os.Geteuid() == 0 {
+		t.Skip("root reads every dir")
+	}
+
+	err := os.Chmod(dir, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) })
+}
+
+func TestUnreadableSkillDirIsSkipped(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "review")
+	unreadable(t, machine.Mkdir(filepath.Join(machine.CodexSystem, "skills")))
+
+	got := names(open(t, machine, machine.Root))
+	if want := []string{"review"}; !slices.Equal(got, want) {
+		t.Errorf("rows = %q, want %q", got, want)
+	}
+}
+
+func TestOpenFailsOnUnreadableClaudeCodeUserSkills(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	unreadable(t, machine.Mkdir(machine.ClaudeSkills()))
+
+	_, err := equip.Open(machine.Machine, machine.Root)
+	if !errors.Is(err, fs.ErrPermission) {
+		t.Errorf("Open error = %v, want permission denied", err)
+	}
+}
+
 // skillDescription writes a skill whose frontmatter holds description as
 // written and returns the description the Session reads from it.
 func skillDescription(t *testing.T, description string) string {
@@ -183,6 +256,15 @@ func TestSkillDescriptionFoldsAFoldedBlock(t *testing.T) {
 	}
 }
 
+func TestSkillDescriptionReadsAPlainValueOnTheNextLines(t *testing.T) {
+	t.Parallel()
+
+	got := skillDescription(t, "\n  Reviews code.\n  Use before a merge.")
+	if want := "Reviews code. Use before a merge."; got != want {
+		t.Errorf("Description = %q, want %q", got, want)
+	}
+}
+
 func TestSkillDescriptionUnquotesADoubleQuotedValue(t *testing.T) {
 	t.Parallel()
 
@@ -201,12 +283,14 @@ func TestSkillDescriptionUnquotesASingleQuotedValue(t *testing.T) {
 	}
 }
 
-// worktree makes a repo whose main checkout has the skill "in-main", which git
-// does not track, and returns a worktree of it.
+// worktree makes a repo whose main checkout has the Claude Code skill
+// "in-main" and the Codex skill "codex-in-main", which git does not track, and
+// returns a worktree of it.
 func worktree(machine *equiptest.Machine) string {
 	repo := machine.Repo("app")
 	machine.Commit(repo)
 	machine.Skill(claudeProjectSkills(repo), "in-main")
+	machine.Skill(filepath.Join(repo, ".agents", "skills"), "codex-in-main")
 
 	return machine.Worktree(repo, "app-feature")
 }

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"syscall"
 )
 
 // Agent is a coding agent that equip manages.
@@ -45,8 +46,9 @@ func (e Extension) has(agent Agent) bool {
 // discover finds the extensions installed for a session started in dir,
 // sorted by key, without running anything.
 func discover(machine Machine, project Project, dir string) ([]Extension, error) {
-	inv := inventory{byKey: map[string]*Extension{}, seen: map[Source]bool{}, err: nil}
-	inv.add(ClaudeCode, filepath.Join(machine.Home, ".claude", "skills"))
+	personal := filepath.Join(machine.Home, ".claude", "skills")
+	inv := inventory{byKey: map[string]*Extension{}, seen: map[Source]bool{}, err: nil, required: personal}
+	inv.add(ClaudeCode, personal)
 
 	parents := upTo(dir, project.checkout)
 
@@ -86,9 +88,10 @@ func discover(machine Machine, project Project, dir string) ([]Extension, error)
 
 // inventory collects the skills of the dirs discover reads.
 type inventory struct {
-	byKey map[string]*Extension
-	seen  map[Source]bool // the dirs read, by the agent that reads them
-	err   error           // the first dir that failed to list
+	byKey    map[string]*Extension
+	seen     map[Source]bool // the dirs read, by the agent that reads them
+	err      error           // the first dir that failed to list
+	required string          // the one dir that fails when it cannot be listed
 }
 
 // add adds the skills agent loads from root and returns how many it found.
@@ -96,7 +99,7 @@ type inventory struct {
 func (inv *inventory) add(agent Agent, root string) int {
 	// os.ReadDir sorts by name.
 	entries, err := os.ReadDir(root)
-	if inv.err != nil || errors.Is(err, fs.ErrNotExist) || inv.seen[Source{Path: root, Agent: agent}] {
+	if inv.err != nil || inv.missing(root, err) || inv.seen[Source{Path: root, Agent: agent}] {
 		return 0
 	}
 
@@ -133,6 +136,14 @@ func (inv *inventory) add(agent Agent, root string) int {
 	return found
 }
 
+// missing reports whether root, which failed to list with err, counts as
+// missing. So does a root the user cannot read or that is under a file, unless
+// it is required.
+func (inv *inventory) missing(root string, err error) bool {
+	return errors.Is(err, fs.ErrNotExist) ||
+		root != inv.required && (errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.ENOTDIR))
+}
+
 // description reads the description in the frontmatter of a SKILL.md.
 func description(skill []byte) string {
 	front, _, _ := strings.Cut(string(skill), "\n---")
@@ -151,9 +162,10 @@ func description(skill []byte) string {
 // ponytail: reads a plain, quoted or block value, not all of YAML; take a
 // YAML parser once a skill needs more.
 func yamlString(value string, after []string) string {
-	sep := " " // a folded block joins its lines with spaces
+	sep := " " // a folded block, or a plain value on the next lines, joins its lines with spaces
 
 	switch {
+	case value == "":
 	case strings.HasPrefix(value, "|"):
 		sep = "\n"
 	case len(value) > 1 && value[0] == '\'' && value[len(value)-1] == '\'':
@@ -181,10 +193,19 @@ func yamlString(value string, after []string) string {
 	return strings.Join(block, sep)
 }
 
-// upTo lists dir and each of its parents up to top, nearest first.
+// upTo lists dir and each of its parents up to top, nearest first. It compares
+// files, as dir may spell top in another case on a case-insensitive disk.
 func upTo(dir, top string) []string {
+	// A failed Stat leaves nil, which is never the same file.
+	topInfo, _ := os.Stat(top)
+
 	dirs := []string{dir}
-	for dir != top && dir != filepath.Dir(dir) {
+	for dir != filepath.Dir(dir) {
+		info, _ := os.Stat(dir)
+		if os.SameFile(info, topInfo) {
+			break
+		}
+
 		dir = filepath.Dir(dir)
 		dirs = append(dirs, dir)
 	}

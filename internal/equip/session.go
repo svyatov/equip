@@ -40,14 +40,14 @@ func (s State) String() string {
 
 // Session is one open Project.
 type Session struct {
-	overrides map[string]State // pending, by extension key
-	saved     map[string]State // the overrides at the last save
-	disk      map[string]State // Claude Code's entries for claude, as last read or written
-	outside   map[string]bool  // changed outside equip since the last save
-	machine   Machine
-	project   Project
-	exts      []Extension
-	claude    []Extension // the exts Claude Code has
+	overrides  map[string]State // pending, by extension key
+	saved      map[string]State // the overrides at the last save
+	disk       map[string]State // Claude Code's entries for claudeExts, as last read or written
+	outside    map[string]bool  // changed outside equip since the last save
+	machine    Machine
+	project    Project
+	exts       []Extension
+	claudeExts []Extension // the exts Claude Code has
 }
 
 // View is what the user sees of a Session.
@@ -89,23 +89,23 @@ func Open(machine Machine, dir string) (*Session, error) {
 		return nil, err
 	}
 
-	claude := slices.DeleteFunc(slices.Clone(exts), func(e Extension) bool { return !e.has(ClaudeCode) })
+	claudeExts := slices.DeleteFunc(slices.Clone(exts), func(e Extension) bool { return !e.has(ClaudeCode) })
 	// ponytail: broken settings read as no entries here; Save reports them.
-	disk, _ := readClaude(project, claude)
+	disk, _ := readClaude(project, claudeExts)
 	if saved == nil {
 		// A first open imports the states set by hand, so a save keeps them.
 		saved = disk
 	}
 
 	session := &Session{
-		machine:   machine,
-		project:   project,
-		exts:      exts,
-		claude:    claude,
-		overrides: maps.Clone(saved),
-		saved:     saved,
-		disk:      map[string]State{},
-		outside:   map[string]bool{},
+		machine:    machine,
+		project:    project,
+		exts:       exts,
+		claudeExts: claudeExts,
+		overrides:  maps.Clone(saved),
+		saved:      saved,
+		disk:       map[string]State{},
+		outside:    map[string]bool{},
 	}
 	session.take(disk)
 
@@ -157,9 +157,9 @@ func (s *Session) Detail(key string) Detail {
 	ext := s.exts[i]
 	detail := Detail{Description: ext.Description, Agents: nil, Sources: ext.Sources, NotApplied: map[Agent]string{}}
 
-	for _, agent := range []Agent{ClaudeCode, Codex} {
-		if ext.has(agent) {
-			detail.Agents = append(detail.Agents, agent)
+	for _, src := range ext.Sources {
+		if !slices.Contains(detail.Agents, src.Agent) {
+			detail.Agents = append(detail.Agents, src.Agent)
 		}
 	}
 
@@ -177,7 +177,7 @@ func (s *Session) DropOverride(key string) { delete(s.overrides, key) }
 // Code's entries changed since they were read, it writes nothing, imports the
 // changes and returns ErrChangedSinceOpen.
 func (s *Session) Save() error {
-	now, err := readClaude(s.project, s.claude)
+	now, err := readClaude(s.project, s.claudeExts)
 	if err != nil {
 		return err
 	}
@@ -191,14 +191,14 @@ func (s *Session) Save() error {
 		return nil
 	}
 
-	err = writeClaude(s.machine, s.project, s.claude, s.overrides)
+	err = writeClaude(s.machine, s.project, s.claudeExts, s.overrides)
 	if err != nil {
 		return err
 	}
 	// Set before the record write, so a failed one does not make equip's own
 	// entries look changed outside.
 	s.disk = map[string]State{}
-	for _, e := range s.claude {
+	for _, e := range s.claudeExts {
 		if st, ok := s.overrides[e.Key]; ok {
 			s.disk[e.Key] = st
 		}
@@ -221,7 +221,7 @@ func (s *Session) Save() error {
 func (s *Session) take(now map[string]State) bool {
 	changed := false
 
-	for _, e := range s.claude {
+	for _, e := range s.claudeExts {
 		key := e.Key
 		if !differ(now, s.disk, key) {
 			continue
@@ -269,7 +269,7 @@ func (s *Session) unsavedCount() int {
 // unsaved reports whether a save would change the Override for key or, for
 // an extension Claude Code has, its entry on disk.
 func (s *Session) unsaved(key string) bool {
-	inClaude := slices.ContainsFunc(s.claude, func(e Extension) bool { return e.Key == key })
+	inClaude := slices.ContainsFunc(s.claudeExts, func(e Extension) bool { return e.Key == key })
 
 	return differ(s.overrides, s.saved, key) || inClaude && differ(s.overrides, s.disk, key)
 }
