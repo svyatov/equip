@@ -29,14 +29,13 @@ func recordPath(m Machine, p Project) string {
 	return filepath.Join(m.StateHome, "equip", filepath.Base(p.Path)+"-"+hex.EncodeToString(sum[:8])+".toml")
 }
 
-// readRecord reads the Overrides in the record of p. With no record, there
-// are none.
+// readRecord reads the Overrides in the record of p. With no record, it
+// returns nil.
 func readRecord(m Machine, p Project) (map[string]State, error) {
-	overrides := map[string]State{}
 	path := recordPath(m, p)
 	data, err := os.ReadFile(path) //nolint:gosec // equip builds the path
 	if errors.Is(err, fs.ErrNotExist) {
-		return overrides, nil
+		return nil, nil //nolint:nilnil // no record is not an error
 	}
 	if err != nil {
 		return nil, err
@@ -45,6 +44,7 @@ func readRecord(m Machine, p Project) (map[string]State, error) {
 	if err := toml.Unmarshal(data, &rec); err != nil {
 		return nil, fmt.Errorf("read %s: %w", path, err)
 	}
+	overrides := map[string]State{}
 	for key, name := range rec.Overrides.Skills {
 		st, ok := parseState(name)
 		if !ok {
