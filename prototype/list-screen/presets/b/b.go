@@ -4,6 +4,7 @@
 package b
 
 import (
+	"cmp"
 	"fmt"
 	"maps"
 	"slices"
@@ -59,10 +60,11 @@ type Model struct {
 	total0         int
 	naming         bool // inline name edit on the highlighted row
 	buf            string
-	adding         bool // add-members popup over the middle pane
+	adding         bool // add-members list over the middle pane
+	searching      bool // typing a search in the add list
 	query          string
 	acur, atop     int
-	confirm        string // "", "write", "delete"
+	confirm        string // "", "write", "delete", "activate"
 	leaving, flash string
 }
 
@@ -109,7 +111,7 @@ func (m *Model) rows(it *item) []*data.Ext {
 			out = append(out, e)
 		}
 	}
-	slices.SortFunc(out, func(a, b *data.Ext) int { return strings.Compare(a.Name, b.Name) })
+	slices.SortFunc(out, byKind)
 	return out
 }
 
@@ -120,8 +122,12 @@ func (m *Model) candidates(it *item) []*data.Ext {
 			out = append(out, e)
 		}
 	}
-	slices.SortFunc(out, func(a, b *data.Ext) int { return strings.Compare(a.Name, b.Name) })
+	slices.SortFunc(out, byKind)
 	return out
+}
+
+func byKind(a, b *data.Ext) int {
+	return cmp.Or(cmp.Compare(a.Kind, b.Kind), strings.Compare(a.Name, b.Name))
 }
 
 func closeCmd() tea.Msg { return data.ClosePresets{} }
@@ -142,10 +148,15 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 		}
 		return nil
 	case m.confirm != "":
-		if key == "y" {
+		switch {
+		case key == "y" && m.confirm == "activate":
+			m.s.SetActive(toggled(m.s.Presets, it.orig))
+			m.confirm = ""
+		case key == "y":
+			created := it.orig == "" && m.confirm == "write"
 			m.write(it)
-		}
-		if key == "y" || key == "n" || key == "esc" {
+			m.confirm = map[bool]string{true: "activate"}[created]
+		case key == "n" || key == "esc":
 			m.confirm = ""
 		}
 		return nil
@@ -201,7 +212,7 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 			m.flash = sDim.Render("no unwritten edits in " + it.p.Name)
 		}
 	case "a":
-		m.adding, m.query, m.acur, m.atop, m.focus = true, "", 0, 0, paneMembers
+		m.adding, m.searching, m.query, m.acur, m.atop, m.focus = true, false, "", 0, 0, paneMembers
 	case "space", "x":
 		if m.focus == paneMembers {
 			if rows := m.rows(it); len(rows) > 0 {
@@ -262,23 +273,34 @@ func (m *Model) name(it *item, key, text string) {
 
 func (m *Model) add(it *item, key, text string) {
 	c := m.candidates(it)
-	switch key {
-	case "esc", "tab":
+	move := map[string]int{"up": -1, "down": 1, "pgup": -10, "pgdown": 10}
+	if !m.searching {
+		move["k"], move["j"] = -1, 1
+	}
+	switch {
+	case move[key] != 0:
+		m.acur += move[key]
+	case m.searching:
+		switch key {
+		case "esc":
+			m.searching, m.query, m.acur = false, "", 0
+		case "enter":
+			m.searching = false
+		case "backspace":
+			if r := []rune(m.query); len(r) > 0 {
+				m.query, m.acur = string(r[:len(r)-1]), 0
+			}
+		default:
+			if text != "" {
+				m.query, m.acur = m.query+text, 0
+			}
+		}
+	case key == "esc":
 		m.adding = false
-	case "enter":
-		if len(c) > 0 {
-			it.p.Members[c[m.acur].Name] = true
-		}
-	case "up", "down", "pgup", "pgdown":
-		m.acur += map[string]int{"up": -1, "down": 1, "pgup": -10, "pgdown": 10}[key]
-	case "backspace":
-		if r := []rune(m.query); len(r) > 0 {
-			m.query, m.acur = string(r[:len(r)-1]), 0
-		}
-	default:
-		if text != "" {
-			m.query, m.acur = m.query+text, 0
-		}
+	case key == "/":
+		m.searching = true
+	case key == "space" && len(c) > 0:
+		it.p.Members[c[m.acur].Name] = true
 	}
 	m.acur = max(0, min(m.acur, len(m.candidates(it))-1))
 }
@@ -380,14 +402,18 @@ func (m *Model) footer() string {
 	switch {
 	case m.leaving != "":
 		return sWarn.Render(m.leaving)
-	case m.flash != "":
-		return " " + m.flash
+	case m.confirm == "activate":
+		return " " + m.flash + help("y", "make it active here", "n", "not now")
 	case m.confirm != "":
 		return help("y", m.confirm, "n", "cancel")
+	case m.flash != "":
+		return " " + m.flash
 	case m.naming:
 		return help("type", "name", "enter", "done", "esc", "cancel")
+	case m.searching:
+		return help("type", "search", "↑↓", "move", "enter", "done", "esc", "clear")
 	case m.adding:
-		return help("type", "search", "↑↓", "move", "enter", "add", "esc", "done")
+		return help("j/k", "move", "space", "add", "/", "search", "esc", "close")
 	case m.focus == paneMembers:
 		return help("↑↓", "member", "x/space", "remove (space re-adds)", "a", "add", "w", "write preset", "tab", "library", "esc", "back")
 	}
@@ -456,16 +482,12 @@ func (m *Model) middle(it *item, w, h int) []string {
 			cost += e.Tokens
 		}
 	}
-	l := []string{sBold.Render("Members of "+it.p.Name) + sDim.Render(fmt.Sprintf("  %d, %s tokens when on", len(it.p.Members), data.Tokens(cost))),
-		sDim.Render(fmt.Sprintf("  here %-*s%-7s%6s", w-20, "name", "kind", "ctx"))}
+	l := []string{sBold.Render("Members of "+it.p.Name) + sDim.Render(fmt.Sprintf("  %d, %s tokens when on", len(it.p.Members), data.Tokens(cost)))}
 	if len(rows) == 0 {
-		l = append(l, sDim.Render("  no members yet, a adds some"))
+		l = append(l, "", sDim.Render("  no members yet, a adds some"))
 	}
 	m.mcur = max(0, min(m.mcur, len(rows)-1))
-	n := h - len(l)
-	m.mtop = max(min(m.mtop, m.mcur), m.mcur-n+1)
-	for i := m.mtop; i < len(rows) && i < m.mtop+n; i++ {
-		e := rows[i]
+	return append(l, grouped(rows, m.mcur, &m.mtop, h-1, func(i int, e *data.Ext) string {
 		mk, ns := mark(i == m.mcur, m.focus == paneMembers)
 		edit := " "
 		switch {
@@ -481,29 +503,54 @@ func (m *Model) middle(it *item, w, h int) []string {
 				ovr = sWarn.Render("ovr")
 			}
 		}
-		name := trunc(e.Name, w-21)
-		l = append(l, fit(mk+sState[e.State].Render(glyph[e.State])+edit+" "+ns.Render(name), w-16)+
-			ovr+" "+sDim.Render(fmt.Sprintf("%-6s", e.Kind))+fmt.Sprintf("%6s", data.Tokens(e.Tokens)))
-	}
-	return l
+		return fit(mk+sState[e.State].Render(glyph[e.State])+edit+" "+ns.Render(trunc(e.Name, w-15)), w-10) +
+			ovr + fmt.Sprintf("%7s", data.Tokens(e.Tokens))
+	})...)
 }
 
 func (m *Model) popup(it *item, w, h int) []string {
 	c := m.candidates(it)
-	l := []string{sAccent.Render("Add to "+it.p.Name) + sDim.Render(fmt.Sprintf("  %d not in it", len(c))),
-		sKey.Render("/") + m.query + sKey.Render("▏"), ""}
+	search := sDim.Render("/ searches")
+	switch {
+	case m.searching:
+		search = sKey.Render("/") + m.query + sKey.Render("▏")
+	case m.query != "":
+		search = sKey.Render("/") + m.query + sDim.Render("  / edits")
+	}
+	l := []string{sAccent.Render("Add to "+it.p.Name) + sDim.Render(fmt.Sprintf("  %d not in it", len(c))), search}
 	if len(c) == 0 {
-		l = append(l, sDim.Render("  nothing matches"))
+		l = append(l, "", sDim.Render("  nothing matches"))
 	}
-	n := h - len(l)
-	m.atop = max(min(m.atop, m.acur), m.acur-n+1)
-	for i := m.atop; i < len(c) && i < m.atop+n; i++ {
-		e := c[i]
+	return append(l, grouped(c, m.acur, &m.atop, h-2, func(i int, e *data.Ext) string {
 		mk, ns := mark(i == m.acur, true)
-		l = append(l, fit(mk+sState[e.State].Render(glyph[e.State])+" "+ns.Render(trunc(e.Name, w-18)), w-13)+
-			sDim.Render(fmt.Sprintf("%-7s", e.Kind))+fmt.Sprintf("%6s", data.Tokens(e.Tokens)))
+		return fit(mk+sState[e.State].Render(glyph[e.State])+" "+ns.Render(trunc(e.Name, w-11)), w-7) + fmt.Sprintf("%7s", data.Tokens(e.Tokens))
+	})...)
+}
+
+var kindHead = map[data.Kind]string{data.Skill: "Skills", data.Plugin: "Plugins", data.MCP: "MCP servers"}
+
+// grouped renders exts (sorted by kind) under kind headers, scrolled so row
+// cur stays in view within h lines.
+func grouped(exts []*data.Ext, cur int, top *int, h int, line func(int, *data.Ext) string) []string {
+	var l []string
+	at := 0
+	for i, e := range exts {
+		if i == 0 || e.Kind != exts[i-1].Kind {
+			n := 0
+			for _, x := range exts {
+				if x.Kind == e.Kind {
+					n++
+				}
+			}
+			l = append(l, "", sBold.Render(kindHead[e.Kind])+sDim.Render(fmt.Sprintf("  %d", n)))
+		}
+		if i == cur {
+			at = len(l)
+		}
+		l = append(l, line(i, e))
 	}
-	return l
+	*top = max(0, min(*top, at-2), at-h+1) // keep the group header above the first row in view
+	return l[min(*top, len(l)):min(*top+h, len(l))]
 }
 
 func (m *Model) impact(it *item, w int) []string {
@@ -567,16 +614,8 @@ func (m *Model) impact(it *item, w int) []string {
 		if lib != nil && lib.Name != it.p.Name {
 			add("  renamed from " + lib.Name)
 		}
-		if len(plus) > 0 {
-			for _, s := range wrap(strings.Join(plus, ", "), w-4) {
-				add(sOK.Render("  + ") + s)
-			}
-		}
-		if len(minus) > 0 {
-			for _, s := range wrap(strings.Join(minus, ", "), w-4) {
-				add(sWarn.Render("  - ") + s)
-			}
-		}
+		add(names(sOK.Render("  + "), plus, w)...)
+		add(names(sWarn.Render("  - "), minus, w)...)
 		if here {
 			add(sDim.Render("  here, once written:"), "  "+m.delta(m.tryWrite(it, false)))
 		} else {
@@ -619,7 +658,42 @@ func (m *Model) impact(it *item, w int) []string {
 	return l
 }
 
+// otherDiff is what writing (or deleting) it turns on and off in another
+// project. Other projects have no overrides here: with presets, an extension
+// is on if one of them has it; with none, the agents' defaults turn all on.
+func (m *Model) otherDiff(it *item, presets []string, del bool) (on, off []string) {
+	after := slices.Clone(presets)
+	if del {
+		after = slices.DeleteFunc(after, func(n string) bool { return n == it.orig })
+	}
+	draft := func(n string) *data.Preset {
+		if n == it.orig {
+			return it.p
+		}
+		return m.s.Preset(n)
+	}
+	has := func(names []string, get func(string) *data.Preset, e string) bool {
+		return len(names) == 0 || slices.ContainsFunc(names, func(n string) bool { p := get(n); return p != nil && p.Members[e] })
+	}
+	for _, e := range m.s.Exts {
+		switch was, now := has(presets, m.s.Preset, e.Name), has(after, draft, e.Name); {
+		case now && !was:
+			on = append(on, e.Name)
+		case was && !now:
+			off = append(off, e.Name)
+		}
+	}
+	return on, off
+}
+
 func (m *Model) confirmView(it *item, w int) []string {
+	if m.confirm == "activate" {
+		return []string{sOK.Render("Wrote preset " + it.p.Name), "", sWarn.Render("Make it active here?"),
+			sDim.Render("a pending project change,"), sDim.Render("saved with s on the main screen"), "",
+			sDim.Render("Activating it here:"),
+			"  " + m.delta(m.s.Try(func() { m.s.Presets = toggled(m.s.Presets, it.orig) })),
+			"", help("y", "make it active", "n", "not now")}
+	}
 	del := m.confirm == "delete"
 	verb := "Write"
 	switch {
@@ -641,11 +715,23 @@ func (m *Model) confirmView(it *item, w int) []string {
 	if len(users) == 0 {
 		l = append(l, sDim.Render("  no project uses it yet"))
 	}
-	for _, p := range users {
-		l = append(l, "  "+trunc(p, w-2))
-	}
 	if del && len(users) > 0 {
 		l = append(l, sDim.Render("  each stops using it"))
+	}
+	if slices.Contains(users, m.s.Project) {
+		l = append(l, "  "+trunc(m.s.Project, w-16)+sDim.Render(" (here, below)"))
+	}
+	for _, p := range m.s.Projects {
+		if !slices.Contains(users, p.Path) {
+			continue
+		}
+		l = append(l, "  "+trunc(p.Path, w-2))
+		on, off := m.otherDiff(it, p.Presets, del)
+		if len(on)+len(off) == 0 {
+			l = append(l, sDim.Render("    no change"))
+		}
+		l = append(l, names(sOK.Render("    + "), on, w)...)
+		l = append(l, names(sWarn.Render("    - "), off, w)...)
 	}
 	changed, total := m.tryWrite(it, del)
 	l = append(l, "", sBold.Render("This project")+sDim.Render(fmt.Sprintf("  %d state changes", len(changed))))
@@ -671,6 +757,23 @@ func (m *Model) confirmView(it *item, w int) []string {
 	}
 	return append(l, "", sDim.Render("Session  ")+data.Tokens(m.s.Total())+" → "+sBold.Render(data.Tokens(total))+sDim.Render(" tokens"),
 		sDim.Render(fmt.Sprintf("Overrides kept  %d", kept)), "", help("y", strings.ToLower(verb), "n", "cancel"))
+}
+
+// names wraps a comma list in w cells behind a sign; wrapped lines indent under it.
+func names(sign string, list []string, w int) []string {
+	if len(list) == 0 {
+		return nil
+	}
+	pad := lipgloss.Width(sign)
+	l := wrap(strings.Join(list, ", "), w-pad)
+	for i := range l {
+		if i == 0 {
+			l[i] = sign + l[i]
+		} else {
+			l[i] = strings.Repeat(" ", pad) + l[i]
+		}
+	}
+	return l
 }
 
 // ---- layout helpers, copied from mainscreen ----
