@@ -89,10 +89,13 @@ func TestDetailPaneShowsStatesOriginAndFallback(t *testing.T) {
 	m := equiptest.New(t)
 	m.Skill(m.ClaudeSkills(), "review")
 	tm := newModel(t, m)
+	if line(tm, "Origin  default") == "" {
+		t.Errorf("view does not show the default origin:\n%s", tm.View().Content)
+	}
 
 	press(tm, key('3'))
 
-	for _, want := range []string{"( ) 1 on", "( ) 2 manual-only", "(○) 3 off", "override", "without it: on (default)"} {
+	for _, want := range []string{"( ) 1 on", "( ) 2 manual-only", "(○) 3 off", "set by hand here", "without it: on (default)"} {
 		if line(tm, want) == "" {
 			t.Errorf("view does not show %q:\n%s", want, tm.View().Content)
 		}
