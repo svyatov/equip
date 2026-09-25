@@ -1,8 +1,9 @@
 version: "2"
 
 # Every linter is on, so one a new golangci-lint release adds starts checking
-# without anyone opting in. Each one turned off names its reason: it fires on a
-# deliberate choice of this codebase, not on a mistake.
+# without anyone opting in. Only deprecated linters are off, each for the one
+# that replaces it. A finding is fixed in the code; a setting below narrows a
+# linter only where the fix would be noise.
 
 linters:
   default: all
