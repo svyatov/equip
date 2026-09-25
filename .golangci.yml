@@ -12,20 +12,13 @@ linters:
     - exhaustruct # zero values are valid by design
     - exhaustruct_v5 # the same linter under its new name
     - funcorder # a helper method sits beside the exported method it serves
-    - funlen
     - gochecknoglobals # the globals are lipgloss styles and lookup tables
-    - gocognit
-    - gocyclo
     - gomodguard # deprecated; depguard owns the import budget
-    - ireturn # bubbletea's Update returns its own tea.Model interface
     - lll # gofumpt owns layout
-    - maintidx
     - mnd
-    - nestif
     - nlreturn # blank-line style
     - noinlineerr # `if err := f(); err != nil` is the Go idiom
     - nonamedreturns # named results document two-value returns
-    - testpackage # the unit tests are white-box on purpose
     - varnamelen # short names in short scopes are the Go idiom
     - wrapcheck # an os error already names its path
     - wsl # blank-line style
@@ -73,6 +66,15 @@ linters:
       enable-all: true
       disable:
         - fieldalignment # field order follows meaning; no struct here is hot
+
+    ireturn:
+      # The defaults, plus the model interface bubbletea's Update must return.
+      allow:
+        - anon
+        - error
+        - empty
+        - stdlib
+        - charm.land/bubbletea/v2.Model
 
     nolintlint:
       require-explanation: true
