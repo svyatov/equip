@@ -13,16 +13,28 @@ const (
 	project    = ".claude/skills"
 )
 
-func preset(name, members string) Preset {
-	p := Preset{Name: name, Members: map[string]bool{}}
+func preset(name, members string) *Preset {
+	p := &Preset{Name: name, Members: map[string]bool{}}
 	for m := range strings.FieldsSeq(members) {
 		p.Members[m] = true
 	}
 	return p
 }
 
+// the other projects with a record on this machine.
+var projects = []Project{
+	{"~/Projects/My/open-source/handrail", []string{"go"}},
+	{"~/Projects/My/open-source/ponytail", []string{"go", "writing"}},
+	{"~/Projects/work/billing-api", []string{"ruby"}},
+	{"~/Projects/work/storefront", []string{"ruby"}},
+	{"~/Projects/My/blog", []string{"writing"}},
+	{"~/Projects/My/brain", []string{"writing", "accounting"}},
+	{"~/Documents/taxes-2026", []string{"accounting"}},
+	{"~/Projects/My/scratch", nil},
+}
+
 // the user's presets; only go is active in this project.
-var library = []Preset{
+var library = []*Preset{
 	preset("go", "tdd grilling domain-modeling research prototype code-review diagnosing-bugs codebase-design "+
 		"writing-for-agents modern-go-guidelines atomic-commits ponytail dependency-vetting codegraph github wayfinder go-release"),
 	preset("ruby", "tdd grilling research code-review diagnosing-bugs rails-upgrade rspec-fix sql-review "+
@@ -83,7 +95,7 @@ var childOverrides = map[string]State{
 
 // Fake returns a store shaped like a real two-agent setup.
 func Fake() *Store {
-	s := &Store{Project: "~/Projects/My/open-source/equip", Presets: []string{"go"}, Library: library}
+	s := &Store{Project: "~/Projects/My/open-source/equip", Presets: []string{"go"}, Library: library, Projects: projects}
 	skill := func(name, src string, a Agent, desc string) {
 		s.Exts = append(s.Exts, &Ext{Kind: Skill, Name: name, Source: src, Agents: a, Desc: desc, Tokens: tok(name, 40, 220)})
 	}
@@ -191,20 +203,16 @@ func Fake() *Store {
 	mcp("claude-in-chrome", "built-in", Claude, "Drive the user's Chrome browser")
 	mcp("postgres", "~/.codex/config.toml", Codex, "Read-only access to a local Postgres")
 
-	for _, e := range s.Exts {
-		e.State, e.Origin = Off, "default"
-		if library[0].Members[e.Name] {
-			e.State, e.Origin = On, "preset go"
-		}
-		if st, ok := overrides[e.Name]; ok {
-			e.State, e.Origin = st, "override"
-		}
-	}
 	for _, e := range s.All() {
-		if st, ok := childOverrides[e.Name]; ok && e.Parent != nil {
+		ov := overrides
+		if e.Parent != nil {
+			ov = childOverrides
+		}
+		if st, ok := ov[e.Name]; ok {
 			e.State, e.Origin = st, "override"
 		}
 	}
+	s.Recompute()
 	s.snapshot()
 	return s
 }

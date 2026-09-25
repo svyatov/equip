@@ -1,6 +1,7 @@
-// Package b is a PROTOTYPE variant, throwaway: master-detail. A facet sidebar
-// filters a lean list; a detail pane shows and sets the highlighted extension.
-package b
+// Package mainscreen is the PROTOTYPE main screen, throwaway: the approved
+// master-detail variant from prototype/list-screen. A facet sidebar filters a
+// lean list; a detail pane shows and sets the highlighted extension.
+package mainscreen
 
 import (
 	"fmt"
@@ -37,7 +38,7 @@ var facets = []facet{
 	{"Manual-only", true, func(_ *Model, e *data.Ext) bool { return e.State == data.Manual }},
 	{"Off", false, func(_ *Model, e *data.Ext) bool { return e.State == data.Off }},
 	{"Overrides", true, func(_ *Model, e *data.Ext) bool { return e.Origin == "override" }},
-	{"Unsaved changes", true, func(m *Model, e *data.Ext) bool { return m.base[e] != e.State }},
+	{"Unsaved changes", true, func(m *Model, e *data.Ext) bool { return m.dirty(e) }},
 }
 
 // a blank line goes before these facet indexes in the sidebar
@@ -74,30 +75,15 @@ type Model struct {
 	query            string
 	typing, quitting bool
 	flash            string
-	base             map[*data.Ext]data.State // states at last save
 }
 
-func New(s *data.Store) *Model {
-	m := &Model{s: s, focus: paneList}
-	m.snapshot()
-	return m
-}
+func New(s *data.Store) *Model { return &Model{s: s, focus: paneList} }
 
-func (m *Model) Name() string     { return "Master-detail" }
 func (m *Model) SetSize(w, h int) { m.w, m.h = w, h }
-
-// ponytail: Store keeps its baseline private, so this mirrors it and resyncs
-// whenever the store reports nothing unsaved (e.g. another variant saved).
-func (m *Model) snapshot() {
-	m.base = map[*data.Ext]data.State{}
-	for _, e := range m.s.All() {
-		m.base[e] = e.State
-	}
-}
 
 func (m *Model) narrow() bool { return m.w < 100 }
 
-func (m *Model) dirty(e *data.Ext) bool { return m.base[e] != e.State }
+func (m *Model) dirty(e *data.Ext) bool { return m.s.Saved(e) != e.State }
 
 // anyOf reports whether f holds for e or one of its plugin contents.
 func anyOf(e *data.Ext, f func(*data.Ext) bool) bool {
@@ -145,9 +131,6 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	k, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return nil
-	}
-	if m.s.Unsaved() == 0 {
-		m.snapshot()
 	}
 	m.flash = ""
 	key := k.String()
@@ -203,10 +186,13 @@ func (m *Model) Update(msg tea.Msg) tea.Cmd {
 	case "[", "]":
 		m.setFacet(map[string]int{"[": -1, "]": 1}[key])
 	case "p":
-		m.flash = sWarn.Render("preset picker and editor: designed in the next ticket")
+		return func() tea.Msg { return data.OpenPresets{} }
+	case "x":
+		if e != nil && m.focus != paneFacets && e.Origin == "override" {
+			m.s.ClearOverride(e)
+		}
 	case "s":
 		n := m.s.Save()
-		m.snapshot()
 		m.flash = sOK.Render(fmt.Sprintf("saved %d changes (prototype: nothing written)", n))
 	case "up", "k", "down", "j", "pgup", "pgdown", "home", "end":
 		m.move(key)
@@ -266,7 +252,7 @@ func (m *Model) View() string {
 	}
 	vis := m.visible()
 	e := m.selected(vis)
-	ph := m.h - 4
+	ph := m.h - 2
 
 	var panes []string
 	rest := m.w
@@ -280,7 +266,7 @@ func (m *Model) View() string {
 		box(m.list(vis, listW-4, ph-2), listW, ph, m.focus == paneList),
 		box(m.detail(e, rest-listW-4, ph-2), rest-listW, ph, m.focus == paneDetail))
 
-	return fit(m.header(), m.w) + "\n" + m.budget() + "\n" +
+	return fit(m.header(), m.w) + "\n" +
 		lipgloss.JoinHorizontal(lipgloss.Top, panes...) + "\n" +
 		fit(m.footer(), m.w)
 }
@@ -294,41 +280,13 @@ func (m *Model) header() string {
 	if m.narrow() {
 		app = " "
 	}
+	presets := sAccent.Render(strings.Join(m.s.Presets, " + "))
+	if len(m.s.Presets) == 0 {
+		presets = sDim.Render("none (agent defaults)")
+	}
 	return app + sBold.Render(m.s.Project) +
-		sDim.Render("  presets: ") + strings.Join(m.s.Presets, ", ") + " " + sKey.Render("p") + sDim.Render(" change") + un
-}
-
-var kindColor = [3]lipgloss.Style{
-	lipgloss.NewStyle().Foreground(lipgloss.Color("#5fafff")),
-	lipgloss.NewStyle().Foreground(lipgloss.Color("#d787ff")),
-	lipgloss.NewStyle().Foreground(lipgloss.Color("#ffaf5f")),
-}
-
-// budget is a full-width bar of the session total split by kind, and its legend.
-func (m *Model) budget() string {
-	var byKind [3]int
-	for _, e := range m.s.Exts {
-		byKind[e.Kind] += e.Cost()
-	}
-	total, bw := m.s.Total(), m.w-2
-	var bar, legend strings.Builder
-	used := 0
-	for k, n := range byKind {
-		seg := 0
-		if total > 0 {
-			seg = n * bw / total
-		}
-		if k == 2 && total > 0 {
-			seg = bw - used // rounding leftovers go to the last segment
-		}
-		used += seg
-		bar.WriteString(kindColor[k].Render(strings.Repeat("█", seg)))
-		legend.WriteString(kindColor[k].Render("■ ") + [3]string{"skills", "plugins", "MCP servers"}[k] + " " + sDim.Render(data.Tokens(n)) + "   ")
-	}
-	bar.WriteString(sDim.Render(strings.Repeat("░", bw-used)))
-	sum := "session " + sBold.Render(data.Tokens(total)) + " tokens"
-	gap := max(1, m.w-2-lipgloss.Width(legend.String())-lipgloss.Width(sum))
-	return fit(" "+bar.String(), m.w) + "\n" + fit(" "+legend.String()+strings.Repeat(" ", gap)+sum, m.w)
+		sDim.Render("  presets: ") + presets + " " + sKey.Render("p") +
+		sDim.Render("  session ") + sBold.Render(data.Tokens(m.s.Total())) + sDim.Render(" tokens") + un
 }
 
 func (m *Model) footer() string {
@@ -346,11 +304,11 @@ func (m *Model) footer() string {
 		return help("↑↓", "facet", "enter", "list", "tab", "pane", "/", "search", "s", "save", "q", "quit")
 	case paneDetail:
 		if e := m.selected(m.visible()); e != nil && len(e.Children) > 0 {
-			return help("↑↓", "contents", "space", "cycle", "1-3", "set content state", "tab", "pane", "s", "save", "q", "quit")
+			return help("↑↓", "contents", "space", "cycle", "1-3", "set content state", "x", "drop override", "tab", "pane", "s", "save", "q", "quit")
 		}
-		return help("↑↓", "scroll", "space", "cycle", "1-3", "set state", "tab", "pane", "s", "save", "q", "quit")
+		return help("↑↓", "scroll", "space", "cycle", "1-3", "set state", "x", "drop override", "tab", "pane", "s", "save", "q", "quit")
 	}
-	return help("↑↓", "move", "space", "cycle", "1-3", "set state", "tab", "pane", "/", "search", "p", "presets", "s", "save", "q", "quit", "[ ]", "facet")
+	return help("↑↓", "move", "space", "cycle", "1-3", "set state", "x", "drop override", "tab", "pane", "/", "search", "p", "presets", "s", "save", "q", "quit", "[ ]", "facet")
 }
 
 func help(kv ...string) string {
@@ -415,10 +373,14 @@ func (m *Model) list(vis []*data.Ext, w, h int) []string {
 		if anyOf(e, m.dirty) {
 			dirty = sWarn.Render("*")
 		}
-		name := trunc(e.Name, w-12)
+		name := trunc(e.Name, w-15)
 		in := ""
 		if e.Parent != nil {
-			in = trunc(" in "+e.Parent.Name, w-12-len([]rune(name)))
+			in = trunc(" in "+e.Parent.Name, w-15-len([]rune(name)))
+		}
+		tag := "   "
+		if e.Origin == "override" {
+			tag = sWarn.Render("ovr")
 		}
 		ns := lipgloss.NewStyle()
 		mark := "  "
@@ -428,8 +390,8 @@ func (m *Model) list(vis []*data.Ext, w, h int) []string {
 				ns = sAccent
 			}
 		}
-		pad := strings.Repeat(" ", w-12-len([]rune(name+in)))
-		lines = append(lines, mark+stateGlyph(e)+" "+ns.Render(name)+sDim.Render(in)+dirty+pad+cost(e))
+		pad := strings.Repeat(" ", w-15-len([]rune(name+in)))
+		lines = append(lines, mark+stateGlyph(e)+" "+ns.Render(name)+sDim.Render(in)+dirty+pad+tag+cost(e))
 	}
 	return lines
 }
@@ -505,26 +467,23 @@ func (m *Model) detail(e *data.Ext, w, h int) []string {
 	}
 	switch e.Origin {
 	case "override":
-		fallback := "off (default)"
+		st, from := m.s.Fallback(e)
+		field("Origin", sWarn.Render("override")+", set by hand here")
+		field("", sDim.Render("without it: "+st.String()+" ("+from+"), x drops it"))
+	case "default":
 		switch {
 		case e.Parent != nil:
-			fallback = "on (default)"
-		case len(active) > 0:
-			fallback = "on (preset " + strings.Join(active, ", ") + ")"
-		}
-		field("Origin", sWarn.Render("override")+", set by hand here")
-		field("", sDim.Render("without it: "+fallback))
-	case "default":
-		if e.Parent != nil {
 			field("Origin", "default, on while its plugin is on")
-		} else {
+		case len(m.s.Presets) == 0:
+			field("Origin", "default, no preset active: agents load it")
+		default:
 			field("Origin", "default, no active preset has it")
 		}
 	default:
 		field("Origin", e.Origin)
 	}
-	if m.base[e] != e.State {
-		field("Unsaved", sWarn.Render("was "+m.base[e].String()+" at last save"))
+	if m.dirty(e) {
+		field("Unsaved", sWarn.Render("was "+m.s.Saved(e).String()+" at last save"))
 	}
 
 	add("", sBold.Render("State"))
