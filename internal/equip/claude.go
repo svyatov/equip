@@ -1,6 +1,7 @@
 package equip
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -32,6 +33,10 @@ func writeClaude(m Machine, p Project, exts []Extension, overrides map[string]St
 	if err != nil && !created {
 		return fmt.Errorf("read %s: %w", path, err)
 	}
+	// JSON null decodes to a nil map. A nil settings map only gets read.
+	if skills == nil {
+		skills = map[string]json.RawMessage{}
+	}
 	for _, e := range exts {
 		st, ok := overrides[e.Key]
 		switch {
@@ -43,11 +48,17 @@ func writeClaude(m Machine, p Project, exts []Extension, overrides map[string]St
 			skills[e.Key] = json.RawMessage(strconv.Quote(skillValues[st]))
 		}
 	}
-	if settings["skillOverrides"], err = json.Marshal(skills); err != nil {
-		return err
+	out := map[string]any{"skillOverrides": skills}
+	for key, v := range settings {
+		if key != "skillOverrides" {
+			out[key] = v
+		}
 	}
-	data, err = json.MarshalIndent(settings, "", "  ")
-	if err != nil {
+	var buf bytes.Buffer
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false) // keeps "&&" in permission rules readable
+	enc.SetIndent("", "  ")
+	if err := enc.Encode(out); err != nil {
 		return err
 	}
 	if created {
@@ -55,5 +66,5 @@ func writeClaude(m Machine, p Project, exts []Extension, overrides map[string]St
 			return err
 		}
 	}
-	return writeFile(path, append(data, '\n'))
+	return writeFile(path, buf.Bytes())
 }

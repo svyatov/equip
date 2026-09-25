@@ -345,6 +345,50 @@ func TestSaveRefusesBrokenSettings(t *testing.T) {
 	}
 }
 
+func TestSaveReadsNullSettingsAsEmpty(t *testing.T) {
+	for _, body := range []string{`null`, `{"skillOverrides": null}`} {
+		t.Run(body, func(t *testing.T) {
+			m := equiptest.New(t)
+			repo := m.Repo("app")
+			m.Skill(m.ClaudeSkills(), "review")
+			writeFile(t, settingsLocal(repo), body)
+			s := session(t, m, repo)
+			s.SetState("review", equip.Off)
+
+			save(t, s)
+
+			got := readJSON(t, settingsLocal(repo))["skillOverrides"]
+			if want := map[string]any{"review": "off"}; !reflect.DeepEqual(got, want) {
+				t.Errorf("skillOverrides = %v, want %v", got, want)
+			}
+		})
+	}
+}
+
+func TestSaveWritesThroughASymlinkedSettingsFile(t *testing.T) {
+	m := equiptest.New(t)
+	repo := m.Repo("app")
+	m.Skill(m.ClaudeSkills(), "review")
+	target := filepath.Join(m.Root, "dotfiles", "settings.json")
+	writeFile(t, target, `{}`)
+	m.Mkdir(filepath.Join(repo, ".claude"))
+	if err := os.Symlink(target, settingsLocal(repo)); err != nil {
+		t.Fatal(err)
+	}
+	s := session(t, m, repo)
+	s.SetState("review", equip.Off)
+
+	save(t, s)
+
+	if fi, err := os.Lstat(settingsLocal(repo)); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+		t.Errorf("settings.local.json is no longer a symlink: %v", err)
+	}
+	got := readJSON(t, target)["skillOverrides"]
+	if want := map[string]any{"review": "off"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("target skillOverrides = %v, want %v", got, want)
+	}
+}
+
 func TestOverrideForAnUninstalledSkillIsKeptAndAppliesOnceItReturns(t *testing.T) {
 	m := equiptest.New(t)
 	repo := m.Repo("app")
@@ -374,6 +418,54 @@ func TestOverrideForAnUninstalledSkillIsKeptAndAppliesOnceItReturns(t *testing.T
 	got = readJSON(t, settingsLocal(repo))["skillOverrides"]
 	if want := map[string]any{"gone": "off", "review": "off"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("skillOverrides after reinstall = %v, want %v", got, want)
+	}
+}
+
+func TestSaveWithNothingUnsavedWritesNothing(t *testing.T) {
+	m := equiptest.New(t)
+	repo := m.Repo("app")
+	m.Skill(m.ClaudeSkills(), "review")
+
+	save(t, session(t, m, repo))
+
+	if _, err := os.Stat(filepath.Join(repo, ".claude")); err == nil {
+		t.Error("save created .claude with nothing to write")
+	}
+	if files, _ := filepath.Glob(filepath.Join(m.StateHome, "equip", "*")); len(files) != 0 {
+		t.Errorf("save wrote records %q with nothing to write", files)
+	}
+}
+
+func TestSaveKeepsSettingsTextReadable(t *testing.T) {
+	m := equiptest.New(t)
+	repo := m.Repo("app")
+	m.Skill(m.ClaudeSkills(), "review")
+	writeFile(t, settingsLocal(repo), `{"permissions": {"allow": ["Bash(make && make test > log)"]}}`)
+	s := session(t, m, repo)
+	s.SetState("review", equip.Off)
+
+	save(t, s)
+
+	if data, _ := os.ReadFile(settingsLocal(repo)); !strings.Contains(string(data), "Bash(make && make test > log)") {
+		t.Errorf("settings %s escaped the permission", data)
+	}
+}
+
+func TestSaveKeepsTheSettingsFileMode(t *testing.T) {
+	m := equiptest.New(t)
+	repo := m.Repo("app")
+	m.Skill(m.ClaudeSkills(), "review")
+	writeFile(t, settingsLocal(repo), `{}`)
+	if err := os.Chmod(settingsLocal(repo), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	s := session(t, m, repo)
+	s.SetState("review", equip.Off)
+
+	save(t, s)
+
+	if fi, err := os.Stat(settingsLocal(repo)); err != nil || fi.Mode().Perm() != 0o640 {
+		t.Errorf("settings mode = %v (%v), want 0640", fi.Mode().Perm(), err)
 	}
 }
 
@@ -426,7 +518,7 @@ func TestSavingADroppedOverrideRemovesItsEntry(t *testing.T) {
 	}
 }
 
-func TestNameOnlyOnDiskReadsAsOn(t *testing.T) {
+func TestSavingOnKeepsNameOnlyWhichReadsAsOn(t *testing.T) {
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")

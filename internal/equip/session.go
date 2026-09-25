@@ -102,6 +102,11 @@ func (s *Session) DropOverride(key string) { delete(s.overrides, key) }
 
 // Save writes the pending Overrides into Claude Code's settings.
 func (s *Session) Save() error {
+	// Nothing to write. With saved Overrides, a save still writes them, so
+	// one for a skill installed since applies.
+	if len(s.overrides) == 0 && len(s.saved) == 0 {
+		return nil
+	}
 	if err := writeClaude(s.m, s.project, s.exts, s.overrides); err != nil {
 		return err
 	}

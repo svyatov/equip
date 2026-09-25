@@ -56,7 +56,7 @@ linters:
       # tests read files by the paths they build.
       - path: (_test\.go|internal/equiptest/)
         linters: [gosec]
-        text: G30[146]
+        text: G30[1246]
 
 formatters:
   enable:
