@@ -1,5 +1,67 @@
 version: "2"
 
+linters:
+  default: standard
+  enable:
+    # bugs
+    - asasalint
+    - bidichk
+    - durationcheck
+    - errchkjson
+    - errorlint
+    - exhaustive
+    - forcetypeassert
+    - gochecksumtype
+    - makezero
+    - nilerr
+    - nilnesserr
+    - nilnil
+    - reassign
+    - recvcheck
+    - unparam
+    - wastedassign
+    # security
+    - gosec
+    - noctx
+    # modern, idiomatic Go
+    - copyloopvar
+    - errname
+    - exptostd
+    - iface
+    - intrange
+    - mirror
+    - modernize
+    - perfsprint
+    - predeclared
+    - unconvert
+    - usestdlibvars
+    - usetesting
+    # review-level style
+    - asciicheck
+    - dupword
+    - gocheckcompilerdirectives
+    - gocognit
+    - gocritic
+    - misspell
+    - nolintlint
+    - revive
+    - thelper
+  settings:
+    nolintlint:
+      require-explanation: true
+      require-specific: true
+  exclusions:
+    rules:
+      # Fixture files in a test's temp dir need no tight permissions.
+      - path: (_test\.go|internal/equiptest/)
+        linters: [gosec]
+        text: G30[16]
+
 formatters:
   enable:
-    - gofmt
+    - gofumpt
+    - goimports
+  settings:
+    goimports:
+      local-prefixes:
+        - github.com/svyatov/equip
