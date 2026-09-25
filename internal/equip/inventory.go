@@ -33,7 +33,8 @@ type Location struct {
 // Extension is one skill, plugin or MCP server, the same in every agent that
 // has it.
 type Extension struct {
-	Key         string // a skill's key is its directory name
+	cost        map[Agent]int // estimated tokens when on, from the agent's first copy
+	Key         string        // a skill's key is its directory name
 	Description string
 	Locations   []Location // in discovery order
 }
@@ -125,11 +126,15 @@ func (inv *inventory) add(agent Agent, root string) int {
 
 		ext := inv.byKey[entry.Name()]
 		if ext == nil {
-			ext = &Extension{Key: entry.Name(), Description: "", Locations: nil}
+			ext = &Extension{Key: entry.Name(), Description: "", Locations: nil, cost: map[Agent]int{}}
 			inv.byKey[entry.Name()] = ext
 		}
 
-		ext.Description = cmp.Or(ext.Description, description(data))
+		if !ext.has(agent) {
+			ext.cost[agent] = skillCost(agent, entry.Name(), data)
+		}
+
+		ext.Description = cmp.Or(ext.Description, field(data, "description"))
 		ext.Locations = append(ext.Locations, Location{Path: path, Agent: agent})
 	}
 
@@ -144,13 +149,42 @@ func (inv *inventory) missing(root string, err error) bool {
 		root != inv.required && (errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.ENOTDIR))
 }
 
-// description reads the description in the frontmatter of a SKILL.md.
-func description(skill []byte) string {
+// skillCost estimates the tokens the skill named name, with SKILL.md skill,
+// puts into agent's sessions when on.
+func skillCost(agent Agent, name string, skill []byte) int {
+	text := []rune(field(skill, "description"))
+	if agent == ClaudeCode {
+		text = append(text, []rune(field(skill, "when_to_use"))...)
+	}
+
+	maxChars := [...]int{ClaudeCode: claudeCodeSkillChars, Codex: codexSkillChars}[agent]
+
+	return tokens(agent, len(name)+len(string(text[:min(len(text), maxChars)])))
+}
+
+const (
+	// The characters each agent's skill listing keeps of a skill's text.
+	claudeCodeSkillChars = 1536
+	codexSkillChars      = 1024
+	// The UTF-8 bytes per token of each agent's model.
+	claudeCodeBytesPerToken = 3
+	codexBytesPerToken      = 4
+)
+
+// tokens estimates the tokens of text with n UTF-8 bytes in agent, rounded up.
+func tokens(agent Agent, n int) int {
+	perToken := [...]int{ClaudeCode: claudeCodeBytesPerToken, Codex: codexBytesPerToken}[agent]
+
+	return (n + perToken - 1) / perToken
+}
+
+// field reads the string value of key in the frontmatter of a SKILL.md.
+func field(skill []byte, key string) string {
 	front, _, _ := strings.Cut(string(skill), "\n---")
 	lines := strings.Split(front, "\n")
 
 	for n, line := range lines {
-		if value, found := strings.CutPrefix(line, "description:"); found {
+		if value, found := strings.CutPrefix(line, key+":"); found {
 			return yamlString(strings.TrimSpace(value), lines[n+1:])
 		}
 	}

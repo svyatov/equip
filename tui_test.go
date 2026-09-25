@@ -271,3 +271,41 @@ func TestDetailPaneShowsDescriptionAgentsLocationsAndCodexNote(t *testing.T) {
 		t.Errorf("location line %q does not name Codex", got)
 	}
 }
+
+func TestRowShowsItsCost(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "review") // 23 bytes: 8
+
+	if got := line(newModel(t, machine), "●"); !strings.Contains(got, "~8") {
+		t.Errorf("row line %q does not show the cost ~8", got)
+	}
+}
+
+func TestTopLineShowsTheTotalOfEachAgentAsStatesChange(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "review")                           // 23 bytes: 8
+	machine.Skill(filepath.Join(machine.Home, ".agents", "skills"), "review") // 23 bytes: 6, and the intro's 700
+	tui := newModel(t, machine)
+
+	press(tui, key('3'))
+
+	top, _, _ := strings.Cut(tui.View().Content, "\n")
+	for _, want := range []string{"Claude Code ~0", "Codex ~706"} {
+		if !strings.Contains(top, want) {
+			t.Errorf("top line %q does not show %q", top, want)
+		}
+	}
+}
+
+func TestDetailPaneShowsTheCostInEachAgent(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "review")                           // 23 bytes: 8
+	machine.Skill(filepath.Join(machine.Home, ".agents", "skills"), "review") // 23 bytes: 6
+
+	if got := line(newModel(t, machine), "Cost  "); !strings.Contains(got, "Claude Code ~8, Codex ~6") {
+		t.Errorf("cost line %q does not show both costs", got)
+	}
+}
