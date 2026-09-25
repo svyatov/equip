@@ -6,6 +6,7 @@ import (
 	"maps"
 	"path/filepath"
 	"slices"
+	"strings"
 )
 
 // ErrChangedSinceOpen is the error of a save that found owned entries
@@ -114,8 +115,15 @@ func Open(machine Machine, dir string) (*Session, error) {
 	return session, nil
 }
 
-// SetState makes st an Override for the extension with key.
-func (s *Session) SetState(key string, st State) { s.overrides[key] = st }
+// SetState makes st an Override for the extension with key, unless the
+// extension does not offer st.
+func (s *Session) SetState(key string, st State) {
+	if ext, ok := s.ext(key); ok && !slices.Contains(ext.states(), st) {
+		return
+	}
+
+	s.overrides[key] = st
+}
 
 // View returns the current view.
 func (s *Session) View() View {
@@ -123,7 +131,7 @@ func (s *Session) View() View {
 	totals := map[Agent]int{}
 
 	for _, ext := range s.exts {
-		state, override := s.state(ext.Key)
+		state, override := s.state(ext)
 		cost := 0
 
 		for _, agent := range Agents() {
@@ -136,7 +144,7 @@ func (s *Session) View() View {
 			Cost:           cost,
 			State:          state,
 			Override:       override,
-			Fallback:       On,
+			Fallback:       ext.fallback,
 			Unsaved:        s.unsaved(ext.Key),
 			ChangedOutside: s.outside[ext.Key],
 		})
@@ -161,28 +169,65 @@ func (e Extension) costIn(agent Agent, st State) int {
 	return e.cost[agent]
 }
 
+// states returns the states the user can pick for the extension. A plugin is
+// all or nothing, so it has no manual-only.
+func (e Extension) states() []State {
+	if e.Kind == Plugin {
+		return []State{On, Off}
+	}
+
+	return States()
+}
+
 // Detail is what the detail pane shows of one extension.
 type Detail struct {
 	NotApplied  map[Agent]string // why an agent that has it does not get its state
 	Costs       map[Agent]int    // estimated tokens in each agent that has it
 	Description string
+	Marketplace string  // a plugin's
 	Agents      []Agent // the agents that have it
 	Locations   []Location
+	States      []State   // the states the user can pick
+	Contents    []Content // a plugin's skills
+	Hooks       bool      // a plugin has hooks, whose output adds an unknown cost
+}
+
+// Content is one extension inside a plugin. It follows its plugin and is
+// never an Override.
+type Content struct {
+	Name        string
+	Description string
+	Kind        Kind
+	State       State
+	Cost        int // estimated tokens in Claude Code
 }
 
 // Detail returns the detail of the extension with key.
 func (s *Session) Detail(key string) Detail {
-	i := slices.IndexFunc(s.exts, func(e Extension) bool { return e.Key == key })
-	if i < 0 {
-		return Detail{Description: "", Agents: nil, Locations: nil, NotApplied: nil, Costs: nil}
+	ext, ok := s.ext(key)
+	if !ok {
+		return Detail{
+			Description: "", Marketplace: "", Agents: nil, Locations: nil, NotApplied: nil, Costs: nil, States: nil,
+			Contents: nil, Hooks: false,
+		}
 	}
 
-	ext := s.exts[i]
+	// A plugin's key is name@marketplace; a skill's has no @.
+	_, marketplace, _ := strings.Cut(ext.Key, "@")
 	detail := Detail{
-		Description: ext.Description, Agents: nil, Locations: ext.Locations,
-		NotApplied: map[Agent]string{}, Costs: map[Agent]int{},
+		Description: ext.Description, Marketplace: marketplace, Agents: nil, Locations: ext.Locations,
+		NotApplied: map[Agent]string{}, Costs: map[Agent]int{}, States: ext.states(), Contents: nil, Hooks: ext.hooks,
 	}
-	state, _ := s.state(key)
+	state, _ := s.state(ext)
+
+	for _, content := range ext.contents {
+		content.State = state
+		if state != On {
+			content.Cost = 0
+		}
+
+		detail.Contents = append(detail.Contents, content)
+	}
 
 	for _, loc := range ext.Locations {
 		if !slices.Contains(detail.Agents, loc.Agent) {
@@ -243,13 +288,24 @@ func (s *Session) Save() error {
 	return nil
 }
 
-// state returns the state of the extension with key and whether an Override
-// set it.
-func (s *Session) state(key string) (State, bool) {
-	state, override := s.overrides[key]
+// ext returns the extension with key, reporting whether it is installed.
+func (s *Session) ext(key string) (Extension, bool) {
+	var ext Extension
+
+	i := slices.IndexFunc(s.exts, func(e Extension) bool { return e.Key == key })
+	if i >= 0 {
+		ext = s.exts[i]
+	}
+
+	return ext, i >= 0
+}
+
+// state returns the state of ext and whether an Override set it.
+func (s *Session) state(ext Extension) (State, bool) {
+	state, override := s.overrides[ext.Key]
 	if !override {
-		// With no presets, a skill falls back to Claude Code's default: on.
-		state = On
+		// With no presets, an extension falls back to the agent's default.
+		state = ext.fallback
 	}
 
 	return state, override

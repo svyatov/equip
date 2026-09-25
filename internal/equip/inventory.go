@@ -33,13 +33,31 @@ type Location struct {
 	Agent Agent
 }
 
+// Kind is the kind of an extension.
+type Kind int
+
+// The kinds.
+const (
+	Skill Kind = iota
+	Plugin
+	MCPServer
+)
+
+func (k Kind) String() string {
+	return [...]string{Skill: "skill", Plugin: "plugin", MCPServer: "MCP server"}[k]
+}
+
 // Extension is one skill, plugin or MCP server, the same in every agent that
 // has it.
 type Extension struct {
 	cost        map[Agent]int // estimated tokens when on
-	Key         string        // a skill's key is its directory name
+	Key         string        // a skill's is its directory name; a plugin's is name@marketplace
 	Description string
 	Locations   []Location // in discovery order
+	contents    []Content  // a plugin's, as when it is on
+	Kind        Kind
+	fallback    State // the agent's default, without an Override
+	hooks       bool  // a plugin's
 }
 
 // has reports whether agent loads the extension.
@@ -80,7 +98,11 @@ func discover(machine Machine, project Project, dir string) ([]Extension, error)
 		return nil, inv.err
 	}
 
-	exts := make([]Extension, 0, len(inv.byKey))
+	exts, err := discoverPlugins(machine, project)
+	if err != nil {
+		return nil, err
+	}
+
 	for _, ext := range inv.byKey {
 		exts = append(exts, *ext)
 	}
@@ -129,7 +151,10 @@ func (inv *inventory) add(agent Agent, root string) int {
 
 		ext := inv.byKey[entry.Name()]
 		if ext == nil {
-			ext = &Extension{Key: entry.Name(), Description: "", Locations: nil, cost: map[Agent]int{}}
+			ext = &Extension{
+				Kind: Skill, Key: entry.Name(), Description: "", Locations: nil, cost: map[Agent]int{}, fallback: On,
+				contents: nil, hooks: false,
+			}
 			inv.byKey[entry.Name()] = ext
 		}
 

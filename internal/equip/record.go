@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -21,7 +22,8 @@ type record struct {
 
 // recordOverrides are the Overrides in a record, by extension kind.
 type recordOverrides struct {
-	Skills map[string]string `toml:"skills"`
+	Skills  map[string]string `toml:"skills"`
+	Plugins map[string]string `toml:"plugins,omitempty"`
 }
 
 // recordPath is the record file of project, one per path, so two clones of a
@@ -56,13 +58,15 @@ func readRecord(machine Machine, project Project) (map[string]State, error) {
 
 	overrides := map[string]State{}
 
-	for key, name := range rec.Overrides.Skills {
-		st, ok := parseState(name)
-		if !ok {
-			return nil, fmt.Errorf("read %s: skill %q: %w %q", path, key, errUnknownState, name)
-		}
+	for kind, states := range map[Kind]map[string]string{Skill: rec.Overrides.Skills, Plugin: rec.Overrides.Plugins} {
+		for key, name := range states {
+			st, ok := parseState(name)
+			if !ok {
+				return nil, fmt.Errorf("read %s: %s %q: %w %q", path, kind, key, errUnknownState, name)
+			}
 
-		overrides[key] = st
+			overrides[key] = st
+		}
 	}
 
 	return overrides, nil
@@ -84,12 +88,20 @@ func parseState(name string) (State, bool) {
 
 // writeRecord writes the record of project with overrides.
 func writeRecord(machine Machine, project Project, overrides map[string]State) error {
-	skills := map[string]string{}
-	for key, st := range overrides {
-		skills[key] = st.String()
+	byKind := recordOverrides{Skills: map[string]string{}, Plugins: map[string]string{}}
+
+	for key, state := range overrides {
+		// The key tells the kind, as an Override may name an extension that is
+		// not installed: a plugin's is name@marketplace, and a skill's name
+		// has no @.
+		if strings.Contains(key, "@") {
+			byKind.Plugins[key] = state.String()
+		} else {
+			byKind.Skills[key] = state.String()
+		}
 	}
 
-	rec := record{Path: project.Path, RootCommit: project.RootCommit, Overrides: recordOverrides{Skills: skills}}
+	rec := record{Path: project.Path, RootCommit: project.RootCommit, Overrides: byKind}
 
 	data, err := toml.Marshal(rec)
 	if err != nil {
