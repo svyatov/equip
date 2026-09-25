@@ -24,6 +24,10 @@ An extension that gives an agent tools over the Model Context Protocol.
 **Marketplace**:
 The source a plugin comes from. It is not an extension and has no state of its own.
 
+**Location**:
+A file or directory an agent reads an extension from.
+_Avoid_: Source, origin, skill dir
+
 **Project**:
 The git repository equip runs in, taken at its root and shared by all its worktrees. Outside git, the directory equip runs in.
 
@@ -46,6 +50,7 @@ _Avoid_: Exception, pin
 ## Relationships
 
 - A **Plugin** contains zero or more **Skills** and **MCP servers**
+- An **Extension** has one or more **Locations**, each read by one **Agent**
 - A **Project** uses zero or more **Presets** and zero or more **Overrides**
 - With one or more **Presets**, a **Project**'s active extensions are the union of their members plus its **Overrides**; every other extension is off
 - An **Extension** has one **State** per **Project**, shared by every **Agent** that has it
