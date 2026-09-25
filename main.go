@@ -17,39 +17,67 @@ import (
 
 const usage = "Usage: equip [--help] [--version]\n\nOpens the extensions of the Project in the working directory."
 
+// errUnexpectedArg is the error of a positional argument, which equip takes
+// none of.
+var errUnexpectedArg = errors.New("unexpected argument")
+
 func main() {
-	if err := run(os.Args[1:], os.Stdout); err != nil {
+	err := run(os.Args[1:], os.Stdout)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, "equip:", err)
 		os.Exit(1)
 	}
 }
 
 func run(args []string, stdout io.Writer) error {
-	fs := flag.NewFlagSet("equip", flag.ContinueOnError)
-	fs.SetOutput(io.Discard)
-	version := fs.Bool("version", false, "print the build version")
-	if err := fs.Parse(args); errors.Is(err, flag.ErrHelp) {
-		_, err = fmt.Fprintln(stdout, usage)
-		return err
-	} else if err != nil {
-		return err
+	flags := flag.NewFlagSet("equip", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
+
+	version := flags.Bool("version", false, "print the build version")
+
+	err := flags.Parse(args)
+	if errors.Is(err, flag.ErrHelp) {
+		return printLine(stdout, usage)
 	}
-	if fs.NArg() > 0 {
-		return fmt.Errorf("unexpected argument %q\n\n%s", fs.Arg(0), usage)
+
+	if err != nil {
+		return fmt.Errorf("parse flags: %w", err)
 	}
+
+	if flags.NArg() > 0 {
+		return fmt.Errorf("%w %q\n\n%s", errUnexpectedArg, flags.Arg(0), usage)
+	}
+
 	if *version {
 		info, _ := debug.ReadBuildInfo()
-		_, err := fmt.Fprintln(stdout, "equip", info.Main.Version)
-		return err
+
+		return printLine(stdout, "equip", info.Main.Version)
 	}
-	m, err := equip.MachineFromEnv()
+
+	machine, err := equip.MachineFromEnv()
 	if err != nil {
 		return err
 	}
-	s, err := equip.Open(m, m.WorkDir)
+
+	session, err := equip.Open(machine, machine.WorkDir)
 	if err != nil {
 		return err
 	}
-	_, err = tea.NewProgram(&model{s: s}).Run()
-	return err
+
+	_, err = tea.NewProgram(newTUI(session)).Run()
+	if err != nil {
+		return fmt.Errorf("run the TUI: %w", err)
+	}
+
+	return nil
+}
+
+// printLine writes a to w as fmt.Fprintln does.
+func printLine(w io.Writer, a ...any) error {
+	_, err := fmt.Fprintln(w, a...)
+	if err != nil {
+		return fmt.Errorf("print: %w", err)
+	}
+
+	return nil
 }

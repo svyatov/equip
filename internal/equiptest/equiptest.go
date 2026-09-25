@@ -11,12 +11,18 @@ import (
 	"github.com/svyatov/equip/internal/equip"
 )
 
+// The modes of the fixtures, as a user's own files usually have them.
+const (
+	dirMode  = 0o755
+	fileMode = 0o644
+)
+
 // Machine is an equip.Machine on a temp dir, with helpers to build fixtures.
 type Machine struct {
 	equip.Machine
 
-	Root string // the temp dir, symlinks resolved
 	t    testing.TB
+	Root string // the temp dir, symlinks resolved
 }
 
 // New builds a machine whose home, XDG dirs and git config all live in a
@@ -25,20 +31,23 @@ type Machine struct {
 // environment is left alone, so tests using New can run in parallel.
 func New(tb testing.TB) *Machine {
 	tb.Helper()
+
 	var env []string
+
 	for _, kv := range os.Environ() {
 		if !strings.HasPrefix(kv, "GIT_") {
 			env = append(env, kv)
 		}
 	}
+
 	root, err := filepath.EvalSymlinks(tb.TempDir())
 	if err != nil {
 		tb.Fatal(err)
 	}
+
 	home := filepath.Join(root, "home")
-	m := &Machine{
-		Root:       root,
-		t:          tb,
+
+	base := equip.Machine{
 		Home:       home,
 		ConfigHome: filepath.Join(home, ".config"),
 		StateHome:  filepath.Join(home, ".local", "state"),
@@ -53,28 +62,38 @@ func New(tb testing.TB) *Machine {
 			"GIT_COMMITTER_NAME=equip", "GIT_COMMITTER_EMAIL=equip@example.com",
 		)),
 	}
-	for _, d := range []string{m.ConfigHome, m.StateHome, m.CacheHome, m.CodexHome, filepath.Join(home, ".claude")} {
-		m.Mkdir(d)
+	machine := &Machine{Machine: base, Root: root, t: tb}
+
+	for _, dir := range []string{
+		machine.ConfigHome, machine.StateHome, machine.CacheHome, machine.CodexHome, filepath.Join(home, ".claude"),
+	} {
+		machine.Mkdir(dir)
 	}
-	return m
+
+	return machine
 }
 
 // Mkdir creates dir and its parents and returns it.
 func (m *Machine) Mkdir(dir string) string {
 	m.t.Helper()
-	if err := os.MkdirAll(dir, 0o755); err != nil {
+
+	err := os.MkdirAll(dir, dirMode)
+	if err != nil {
 		m.t.Fatal(err)
 	}
+
 	return dir
 }
 
 // RunGit runs git in dir and fails the test on error. It returns the trimmed output.
 func (m *Machine) RunGit(dir string, args ...string) string {
 	m.t.Helper()
+
 	out, err := m.Git(dir, args...)
 	if err != nil {
 		m.t.Fatal(err)
 	}
+
 	return strings.TrimSpace(out)
 }
 
@@ -83,6 +102,7 @@ func (m *Machine) Repo(name string) string {
 	m.t.Helper()
 	dir := m.Mkdir(filepath.Join(m.Root, name))
 	m.RunGit(dir, "init", "-q", "-b", "main")
+
 	return dir
 }
 
@@ -90,6 +110,7 @@ func (m *Machine) Repo(name string) string {
 func (m *Machine) Commit(repo string) string {
 	m.t.Helper()
 	m.RunGit(repo, "commit", "-q", "--allow-empty", "-m", "commit")
+
 	return m.RunGit(repo, "rev-parse", "HEAD")
 }
 
@@ -99,6 +120,7 @@ func (m *Machine) Worktree(repo, name string) string {
 	m.t.Helper()
 	dir := filepath.Join(m.Root, name)
 	m.RunGit(repo, "worktree", "add", "-q", "-b", name, dir)
+
 	return dir
 }
 
@@ -106,10 +128,14 @@ func (m *Machine) Worktree(repo, name string) string {
 func (m *Machine) Skill(skills, name string) string {
 	m.t.Helper()
 	dir := m.Mkdir(filepath.Join(skills, name))
+
 	body := "---\nname: " + name + "\ndescription: The " + name + " skill.\n---\n"
-	if err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644); err != nil {
+
+	err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), fileMode)
+	if err != nil {
 		m.t.Fatal(err)
 	}
+
 	return dir
 }
 

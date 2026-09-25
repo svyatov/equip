@@ -1,35 +1,16 @@
 version: "2"
 
 # Every linter is on, so one a new golangci-lint release adds starts checking
-# without anyone opting in. Each one turned off names its reason: it fires on a
-# deliberate choice of this codebase, not on a mistake.
+# without anyone opting in. Only deprecated linters are off, each for the one
+# that replaces it. A finding is fixed in the code; a setting below narrows a
+# linter only where the fix would be noise.
 
 linters:
   default: all
   disable:
-    - cyclop # the complexity six are enabled once a function needs splitting
-    - err113 # a one-off error with its context in the message needs no sentinel
-    - exhaustruct # zero values are valid by design
-    - exhaustruct_v5 # the same linter under its new name
-    - funcorder # a helper method sits beside the exported method it serves
-    - funlen
-    - gochecknoglobals # the globals are lipgloss styles and lookup tables
-    - gocognit
-    - gocyclo
+    - exhaustruct # deprecated; exhaustruct_v5 replaces it
     - gomodguard # deprecated; depguard owns the import budget
-    - ireturn # bubbletea's Update returns its own tea.Model interface
-    - lll # gofumpt owns layout
-    - maintidx
-    - mnd
-    - nestif
-    - nlreturn # blank-line style
-    - noinlineerr # `if err := f(); err != nil` is the Go idiom
-    - nonamedreturns # named results document two-value returns
-    - testpackage # the unit tests are white-box on purpose
-    - varnamelen # short names in short scopes are the Go idiom
-    - wrapcheck # an os error already names its path
-    - wsl # blank-line style
-    - wsl_v5 # blank-line style
+    - wsl # deprecated; wsl_v5 replaces it
 
   settings:
     depguard:
@@ -47,6 +28,11 @@ linters:
     exhaustive:
       # A default branch is the decision that the remaining cases are alike.
       default-signifies-exhaustive: true
+
+    exhaustruct_v5:
+      # A bubbletea key message has fields that are meant to stay zero.
+      ignore-patterns:
+        - charm\.land/.*
 
     forbidigo:
       # run() returns an error so every path is callable from a test, and
@@ -71,12 +57,29 @@ linters:
 
     govet:
       enable-all: true
-      disable:
-        - fieldalignment # field order follows meaning; no struct here is hot
+
+    ireturn:
+      # The defaults, plus the model interface bubbletea's Update must return.
+      allow:
+        - anon
+        - error
+        - empty
+        - stdlib
+        - charm.land/bubbletea/v2.Model
 
     nolintlint:
       require-explanation: true
       require-specific: true
+
+    varnamelen:
+      # On is a State, named in the GLOSSARY.
+      ignore-names:
+        - On
+
+    wrapcheck:
+      # An error from equip's own packages already carries its context.
+      ignore-package-globs:
+        - github.com/svyatov/equip/*
 
     revive:
       # An explicit list: `enable-all-rules` is mostly add-constant and

@@ -14,48 +14,59 @@ import (
 	"github.com/svyatov/equip/internal/equiptest"
 )
 
-func session(t *testing.T, m *equiptest.Machine, dir string) *equip.Session {
+func newSession(t *testing.T, machine *equiptest.Machine, dir string) *equip.Session {
 	t.Helper()
-	s, err := equip.Open(m.Machine, dir)
+
+	session, err := equip.Open(machine.Machine, dir)
 	if err != nil {
 		t.Fatal(err)
 	}
-	return s
+
+	return session
 }
 
 func TestSetStateMakesAnUnsavedOverride(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	m.Skill(m.ClaudeSkills(), "review")
-	s := session(t, m, m.Root)
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "review")
+	session := newSession(t, machine, machine.Root)
 
-	s.SetState("review", equip.Off)
+	session.SetState("review", equip.Off)
 
-	v := s.View()
-	want := equip.Row{Name: "review", State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true}
-	if v.Rows[0] != want {
-		t.Errorf("row = %+v, want %+v", v.Rows[0], want)
+	view := session.View()
+
+	want := equip.Row{
+		Name: "review", State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true, ChangedOutside: false,
 	}
-	if v.Unsaved != 1 {
-		t.Errorf("Unsaved = %d, want 1", v.Unsaved)
+	if view.Rows[0] != want {
+		t.Errorf("row = %+v, want %+v", view.Rows[0], want)
+	}
+
+	if view.Unsaved != 1 {
+		t.Errorf("Unsaved = %d, want 1", view.Unsaved)
 	}
 }
 
 func TestDropOverrideReturnsSkillToDefault(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	m.Skill(m.ClaudeSkills(), "review")
-	s := session(t, m, m.Root)
-	s.SetState("review", equip.Off)
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "review")
+	session := newSession(t, machine, machine.Root)
+	session.SetState("review", equip.Off)
 
-	s.DropOverride("review")
+	session.DropOverride("review")
 
-	v := s.View()
-	if want := (equip.Row{Name: "review", State: equip.On, Fallback: equip.On}); v.Rows[0] != want {
-		t.Errorf("row = %+v, want %+v", v.Rows[0], want)
+	want := equip.Row{
+		Name: "review", State: equip.On, Override: false, Fallback: equip.On, Unsaved: false, ChangedOutside: false,
 	}
-	if v.Unsaved != 0 {
-		t.Errorf("Unsaved = %d, want 0", v.Unsaved)
+
+	view := session.View()
+	if view.Rows[0] != want {
+		t.Errorf("row = %+v, want %+v", view.Rows[0], want)
+	}
+
+	if view.Unsaved != 0 {
+		t.Errorf("Unsaved = %d, want 0", view.Unsaved)
 	}
 }
 
@@ -66,44 +77,55 @@ func settingsLocal(project string) string {
 // readJSON decodes the JSON object in path.
 func readJSON(t *testing.T, path string) map[string]any {
 	t.Helper()
+
 	data, err := os.ReadFile(path)
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	var obj map[string]any
-	if err := json.Unmarshal(data, &obj); err != nil {
+
+	err = json.Unmarshal(data, &obj)
+	if err != nil {
 		t.Fatal(err)
 	}
+
 	return obj
 }
 
-func save(t *testing.T, s *equip.Session) {
+func save(t *testing.T, session *equip.Session) {
 	t.Helper()
-	if err := s.Save(); err != nil {
+
+	err := session.Save()
+	if err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestSaveWritesSkillOverridesForClaudeCode(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	for _, name := range []string{"docs", "lint", "review"} {
-		m.Skill(m.ClaudeSkills(), name)
-	}
-	s := session(t, m, repo)
-	s.SetState("docs", equip.ManualOnly)
-	s.SetState("lint", equip.On)
-	s.SetState("review", equip.Off)
+	machine := equiptest.New(t)
 
-	save(t, s)
+	repo := machine.Repo("app")
+	for _, name := range []string{"docs", "lint", "review"} {
+		machine.Skill(machine.ClaudeSkills(), name)
+	}
+
+	session := newSession(t, machine, repo)
+	session.SetState("docs", equip.ManualOnly)
+	session.SetState("lint", equip.On)
+	session.SetState("review", equip.Off)
+
+	save(t, session)
 
 	got := readJSON(t, settingsLocal(repo))["skillOverrides"]
+
 	want := map[string]any{"docs": "user-invocable-only", "lint": "on", "review": "off"}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("skillOverrides = %v, want %v", got, want)
 	}
-	if n := s.View().Unsaved; n != 0 {
+
+	if n := session.View().Unsaved; n != 0 {
 		t.Errorf("Unsaved = %d after save, want 0", n)
 	}
 }
@@ -111,26 +133,31 @@ func TestSaveWritesSkillOverridesForClaudeCode(t *testing.T) {
 // writeFile writes content to path, creating its parents.
 func writeFile(t *testing.T, path, content string) {
 	t.Helper()
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+
+	err := os.MkdirAll(filepath.Dir(path), 0o755)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+
+	err = os.WriteFile(path, []byte(content), 0o644)
+	if err != nil {
 		t.Fatal(err)
 	}
 }
 
 func TestSaveKeepsSettingsEquipDoesNotOwn(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
 	writeFile(t, settingsLocal(repo), `{"permissions": {"allow": ["Bash(ls)"]}}`)
-	s := session(t, m, repo)
-	s.SetState("review", equip.Off)
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
 
-	save(t, s)
+	save(t, session)
 
 	got := readJSON(t, settingsLocal(repo))["permissions"]
+
 	want := map[string]any{"allow": []any{"Bash(ls)"}}
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("permissions = %v, want %v", got, want)
@@ -139,19 +166,20 @@ func TestSaveKeepsSettingsEquipDoesNotOwn(t *testing.T) {
 
 func TestSaveKeepsNumbersExactly(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
 	writeFile(t, settingsLocal(repo), `{"big": 12345678901234567890}`)
-	s := session(t, m, repo)
-	s.SetState("review", equip.Off)
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
 
-	save(t, s)
+	save(t, session)
 
 	data, err := os.ReadFile(settingsLocal(repo))
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	if !strings.Contains(string(data), "12345678901234567890") {
 		t.Errorf("settings %s lost the number 12345678901234567890", data)
 	}
@@ -159,22 +187,27 @@ func TestSaveKeepsNumbersExactly(t *testing.T) {
 
 func TestSaveReplacesSettingsWithANewFile(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
 	writeFile(t, settingsLocal(repo), `{}`)
-	old := filepath.Join(m.Root, "old.json")
-	if err := os.Link(settingsLocal(repo), old); err != nil {
+
+	old := filepath.Join(machine.Root, "old.json")
+
+	err := os.Link(settingsLocal(repo), old)
+	if err != nil {
 		t.Fatal(err)
 	}
-	s := session(t, m, repo)
-	s.SetState("review", equip.Off)
 
-	save(t, s)
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
+
+	save(t, session)
 
 	if data, _ := os.ReadFile(old); string(data) != `{}` {
 		t.Errorf("save wrote into the old file in place: %s", data)
 	}
+
 	entries, _ := os.ReadDir(filepath.Dir(settingsLocal(repo)))
 	if len(entries) != 1 {
 		t.Errorf(".claude holds %v, want only settings.local.json", entries)
@@ -183,31 +216,31 @@ func TestSaveReplacesSettingsWithANewFile(t *testing.T) {
 
 func TestSaveExcludesTheSettingsFileItCreatesFromGit(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
-	s := session(t, m, repo)
-	s.SetState("review", equip.Off)
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
 
-	save(t, s)
+	save(t, session)
 
-	if st := m.RunGit(repo, "status", "--porcelain", "--untracked-files=all"); st != "" {
+	if st := machine.RunGit(repo, "status", "--porcelain", "--untracked-files=all"); st != "" {
 		t.Errorf("git status shows %q, want nothing", st)
 	}
 }
 
 func TestSaveLeavesExcludeAloneWhenGitIgnoresTheSettingsFile(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
 	writeFile(t, filepath.Join(repo, ".gitignore"), ".claude/\n")
 	excludeFile := filepath.Join(repo, ".git", "info", "exclude")
 	before, _ := os.ReadFile(excludeFile)
-	s := session(t, m, repo)
-	s.SetState("review", equip.Off)
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
 
-	save(t, s)
+	save(t, session)
 
 	if after, _ := os.ReadFile(excludeFile); string(after) != string(before) {
 		t.Errorf("exclude changed to %q", after)
@@ -216,46 +249,48 @@ func TestSaveLeavesExcludeAloneWhenGitIgnoresTheSettingsFile(t *testing.T) {
 
 func TestSaveExcludesOnANewLineAfterAnUnterminatedExclude(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
 	writeFile(t, filepath.Join(repo, ".git", "info", "exclude"), "notes.txt")
 	writeFile(t, filepath.Join(repo, "notes.txt"), "")
-	s := session(t, m, repo)
-	s.SetState("review", equip.Off)
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
 
-	save(t, s)
+	save(t, session)
 
-	if st := m.RunGit(repo, "status", "--porcelain", "--untracked-files=all"); st != "" {
+	if st := machine.RunGit(repo, "status", "--porcelain", "--untracked-files=all"); st != "" {
 		t.Errorf("git status shows %q, want nothing", st)
 	}
 }
 
 func TestSaveDoesNotExcludeASettingsFileItDidNotCreate(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
 	writeFile(t, settingsLocal(repo), `{}`)
-	s := session(t, m, repo)
-	s.SetState("review", equip.Off)
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
 
-	save(t, s)
+	save(t, session)
 
-	if st := m.RunGit(repo, "status", "--porcelain", "--untracked-files=all"); st != "?? .claude/settings.local.json" {
-		t.Errorf("git status shows %q, want the settings file untracked", st)
+	status := machine.RunGit(repo, "status", "--porcelain", "--untracked-files=all")
+	if status != "?? .claude/settings.local.json" {
+		t.Errorf("git status shows %q, want the settings file untracked", status)
 	}
 }
 
-func TestSaveOutsideGitWritesOnlyTheSettingsFile(t *testing.T) { //nolint:paralleltest // t.Chdir changes the whole process
-	m := equiptest.New(t)
-	dir := m.Mkdir(filepath.Join(m.Root, "scratch"))
+//nolint:paralleltest // t.Chdir changes the whole process
+func TestSaveOutsideGitWritesOnlyTheSettingsFile(t *testing.T) {
+	machine := equiptest.New(t)
+	dir := machine.Mkdir(filepath.Join(machine.Root, "scratch"))
 	t.Chdir(dir) // a stray relative write would land here
-	m.Skill(m.ClaudeSkills(), "review")
-	s := session(t, m, dir)
-	s.SetState("review", equip.Off)
+	machine.Skill(machine.ClaudeSkills(), "review")
+	session := newSession(t, machine, dir)
+	session.SetState("review", equip.Off)
 
-	save(t, s)
+	save(t, session)
 
 	entries, _ := os.ReadDir(dir)
 	if len(entries) != 1 || entries[0].Name() != ".claude" {
@@ -263,80 +298,91 @@ func TestSaveOutsideGitWritesOnlyTheSettingsFile(t *testing.T) { //nolint:parall
 	}
 }
 
-// readRecord decodes the one project record on m.
-func readRecord(t *testing.T, m *equiptest.Machine) map[string]any {
+// readRecord decodes the one project record on machine.
+func readRecord(t *testing.T, machine *equiptest.Machine) map[string]any {
 	t.Helper()
-	files, _ := filepath.Glob(filepath.Join(m.StateHome, "equip", "*.toml"))
+
+	files, _ := filepath.Glob(filepath.Join(machine.StateHome, "equip", "*.toml"))
 	if len(files) != 1 {
 		t.Fatalf("records = %q, want one", files)
 	}
+
 	data, err := os.ReadFile(files[0])
 	if err != nil {
 		t.Fatal(err)
 	}
+
 	var rec map[string]any
-	if err := toml.Unmarshal(data, &rec); err != nil {
+
+	err = toml.Unmarshal(data, &rec)
+	if err != nil {
 		t.Fatal(err)
 	}
+
 	return rec
 }
 
 func TestSaveWritesTheProjectRecord(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	root := m.Commit(repo)
-	m.Skill(m.ClaudeSkills(), "review")
-	s := session(t, m, repo)
-	s.SetState("review", equip.ManualOnly)
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	root := machine.Commit(repo)
+	machine.Skill(machine.ClaudeSkills(), "review")
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.ManualOnly)
 
-	save(t, s)
+	save(t, session)
 
 	want := map[string]any{
 		"path":        repo,
 		"root_commit": root,
 		"overrides":   map[string]any{"skills": map[string]any{"review": "manual-only"}},
 	}
-	if got := readRecord(t, m); !reflect.DeepEqual(got, want) {
+	if got := readRecord(t, machine); !reflect.DeepEqual(got, want) {
 		t.Errorf("record = %v, want %v", got, want)
 	}
 }
 
 func TestReopenShowsSavedOverrides(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
-	s := session(t, m, repo)
-	s.SetState("review", equip.ManualOnly)
-	save(t, s)
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.ManualOnly)
+	save(t, session)
 
-	v := session(t, m, repo).View()
+	view := newSession(t, machine, repo).View()
 
-	want := equip.Row{Name: "review", State: equip.ManualOnly, Override: true, Fallback: equip.On}
-	if v.Rows[0] != want || v.Unsaved != 0 {
-		t.Errorf("row = %+v, Unsaved = %d, want %+v and 0", v.Rows[0], v.Unsaved, want)
+	want := equip.Row{
+		Name: "review", State: equip.ManualOnly, Override: true, Fallback: equip.On, Unsaved: false, ChangedOutside: false,
+	}
+	if view.Rows[0] != want || view.Unsaved != 0 {
+		t.Errorf("row = %+v, Unsaved = %d, want %+v and 0", view.Rows[0], view.Unsaved, want)
 	}
 }
 
 func TestOpenRefusesABrokenRecord(t *testing.T) {
 	t.Parallel()
+
 	for name, body := range map[string]string{
 		"bad TOML":      "path = ",
 		"unknown state": "[overrides.skills]\nreview = \"sometimes\"\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			m := equiptest.New(t)
-			repo := m.Repo("app")
-			m.Skill(m.ClaudeSkills(), "review")
-			s := session(t, m, repo)
-			s.SetState("review", equip.Off)
-			save(t, s)
-			files, _ := filepath.Glob(filepath.Join(m.StateHome, "equip", "*.toml"))
+			machine := equiptest.New(t)
+			repo := machine.Repo("app")
+			machine.Skill(machine.ClaudeSkills(), "review")
+			session := newSession(t, machine, repo)
+			session.SetState("review", equip.Off)
+			save(t, session)
+
+			files, _ := filepath.Glob(filepath.Join(machine.StateHome, "equip", "*.toml"))
 			writeFile(t, files[0], body)
 
-			if _, err := equip.Open(m.Machine, repo); err == nil {
+			_, err := equip.Open(machine.Machine, repo)
+			if err == nil {
 				t.Error("Open accepted a broken record")
 			}
 		})
@@ -345,16 +391,18 @@ func TestOpenRefusesABrokenRecord(t *testing.T) {
 
 func TestSaveRefusesBrokenSettings(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
 	writeFile(t, settingsLocal(repo), `{"permissions": `)
-	s := session(t, m, repo)
-	s.SetState("review", equip.Off)
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
 
-	if err := s.Save(); err == nil {
+	err := session.Save()
+	if err == nil {
 		t.Error("Save overwrote broken settings")
 	}
+
 	if data, _ := os.ReadFile(settingsLocal(repo)); string(data) != `{"permissions": ` {
 		t.Errorf("settings = %q, want them untouched", data)
 	}
@@ -362,17 +410,18 @@ func TestSaveRefusesBrokenSettings(t *testing.T) {
 
 func TestSaveReadsNullSettingsAsEmpty(t *testing.T) {
 	t.Parallel()
+
 	for _, body := range []string{`null`, `{"skillOverrides": null}`} {
 		t.Run(body, func(t *testing.T) {
 			t.Parallel()
-			m := equiptest.New(t)
-			repo := m.Repo("app")
-			m.Skill(m.ClaudeSkills(), "review")
+			machine := equiptest.New(t)
+			repo := machine.Repo("app")
+			machine.Skill(machine.ClaudeSkills(), "review")
 			writeFile(t, settingsLocal(repo), body)
-			s := session(t, m, repo)
-			s.SetState("review", equip.Off)
+			session := newSession(t, machine, repo)
+			session.SetState("review", equip.Off)
 
-			save(t, s)
+			save(t, session)
 
 			got := readJSON(t, settingsLocal(repo))["skillOverrides"]
 			if want := map[string]any{"review": "off"}; !reflect.DeepEqual(got, want) {
@@ -384,23 +433,28 @@ func TestSaveReadsNullSettingsAsEmpty(t *testing.T) {
 
 func TestSaveWritesThroughASymlinkedSettingsFile(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
-	target := filepath.Join(m.Root, "dotfiles", "settings.json")
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	target := filepath.Join(machine.Root, "dotfiles", "settings.json")
 	writeFile(t, target, `{}`)
-	m.Mkdir(filepath.Join(repo, ".claude"))
-	if err := os.Symlink(target, settingsLocal(repo)); err != nil {
+	machine.Mkdir(filepath.Join(repo, ".claude"))
+
+	err := os.Symlink(target, settingsLocal(repo))
+	if err != nil {
 		t.Fatal(err)
 	}
-	s := session(t, m, repo)
-	s.SetState("review", equip.Off)
 
-	save(t, s)
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
 
-	if fi, err := os.Lstat(settingsLocal(repo)); err != nil || fi.Mode()&os.ModeSymlink == 0 {
+	save(t, session)
+
+	fi, err := os.Lstat(settingsLocal(repo))
+	if err != nil || fi.Mode()&os.ModeSymlink == 0 {
 		t.Errorf("settings.local.json is no longer a symlink: %v", err)
 	}
+
 	got := readJSON(t, target)["skillOverrides"]
 	if want := map[string]any{"review": "off"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("target skillOverrides = %v, want %v", got, want)
@@ -409,31 +463,37 @@ func TestSaveWritesThroughASymlinkedSettingsFile(t *testing.T) {
 
 func TestOverrideForAnUninstalledSkillIsKeptAndAppliesOnceItReturns(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	gone := m.Skill(m.ClaudeSkills(), "gone")
-	m.Skill(m.ClaudeSkills(), "review")
-	s := session(t, m, repo)
-	s.SetState("gone", equip.Off)
-	save(t, s)
-	if err := os.RemoveAll(gone); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Remove(settingsLocal(repo)); err != nil {
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	gone := machine.Skill(machine.ClaudeSkills(), "gone")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	session := newSession(t, machine, repo)
+	session.SetState("gone", equip.Off)
+	save(t, session)
+
+	err := os.RemoveAll(gone)
+	if err != nil {
 		t.Fatal(err)
 	}
 
-	s = session(t, m, repo)
-	s.SetState("review", equip.Off)
-	save(t, s)
+	err = os.Remove(settingsLocal(repo))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session = newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
+	save(t, session)
 
 	got := readJSON(t, settingsLocal(repo))["skillOverrides"]
 	if want := map[string]any{"review": "off"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("skillOverrides = %v, want %v", got, want)
 	}
-	m.Skill(m.ClaudeSkills(), "gone")
-	s = session(t, m, repo)
-	save(t, s)
+
+	machine.Skill(machine.ClaudeSkills(), "gone")
+	session = newSession(t, machine, repo)
+	save(t, session)
+
 	got = readJSON(t, settingsLocal(repo))["skillOverrides"]
 	if want := map[string]any{"gone": "off", "review": "off"}; !reflect.DeepEqual(got, want) {
 		t.Errorf("skillOverrides after reinstall = %v, want %v", got, want)
@@ -442,30 +502,32 @@ func TestOverrideForAnUninstalledSkillIsKeptAndAppliesOnceItReturns(t *testing.T
 
 func TestSaveWithNothingUnsavedWritesNothing(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
 
-	save(t, session(t, m, repo))
+	save(t, newSession(t, machine, repo))
 
-	if _, err := os.Stat(filepath.Join(repo, ".claude")); err == nil {
+	_, err := os.Stat(filepath.Join(repo, ".claude"))
+	if err == nil {
 		t.Error("save created .claude with nothing to write")
 	}
-	if files, _ := filepath.Glob(filepath.Join(m.StateHome, "equip", "*")); len(files) != 0 {
+
+	if files, _ := filepath.Glob(filepath.Join(machine.StateHome, "equip", "*")); len(files) != 0 {
 		t.Errorf("save wrote records %q with nothing to write", files)
 	}
 }
 
 func TestSaveKeepsSettingsTextReadable(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
 	writeFile(t, settingsLocal(repo), `{"permissions": {"allow": ["Bash(make && make test > log)"]}}`)
-	s := session(t, m, repo)
-	s.SetState("review", equip.Off)
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
 
-	save(t, s)
+	save(t, session)
 
 	if data, _ := os.ReadFile(settingsLocal(repo)); !strings.Contains(string(data), "Bash(make && make test > log)") {
 		t.Errorf("settings %s escaped the permission", data)
@@ -474,33 +536,37 @@ func TestSaveKeepsSettingsTextReadable(t *testing.T) {
 
 func TestSaveKeepsTheSettingsFileMode(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
 	writeFile(t, settingsLocal(repo), `{}`)
-	if err := os.Chmod(settingsLocal(repo), 0o640); err != nil {
+
+	err := os.Chmod(settingsLocal(repo), 0o640)
+	if err != nil {
 		t.Fatal(err)
 	}
-	s := session(t, m, repo)
-	s.SetState("review", equip.Off)
 
-	save(t, s)
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
 
-	if fi, err := os.Stat(settingsLocal(repo)); err != nil || fi.Mode().Perm() != 0o640 {
+	save(t, session)
+
+	fi, err := os.Stat(settingsLocal(repo))
+	if err != nil || fi.Mode().Perm() != 0o640 {
 		t.Errorf("settings mode = %v (%v), want 0640", fi.Mode().Perm(), err)
 	}
 }
 
 func TestSaveKeepsSkillOverridesForUndiscoveredSkills(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"synced": "off"}}`)
-	s := session(t, m, repo)
-	s.SetState("review", equip.Off)
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
 
-	save(t, s)
+	save(t, session)
 
 	got := readJSON(t, settingsLocal(repo))["skillOverrides"]
 	if want := map[string]any{"review": "off", "synced": "off"}; !reflect.DeepEqual(got, want) {
@@ -510,32 +576,32 @@ func TestSaveKeepsSkillOverridesForUndiscoveredSkills(t *testing.T) {
 
 func TestDroppingASavedOverrideIsUnsaved(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
-	s := session(t, m, repo)
-	s.SetState("review", equip.Off)
-	save(t, s)
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
+	save(t, session)
 
-	s.DropOverride("review")
+	session.DropOverride("review")
 
-	v := s.View()
-	if !v.Rows[0].Unsaved || v.Unsaved != 1 {
-		t.Errorf("row unsaved = %t, Unsaved = %d, want true and 1", v.Rows[0].Unsaved, v.Unsaved)
+	view := session.View()
+	if !view.Rows[0].Unsaved || view.Unsaved != 1 {
+		t.Errorf("row unsaved = %t, Unsaved = %d, want true and 1", view.Rows[0].Unsaved, view.Unsaved)
 	}
 }
 
 func TestSavingADroppedOverrideRemovesItsEntry(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
-	s := session(t, m, repo)
-	s.SetState("review", equip.Off)
-	save(t, s)
-	s.DropOverride("review")
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
+	save(t, session)
+	session.DropOverride("review")
 
-	save(t, s)
+	save(t, session)
 
 	got := readJSON(t, settingsLocal(repo))["skillOverrides"]
 	if want := map[string]any{}; !reflect.DeepEqual(got, want) {
@@ -545,14 +611,14 @@ func TestSavingADroppedOverrideRemovesItsEntry(t *testing.T) {
 
 func TestSavingOnKeepsNameOnlyWhichReadsAsOn(t *testing.T) {
 	t.Parallel()
-	m := equiptest.New(t)
-	repo := m.Repo("app")
-	m.Skill(m.ClaudeSkills(), "review")
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "name-only"}}`)
-	s := session(t, m, repo)
-	s.SetState("review", equip.On)
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.On)
 
-	save(t, s)
+	save(t, session)
 
 	got := readJSON(t, settingsLocal(repo))["skillOverrides"]
 	if want := map[string]any{"review": "name-only"}; !reflect.DeepEqual(got, want) {

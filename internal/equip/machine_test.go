@@ -13,11 +13,13 @@ func TestMachineFromEnvUsesXDGVariablesWithHomeDefaults(t *testing.T) {
 	t.Setenv("XDG_CACHE_HOME", "")
 	t.Setenv("CODEX_HOME", "/codex")
 
-	m, err := equip.MachineFromEnv()
+	machine, err := equip.MachineFromEnv()
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := [...]string{m.Home, m.ConfigHome, m.StateHome, m.CacheHome, m.CodexHome}
+
+	got := [...]string{machine.Home, machine.ConfigHome, machine.StateHome, machine.CacheHome, machine.CodexHome}
+
 	want := [...]string{"/home/u", "/cfg", "/home/u/.local/state", "/home/u/.cache", "/codex"}
 	if got != want {
 		t.Errorf("got %q, want %q", got, want)

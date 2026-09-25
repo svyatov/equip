@@ -1,38 +1,58 @@
 package equip
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 )
+
+// dirMode is the mode of a directory writeFile creates: no access for others.
+const dirMode = 0o750
 
 // writeFile writes data to path through a temp file and a rename, so no
 // reader sees half a file. It creates the directory of path.
 func writeFile(path string, data []byte) error {
 	// Write through a symlink, so a link into dotfiles stays a link.
-	if target, err := filepath.EvalSymlinks(path); err == nil {
+	target, err := filepath.EvalSymlinks(path)
+	if err == nil {
 		path = target
 	}
+
 	dir := filepath.Dir(path)
-	if err := os.MkdirAll(dir, 0o750); err != nil {
-		return err
-	}
-	f, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*")
+
+	err = os.MkdirAll(dir, dirMode)
 	if err != nil {
-		return err
+		return fmt.Errorf("create dir: %w", err)
 	}
-	defer func() { _ = os.Remove(f.Name()) }() // fails once renamed
+
+	tmp, err := os.CreateTemp(dir, "."+filepath.Base(path)+".*")
+	if err != nil {
+		return fmt.Errorf("create temp file: %w", err)
+	}
+
+	defer func() { _ = os.Remove(tmp.Name()) }() // fails once renamed
 	// The temp file starts at 0600; an existing file keeps its own mode.
-	if fi, serr := os.Stat(path); serr == nil {
-		err = f.Chmod(fi.Mode().Perm())
+	fi, statErr := os.Stat(path)
+	if statErr == nil {
+		err = tmp.Chmod(fi.Mode().Perm())
 	}
+
 	if err == nil {
-		_, err = f.Write(data)
+		_, err = tmp.Write(data)
 	}
-	if cerr := f.Close(); err == nil {
+
+	if cerr := tmp.Close(); err == nil {
 		err = cerr
 	}
+
 	if err != nil {
-		return err
+		return fmt.Errorf("write temp file: %w", err)
 	}
-	return os.Rename(f.Name(), path)
+
+	err = os.Rename(tmp.Name(), path)
+	if err != nil {
+		return fmt.Errorf("replace file: %w", err)
+	}
+
+	return nil
 }
