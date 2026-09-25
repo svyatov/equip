@@ -7,7 +7,6 @@ version: "2"
 linters:
   default: all
   disable:
-    - cyclop # the complexity six are enabled once a function needs splitting
     - exhaustruct # zero values are valid by design
     - exhaustruct_v5 # the same linter under its new name
     - gochecknoglobals # the globals are lipgloss styles and lookup tables

@@ -49,37 +49,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	rows := m.s.View().Rows
+	cmd := m.press(k.String())
 
-	switch key := k.String(); key {
-	case "q", "ctrl+c":
-		if m.s.View().Unsaved > 0 {
-			m.quitting = true
-
-			return m, nil
-		}
-
-		return m, tea.Quit
-	case "up", "k":
-		m.cur = max(m.cur-1, 0)
-	case "down", "j":
-		m.cur = max(min(m.cur+1, len(rows)-1), 0)
-	case "1", "2", "3":
-		if m.cur < len(rows) {
-			m.s.SetState(rows[m.cur].Name, states[key[0]-'1'])
-		}
-	case "x":
-		if m.cur < len(rows) {
-			m.s.DropOverride(rows[m.cur].Name)
-		}
-	case "s":
-		err := m.s.Save()
-		if err != nil {
-			m.flash = warnStyle.Render("save failed: " + err.Error())
-		}
-	}
-
-	return m, nil
+	return m, cmd
 }
 
 func (m *model) View() tea.View {
@@ -122,6 +94,46 @@ func (m *model) View() tea.View {
 	view.AltScreen = true
 
 	return view
+}
+
+// press acts on key on the main screen.
+func (m *model) press(key string) tea.Cmd {
+	rows := m.s.View().Rows
+
+	switch key {
+	case "q", "ctrl+c":
+		return m.quit()
+	case "up", "k":
+		m.cur = max(m.cur-1, 0)
+	case "down", "j":
+		m.cur = max(min(m.cur+1, len(rows)-1), 0)
+	case "1", "2", "3":
+		if m.cur < len(rows) {
+			m.s.SetState(rows[m.cur].Name, states[key[0]-'1'])
+		}
+	case "x":
+		if m.cur < len(rows) {
+			m.s.DropOverride(rows[m.cur].Name)
+		}
+	case "s":
+		err := m.s.Save()
+		if err != nil {
+			m.flash = warnStyle.Render("save failed: " + err.Error())
+		}
+	}
+
+	return nil
+}
+
+// quit quits, or first asks to confirm with unsaved changes.
+func (m *model) quit() tea.Cmd {
+	if m.s.View().Unsaved > 0 {
+		m.quitting = true
+
+		return nil
+	}
+
+	return tea.Quit
 }
 
 // detail is the detail pane of r: its origin and the states to pick from.

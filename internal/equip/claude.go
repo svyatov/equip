@@ -105,25 +105,9 @@ func writeClaude(m Machine, p Project, exts []Extension, overrides map[string]St
 		return err
 	}
 
-	skills := settings.skills
+	mergeSkills(settings.skills, exts, overrides)
 
-	for _, e := range exts {
-		st, ok := overrides[e.Key]
-
-		_, known := skillState(skills[e.Key])
-		switch {
-		case !ok && known:
-			delete(skills, e.Key)
-		case !ok:
-			// A value equip does not know is not equip's to remove.
-		case st == On && string(skills[e.Key]) == `"name-only"`:
-			// "name-only" reads as on, so it already holds.
-		default:
-			skills[e.Key] = json.RawMessage(strconv.Quote(skillValues[st]))
-		}
-	}
-
-	out := map[string]any{"skillOverrides": skills}
+	out := map[string]any{"skillOverrides": settings.skills}
 
 	for key, v := range settings.keys {
 		if key != "skillOverrides" {
@@ -150,4 +134,24 @@ func writeClaude(m Machine, p Project, exts []Extension, overrides map[string]St
 	}
 
 	return writeFile(path, buf.Bytes())
+}
+
+// mergeSkills sets the skillOverrides value of each of exts to its state in
+// overrides, or removes it when overrides has none.
+func mergeSkills(skills map[string]json.RawMessage, exts []Extension, overrides map[string]State) {
+	for _, e := range exts {
+		st, ok := overrides[e.Key]
+
+		_, known := skillState(skills[e.Key])
+		switch {
+		case !ok && known:
+			delete(skills, e.Key)
+		case !ok:
+			// A value equip does not know is not equip's to remove.
+		case st == On && string(skills[e.Key]) == `"name-only"`:
+			// "name-only" reads as on, so it already holds.
+		default:
+			skills[e.Key] = json.RawMessage(strconv.Quote(skillValues[st]))
+		}
+	}
 }
