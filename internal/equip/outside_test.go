@@ -23,8 +23,14 @@ func TestFirstOpenImportsHandSetStatesAsOverrides(t *testing.T) {
 	view := newSession(t, machine, repo).View()
 
 	want := []equip.Row{
-		{Name: "docs", State: equip.ManualOnly, Override: true, Fallback: equip.On, Unsaved: false, ChangedOutside: false},
-		{Name: "review", State: equip.Off, Override: true, Fallback: equip.On, Unsaved: false, ChangedOutside: false},
+		{
+			Name: "docs", Cost: 0, State: equip.ManualOnly, Override: true, Fallback: equip.On, Unsaved: false,
+			ChangedOutside: false,
+		},
+		{
+			Name: "review", Cost: 0, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: false,
+			ChangedOutside: false,
+		},
 	}
 	if !slices.Equal(view.Rows, want) || view.Unsaved != 0 {
 		t.Errorf("rows = %+v, Unsaved = %d, want %+v and 0", view.Rows, view.Unsaved, want)
@@ -64,7 +70,7 @@ func TestQuittingWithoutSavingLeavesHandEditsToImportAgain(t *testing.T) {
 	}
 
 	want := equip.Row{
-		Name: "review", State: equip.On, Override: true, Fallback: equip.On, Unsaved: true,
+		Name: "review", Cost: 8, State: equip.On, Override: true, Fallback: equip.On, Unsaved: true,
 		ChangedOutside: true,
 	}
 	if view.Rows[0] != want {
@@ -84,7 +90,7 @@ func TestSaveKeepsAnImportAndClearsItsNote(t *testing.T) {
 	save(t, session)
 
 	want := equip.Row{
-		Name: "review", State: equip.On, Override: true, Fallback: equip.On, Unsaved: false, ChangedOutside: false,
+		Name: "review", Cost: 8, State: equip.On, Override: true, Fallback: equip.On, Unsaved: false, ChangedOutside: false,
 	}
 	if view := session.View(); view.Rows[0] != want || view.Unsaved != 0 {
 		t.Errorf("row = %+v, Unsaved = %d, want %+v and 0", view.Rows[0], view.Unsaved, want)
@@ -115,7 +121,7 @@ func TestEntryMissingOnDiskShowsTheRecordStateUnsaved(t *testing.T) {
 	view := newSession(t, machine, repo).View()
 
 	want := equip.Row{
-		Name: "review", State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true, ChangedOutside: false,
+		Name: "review", Cost: 0, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true, ChangedOutside: false,
 	}
 	if view.Rows[0] != want || view.Unsaved != 1 {
 		t.Errorf("row = %+v, Unsaved = %d, want %+v and 1", view.Rows[0], view.Unsaved, want)
@@ -129,9 +135,10 @@ func TestEntryChangedOnDiskIsImportedAsAnUnsavedOverride(t *testing.T) {
 		settings string
 		want     equip.State
 		saved    bool // whether the record has an Override for review
+		cost     int
 	}{
-		"another value": {`{"skillOverrides": {"review": "on"}}`, equip.On, true},
-		"none wanted":   {`{"skillOverrides": {"docs": "off", "review": "user-invocable-only"}}`, equip.ManualOnly, false},
+		"another value": {`{"skillOverrides": {"review": "on"}}`, equip.On, true, 8},
+		"none wanted":   {`{"skillOverrides": {"docs": "off", "review": "user-invocable-only"}}`, equip.ManualOnly, false, 0},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -153,8 +160,8 @@ func TestEntryChangedOnDiskIsImportedAsAnUnsavedOverride(t *testing.T) {
 			view := newSession(t, machine, repo).View()
 
 			want := equip.Row{
-				Name: "review", State: testCase.want, Override: true, Fallback: equip.On, Unsaved: true,
-				ChangedOutside: true,
+				Name: "review", Cost: testCase.cost, State: testCase.want, Override: true, Fallback: equip.On,
+				Unsaved: true, ChangedOutside: true,
 			}
 			if view.Rows[1] != want {
 				t.Errorf("row = %+v, want %+v", view.Rows[1], want)
@@ -191,9 +198,12 @@ func TestSaveAfterAnOutsideChangeWritesNothingAndImportsIt(t *testing.T) {
 	}
 
 	want := []equip.Row{
-		{Name: "docs", State: equip.ManualOnly, Override: true, Fallback: equip.On, Unsaved: true, ChangedOutside: false},
 		{
-			Name: "review", State: equip.On, Override: true, Fallback: equip.On, Unsaved: true,
+			Name: "docs", Cost: 0, State: equip.ManualOnly, Override: true, Fallback: equip.On, Unsaved: true,
+			ChangedOutside: false,
+		},
+		{
+			Name: "review", Cost: 8, State: equip.On, Override: true, Fallback: equip.On, Unsaved: true,
 			ChangedOutside: true,
 		},
 	}
@@ -232,7 +242,7 @@ func TestNameOnlyOnDiskMatchesARecordedOn(t *testing.T) {
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "name-only"}}`)
 
 	want := equip.Row{
-		Name: "review", State: equip.On, Override: true, Fallback: equip.On, Unsaved: false, ChangedOutside: false,
+		Name: "review", Cost: 8, State: equip.On, Override: true, Fallback: equip.On, Unsaved: false, ChangedOutside: false,
 	}
 	if view := newSession(t, machine, repo).View(); view.Rows[0] != want {
 		t.Errorf("row = %+v, want %+v", view.Rows[0], want)
@@ -258,7 +268,7 @@ func TestSaveAfterAnImportIsRemovedOutsideDropsIt(t *testing.T) {
 	}
 
 	want := equip.Row{
-		Name: "review", State: equip.On, Override: false, Fallback: equip.On, Unsaved: false, ChangedOutside: false,
+		Name: "review", Cost: 8, State: equip.On, Override: false, Fallback: equip.On, Unsaved: false, ChangedOutside: false,
 	}
 	if view := session.View(); view.Rows[1] != want || view.Unsaved != 0 {
 		t.Errorf("row = %+v, Unsaved = %d, want %+v and 0", view.Rows[1], view.Unsaved, want)
@@ -284,7 +294,7 @@ func TestSaveAfterAnOutsideRemovalWritesNothing(t *testing.T) {
 	}
 
 	want := equip.Row{
-		Name: "review", State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true, ChangedOutside: false,
+		Name: "review", Cost: 0, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true, ChangedOutside: false,
 	}
 	if view := session.View(); view.Rows[0] != want {
 		t.Errorf("row = %+v, want %+v", view.Rows[0], want)
@@ -328,7 +338,7 @@ func TestSaveAfterAnOutsideChangeBackShowsTheRecordState(t *testing.T) {
 	}
 
 	want := equip.Row{
-		Name: "review", State: equip.Off, Override: true, Fallback: equip.On, Unsaved: false, ChangedOutside: false,
+		Name: "review", Cost: 0, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: false, ChangedOutside: false,
 	}
 	if view := session.View(); view.Rows[0] != want || view.Unsaved != 0 {
 		t.Errorf("row = %+v, Unsaved = %d, want %+v and 0", view.Rows[0], view.Unsaved, want)
@@ -351,7 +361,7 @@ func TestSaveMarksAPendingToggleReplacedByAnOutsideChange(t *testing.T) {
 	}
 
 	want := equip.Row{
-		Name: "review", State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true, ChangedOutside: true,
+		Name: "review", Cost: 0, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true, ChangedOutside: true,
 	}
 	if view := session.View(); view.Rows[0] != want {
 		t.Errorf("row = %+v, want %+v", view.Rows[0], want)

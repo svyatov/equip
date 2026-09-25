@@ -35,6 +35,9 @@ func glyph(st equip.State) string {
 	return [...]string{equip.On: "●", equip.ManualOnly: "◐", equip.Off: "○"}[st]
 }
 
+// cost shows an estimate of tokens.
+func cost(tokens int) string { return fmt.Sprintf("~%d", tokens) }
+
 // model is the Bubble Tea root model over a Session.
 type model struct {
 	style    styles
@@ -77,9 +80,13 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *model) View() tea.View {
 	session := m.s.View()
 
-	top := m.style.top.Render("equip  " + session.Project.Path)
+	top := []string{m.style.top.Render("equip  " + session.Project.Path)}
+	for _, agent := range equip.Agents() {
+		top = append(top, agent.String()+" "+cost(session.Totals[agent]))
+	}
+
 	if session.Unsaved > 0 {
-		top += "  " + m.style.warn.Render(fmt.Sprintf("%d unsaved", session.Unsaved))
+		top = append(top, m.style.warn.Render(fmt.Sprintf("%d unsaved", session.Unsaved)))
 	}
 
 	list := make([]string, 0, len(session.Rows))
@@ -93,7 +100,7 @@ func (m *model) View() tea.View {
 			name += m.style.warn.Render("*")
 		}
 
-		list = append(list, mark+glyph(row.State)+" "+name)
+		list = append(list, mark+glyph(row.State)+" "+name+" "+m.style.dim.Render(cost(row.Cost)))
 	}
 
 	panes := []string{m.style.pane.Render(strings.Join(list, "\n"))}
@@ -111,7 +118,7 @@ func (m *model) View() tea.View {
 		footer = m.flash
 	}
 
-	view := tea.NewView(top + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, panes...) + "\n" + footer)
+	view := tea.NewView(strings.Join(top, "  ") + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, panes...) + "\n" + footer)
 	view.AltScreen = true
 
 	return view
@@ -161,8 +168,11 @@ func (m *model) quit() tea.Cmd {
 // origin, the states to pick from and where it comes from.
 func (m *model) detail(row equip.Row, ext equip.Detail) string {
 	agents := make([]string, 0, len(ext.Agents))
+	costs := make([]string, 0, len(ext.Agents))
+
 	for _, agent := range ext.Agents {
 		agents = append(agents, agent.String())
+		costs = append(costs, agent.String()+" "+cost(ext.Costs[agent]))
 	}
 
 	lines := []string{
@@ -177,6 +187,8 @@ func (m *model) detail(row equip.Row, ext equip.Detail) string {
 			lines = append(lines, "        "+m.style.dim.Render("not applied in "+agent.String()+": "+reason))
 		}
 	}
+
+	lines = append(lines, "Cost    "+strings.Join(costs, ", "))
 
 	if row.Override {
 		lines = append(lines,

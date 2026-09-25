@@ -53,6 +53,7 @@ type Session struct {
 // View is what the user sees of a Session.
 type View struct {
 	Project Project
+	Totals  map[Agent]int // the estimated tokens of a session in each agent
 	Rows    []Row
 	Unsaved int // pending changes a save would write
 }
@@ -60,6 +61,7 @@ type View struct {
 // Row is one extension in the list.
 type Row struct {
 	Name     string
+	Cost     int // estimated tokens: the higher of the agents' costs
 	State    State
 	Fallback State // the state without the Override
 	Override bool  // State was set by hand in this Project
@@ -118,16 +120,20 @@ func (s *Session) SetState(key string, st State) { s.overrides[key] = st }
 // View returns the current view.
 func (s *Session) View() View {
 	rows := make([]Row, 0, len(s.exts))
+	totals := map[Agent]int{}
 
 	for _, ext := range s.exts {
-		state, override := s.overrides[ext.Key]
-		if !override {
-			// With no presets, a skill falls back to Claude Code's default: on.
-			state = On
+		state, override := s.state(ext.Key)
+		cost := 0
+
+		for _, agent := range Agents() {
+			totals[agent] += ext.costIn(agent, state)
+			cost = max(cost, ext.costIn(agent, state))
 		}
 
 		rows = append(rows, Row{
 			Name:           ext.Key,
+			Cost:           cost,
 			State:          state,
 			Override:       override,
 			Fallback:       On,
@@ -136,12 +142,29 @@ func (s *Session) View() View {
 		})
 	}
 
-	return View{Project: s.project, Rows: rows, Unsaved: s.unsavedCount()}
+	for agent, total := range totals {
+		if total > 0 {
+			totals[agent] += agent.listing().introTokens
+		}
+	}
+
+	return View{Project: s.project, Rows: rows, Unsaved: s.unsavedCount(), Totals: totals}
+}
+
+// costIn estimates the tokens the extension puts into agent's sessions in st.
+// Codex cannot apply a skill's state, so there a skill keeps its full cost.
+func (e Extension) costIn(agent Agent, st State) int {
+	if agent == ClaudeCode && st != On {
+		return 0
+	}
+
+	return e.cost[agent]
 }
 
 // Detail is what the detail pane shows of one extension.
 type Detail struct {
 	NotApplied  map[Agent]string // why an agent that has it does not get its state
+	Costs       map[Agent]int    // estimated tokens in each agent that has it
 	Description string
 	Agents      []Agent // the agents that have it
 	Locations   []Location
@@ -151,15 +174,20 @@ type Detail struct {
 func (s *Session) Detail(key string) Detail {
 	i := slices.IndexFunc(s.exts, func(e Extension) bool { return e.Key == key })
 	if i < 0 {
-		return Detail{Description: "", Agents: nil, Locations: nil, NotApplied: nil}
+		return Detail{Description: "", Agents: nil, Locations: nil, NotApplied: nil, Costs: nil}
 	}
 
 	ext := s.exts[i]
-	detail := Detail{Description: ext.Description, Agents: nil, Locations: ext.Locations, NotApplied: map[Agent]string{}}
+	detail := Detail{
+		Description: ext.Description, Agents: nil, Locations: ext.Locations,
+		NotApplied: map[Agent]string{}, Costs: map[Agent]int{},
+	}
+	state, _ := s.state(key)
 
 	for _, loc := range ext.Locations {
 		if !slices.Contains(detail.Agents, loc.Agent) {
 			detail.Agents = append(detail.Agents, loc.Agent)
+			detail.Costs[loc.Agent] = ext.costIn(loc.Agent, state)
 		}
 	}
 
@@ -213,6 +241,18 @@ func (s *Session) Save() error {
 	clear(s.outside)
 
 	return nil
+}
+
+// state returns the state of the extension with key and whether an Override
+// set it.
+func (s *Session) state(key string) (State, bool) {
+	state, override := s.overrides[key]
+	if !override {
+		// With no presets, a skill falls back to Claude Code's default: on.
+		state = On
+	}
+
+	return state, override
 }
 
 // take takes now, Claude Code's entries on disk, and imports each entry that
