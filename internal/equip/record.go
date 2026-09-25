@@ -41,7 +41,7 @@ func readRecord(m Machine, p Project) (map[string]State, error) {
 	}
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("read record: %w", err)
 	}
 
 	var rec record
@@ -56,7 +56,7 @@ func readRecord(m Machine, p Project) (map[string]State, error) {
 	for key, name := range rec.Overrides.Skills {
 		st, ok := parseState(name)
 		if !ok {
-			return nil, fmt.Errorf("read %s: skill %q has unknown state %q", path, key, name)
+			return nil, fmt.Errorf("read %s: skill %q: %w %q", path, key, errUnknownState, name)
 		}
 
 		overrides[key] = st
@@ -64,6 +64,9 @@ func readRecord(m Machine, p Project) (map[string]State, error) {
 
 	return overrides, nil
 }
+
+// errUnknownState is the error of a record with a state equip does not know.
+var errUnknownState = errors.New("unknown state")
 
 // parseState reads a state as State.String spells it.
 func parseState(name string) (State, bool) {
@@ -83,7 +86,7 @@ func writeRecord(m Machine, p Project, overrides map[string]State) error {
 
 	data, err := toml.Marshal(rec)
 	if err != nil {
-		return err
+		return fmt.Errorf("encode record: %w", err)
 	}
 
 	return writeFile(recordPath(m, p), data)

@@ -32,12 +32,12 @@ type GitFunc func(dir string, args ...string) (string, error)
 func MachineFromEnv() (Machine, error) {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return Machine{}, err
+		return Machine{}, fmt.Errorf("find home: %w", err)
 	}
 
 	wd, err := os.Getwd()
 	if err != nil {
-		return Machine{}, err
+		return Machine{}, fmt.Errorf("find working dir: %w", err)
 	}
 
 	env := func(key string, def ...string) string {

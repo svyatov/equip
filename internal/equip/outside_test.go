@@ -338,7 +338,9 @@ func TestSaveMarksAPendingToggleReplacedByAnOutsideChange(t *testing.T) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
 
-	want := equip.Row{Name: "review", State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true, ChangedOutside: true}
+	want := equip.Row{
+		Name: "review", State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true, ChangedOutside: true,
+	}
 	if v := s.View(); v.Rows[0] != want {
 		t.Errorf("row = %+v, want %+v", v.Rows[0], want)
 	}

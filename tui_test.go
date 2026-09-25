@@ -108,7 +108,9 @@ func TestDetailPaneShowsStatesOriginAndFallback(t *testing.T) {
 
 	press(tm, key('3'))
 
-	for _, want := range []string{"( ) 1 on", "( ) 2 manual-only", "(○) 3 off", "set by hand here", "without it: on (default)"} {
+	for _, want := range []string{
+		"( ) 1 on", "( ) 2 manual-only", "(○) 3 off", "set by hand here", "without it: on (default)",
+	} {
 		if line(tm, want) == "" {
 			t.Errorf("view does not show %q:\n%s", want, tm.View().Content)
 		}

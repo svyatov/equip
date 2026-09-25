@@ -2,6 +2,7 @@ package equip
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -13,7 +14,7 @@ import (
 func locate(m Machine, dir string) (Project, error) {
 	dir, err := filepath.EvalSymlinks(dir)
 	if err != nil {
-		return Project{}, err
+		return Project{}, fmt.Errorf("locate project: %w", err)
 	}
 
 	out, err := m.Git(dir, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel")
@@ -62,7 +63,7 @@ func exclude(m Machine, p Project, rel string) error {
 
 	data, err := os.ReadFile(path) //nolint:gosec // git names the path
 	if err != nil && !errors.Is(err, fs.ErrNotExist) {
-		return err
+		return fmt.Errorf("read git exclude: %w", err)
 	}
 
 	if len(data) > 0 && data[len(data)-1] != '\n' {

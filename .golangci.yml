@@ -8,17 +8,11 @@ linters:
   default: all
   disable:
     - cyclop # the complexity six are enabled once a function needs splitting
-    - err113 # a one-off error with its context in the message needs no sentinel
     - exhaustruct # zero values are valid by design
     - exhaustruct_v5 # the same linter under its new name
-    - funcorder # a helper method sits beside the exported method it serves
     - gochecknoglobals # the globals are lipgloss styles and lookup tables
     - gomodguard # deprecated; depguard owns the import budget
-    - lll # gofumpt owns layout
-    - mnd
-    - nonamedreturns # named results document two-value returns
     - varnamelen # short names in short scopes are the Go idiom
-    - wrapcheck # an os error already names its path
     - wsl # deprecated; wsl_v5 replaces it
 
   settings:
@@ -76,6 +70,11 @@ linters:
     nolintlint:
       require-explanation: true
       require-specific: true
+
+    wrapcheck:
+      # An error from equip's own packages already carries its context.
+      ignore-package-globs:
+        - github.com/svyatov/equip/*
 
     revive:
       # An explicit list: `enable-all-rules` is mostly add-constant and

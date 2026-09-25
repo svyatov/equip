@@ -28,35 +28,42 @@ var skillStates = func() map[string]State {
 // settingsRel is the Project's Claude Code settings file that equip writes.
 const settingsRel = ".claude/settings.local.json"
 
-// readSettings reads every key of the settings file at path and the
-// skillOverrides in it. A missing file reads as empty.
-func readSettings(path string) (settings, skills map[string]json.RawMessage, missing bool, err error) {
-	// Raw values keep every other key exactly as it was.
-	settings = map[string]json.RawMessage{}
-	skills = map[string]json.RawMessage{}
+// settingsFile is a Claude Code settings file as equip reads it.
+type settingsFile struct {
+	keys    map[string]json.RawMessage // raw, so every other key stays exactly as it was
+	skills  map[string]json.RawMessage // the skillOverrides
+	missing bool
+}
+
+// readSettings reads the settings file at path. A missing file reads as
+// empty.
+func readSettings(path string) (settingsFile, error) {
+	settings := settingsFile{keys: map[string]json.RawMessage{}, skills: map[string]json.RawMessage{}, missing: false}
 
 	data, err := os.ReadFile(path) //nolint:gosec // equip builds the path
 	if errors.Is(err, fs.ErrNotExist) {
-		return settings, skills, true, nil
+		settings.missing = true
+
+		return settings, nil
 	}
 
 	if err == nil {
-		err = json.Unmarshal(data, &settings)
+		err = json.Unmarshal(data, &settings.keys)
 	}
 
-	if raw, ok := settings["skillOverrides"]; ok && err == nil {
-		err = json.Unmarshal(raw, &skills)
+	if raw, ok := settings.keys["skillOverrides"]; ok && err == nil {
+		err = json.Unmarshal(raw, &settings.skills)
 	}
 
 	if err != nil {
-		return nil, nil, false, fmt.Errorf("read %s: %w", path, err)
+		return settingsFile{}, fmt.Errorf("read %s: %w", path, err)
 	}
-	// JSON null decodes to a nil map. A nil settings map only gets read.
-	if skills == nil {
-		skills = map[string]json.RawMessage{}
+	// JSON null decodes to a nil map. A nil keys map only gets read.
+	if settings.skills == nil {
+		settings.skills = map[string]json.RawMessage{}
 	}
 
-	return settings, skills, false, nil
+	return settings, nil
 }
 
 // readClaude reads the skill states Claude Code has for exts in the
@@ -64,13 +71,13 @@ func readSettings(path string) (settings, skills map[string]json.RawMessage, mis
 func readClaude(p Project, exts []Extension) (map[string]State, error) {
 	states := map[string]State{}
 
-	_, skills, _, err := readSettings(filepath.Join(p.Path, settingsRel))
+	settings, err := readSettings(filepath.Join(p.Path, settingsRel))
 	if err != nil {
 		return states, err
 	}
 
 	for _, e := range exts {
-		if st, ok := skillState(skills[e.Key]); ok {
+		if st, ok := skillState(settings.skills[e.Key]); ok {
 			states[e.Key] = st
 		}
 	}
@@ -93,10 +100,12 @@ func skillState(raw json.RawMessage) (State, bool) {
 func writeClaude(m Machine, p Project, exts []Extension, overrides map[string]State) error {
 	path := filepath.Join(p.Path, settingsRel)
 
-	settings, skills, created, err := readSettings(path)
+	settings, err := readSettings(path)
 	if err != nil {
 		return err
 	}
+
+	skills := settings.skills
 
 	for _, e := range exts {
 		st, ok := overrides[e.Key]
@@ -116,7 +125,7 @@ func writeClaude(m Machine, p Project, exts []Extension, overrides map[string]St
 
 	out := map[string]any{"skillOverrides": skills}
 
-	for key, v := range settings {
+	for key, v := range settings.keys {
 		if key != "skillOverrides" {
 			out[key] = v
 		}
@@ -130,11 +139,11 @@ func writeClaude(m Machine, p Project, exts []Extension, overrides map[string]St
 
 	err = enc.Encode(out)
 	if err != nil {
-		return err
+		return fmt.Errorf("encode %s: %w", path, err)
 	}
 
-	if created {
-		err := exclude(m, p, settingsRel)
+	if settings.missing {
+		err = exclude(m, p, settingsRel)
 		if err != nil {
 			return err
 		}

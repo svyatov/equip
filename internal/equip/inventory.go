@@ -2,6 +2,7 @@ package equip
 
 import (
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -24,7 +25,7 @@ func discover(m Machine) ([]Extension, error) {
 	}
 
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("list skills: %w", err)
 	}
 
 	var exts []Extension

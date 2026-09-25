@@ -85,44 +85,18 @@ func Open(m Machine, dir string) (*Session, error) {
 		saved = disk
 	}
 
-	s := &Session{m: m, project: p, exts: exts, overrides: maps.Clone(saved), saved: saved, disk: map[string]State{}, outside: map[string]bool{}}
+	s := &Session{
+		m:         m,
+		project:   p,
+		exts:      exts,
+		overrides: maps.Clone(saved),
+		saved:     saved,
+		disk:      map[string]State{},
+		outside:   map[string]bool{},
+	}
 	s.take(disk)
 
 	return s, nil
-}
-
-// take takes now, Claude Code's entries on disk, and imports each entry that
-// changed since the last read and differs from the record as an unsaved
-// Override. It reports whether any entry changed.
-func (s *Session) take(now map[string]State) bool {
-	changed := false
-
-	for _, e := range s.exts {
-		key := e.Key
-		if !differ(now, s.disk, key) {
-			continue
-		}
-
-		changed = true
-		st, ok := now[key]
-		imported := ok && differ(now, s.saved, key)
-		// A pending toggle the change replaces was changed outside too.
-		s.outside[key] = imported || differ(s.overrides, s.saved, key) && !s.outside[key]
-		if !imported {
-			// Missing or as recorded: the row shows the record's state.
-			st, ok = s.saved[key]
-		}
-
-		if ok {
-			s.overrides[key] = st
-		} else {
-			delete(s.overrides, key)
-		}
-	}
-
-	s.disk = now
-
-	return changed
 }
 
 // SetState makes st an Override for the extension with key.
@@ -144,39 +118,6 @@ func (s *Session) View() View {
 	v.Unsaved = s.unsavedCount()
 
 	return v
-}
-
-// unsavedCount counts the pending changes a save would write.
-func (s *Session) unsavedCount() int {
-	keys := maps.Clone(s.saved)
-	maps.Copy(keys, s.overrides)
-	maps.Copy(keys, s.disk)
-
-	n := 0
-
-	for key := range keys {
-		if s.unsaved(key) {
-			n++
-		}
-	}
-
-	return n
-}
-
-// unsaved reports whether a save would change the Override for key or, for
-// an installed extension, its entry on disk.
-func (s *Session) unsaved(key string) bool {
-	installed := slices.ContainsFunc(s.exts, func(e Extension) bool { return e.Key == key })
-
-	return differ(s.overrides, s.saved, key) || installed && differ(s.overrides, s.disk, key)
-}
-
-// differ reports whether a and b hold different states for key.
-func differ(a, b map[string]State, key string) bool {
-	st, ok := a[key]
-	was, wasOK := b[key]
-
-	return ok != wasOK || st != was
 }
 
 // DropOverride removes the Override for key, so the extension falls back.
@@ -222,4 +163,71 @@ func (s *Session) Save() error {
 	clear(s.outside)
 
 	return nil
+}
+
+// take takes now, Claude Code's entries on disk, and imports each entry that
+// changed since the last read and differs from the record as an unsaved
+// Override. It reports whether any entry changed.
+func (s *Session) take(now map[string]State) bool {
+	changed := false
+
+	for _, e := range s.exts {
+		key := e.Key
+		if !differ(now, s.disk, key) {
+			continue
+		}
+
+		changed = true
+		st, ok := now[key]
+		imported := ok && differ(now, s.saved, key)
+		// A pending toggle the change replaces was changed outside too.
+		s.outside[key] = imported || differ(s.overrides, s.saved, key) && !s.outside[key]
+		if !imported {
+			// Missing or as recorded: the row shows the record's state.
+			st, ok = s.saved[key]
+		}
+
+		if ok {
+			s.overrides[key] = st
+		} else {
+			delete(s.overrides, key)
+		}
+	}
+
+	s.disk = now
+
+	return changed
+}
+
+// unsavedCount counts the pending changes a save would write.
+func (s *Session) unsavedCount() int {
+	keys := maps.Clone(s.saved)
+	maps.Copy(keys, s.overrides)
+	maps.Copy(keys, s.disk)
+
+	n := 0
+
+	for key := range keys {
+		if s.unsaved(key) {
+			n++
+		}
+	}
+
+	return n
+}
+
+// unsaved reports whether a save would change the Override for key or, for
+// an installed extension, its entry on disk.
+func (s *Session) unsaved(key string) bool {
+	installed := slices.ContainsFunc(s.exts, func(e Extension) bool { return e.Key == key })
+
+	return differ(s.overrides, s.saved, key) || installed && differ(s.overrides, s.disk, key)
+}
+
+// differ reports whether a and b hold different states for key.
+func differ(a, b map[string]State, key string) bool {
+	st, ok := a[key]
+	was, wasOK := b[key]
+
+	return ok != wasOK || st != was
 }

@@ -274,7 +274,8 @@ func TestSaveDoesNotExcludeASettingsFileItDidNotCreate(t *testing.T) {
 	}
 }
 
-func TestSaveOutsideGitWritesOnlyTheSettingsFile(t *testing.T) { //nolint:paralleltest // t.Chdir changes the whole process
+//nolint:paralleltest // t.Chdir changes the whole process
+func TestSaveOutsideGitWritesOnlyTheSettingsFile(t *testing.T) {
 	m := equiptest.New(t)
 	dir := m.Mkdir(filepath.Join(m.Root, "scratch"))
 	t.Chdir(dir) // a stray relative write would land here

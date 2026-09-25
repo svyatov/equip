@@ -11,6 +11,12 @@ import (
 	"github.com/svyatov/equip/internal/equip"
 )
 
+// The modes of the fixtures, as a user's own files usually have them.
+const (
+	dirMode  = 0o755
+	fileMode = 0o644
+)
+
 // Machine is an equip.Machine on a temp dir, with helpers to build fixtures.
 type Machine struct {
 	equip.Machine
@@ -69,7 +75,7 @@ func New(tb testing.TB) *Machine {
 func (m *Machine) Mkdir(dir string) string {
 	m.t.Helper()
 
-	err := os.MkdirAll(dir, 0o755)
+	err := os.MkdirAll(dir, dirMode)
 	if err != nil {
 		m.t.Fatal(err)
 	}
@@ -123,7 +129,7 @@ func (m *Machine) Skill(skills, name string) string {
 
 	body := "---\nname: " + name + "\ndescription: The " + name + " skill.\n---\n"
 
-	err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), 0o644)
+	err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), fileMode)
 	if err != nil {
 		m.t.Fatal(err)
 	}
