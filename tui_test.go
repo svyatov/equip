@@ -53,6 +53,7 @@ func line(tm *model, s string) string {
 }
 
 func TestMainScreenShowsProjectPathAndSkills(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	m.Skill(m.ClaudeSkills(), "review")
 
@@ -66,6 +67,7 @@ func TestMainScreenShowsProjectPathAndSkills(t *testing.T) {
 }
 
 func TestStateKeySetsAnUnsavedOverrideOnTheHighlightedSkill(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	m.Skill(m.ClaudeSkills(), "alpha")
 	m.Skill(m.ClaudeSkills(), "beta")
@@ -86,6 +88,7 @@ func TestStateKeySetsAnUnsavedOverrideOnTheHighlightedSkill(t *testing.T) {
 }
 
 func TestDetailPaneShowsStatesOriginAndFallback(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	m.Skill(m.ClaudeSkills(), "review")
 	tm := newModel(t, m)
@@ -103,6 +106,7 @@ func TestDetailPaneShowsStatesOriginAndFallback(t *testing.T) {
 }
 
 func TestDetailPaneShowsTheNote(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	m.Skill(m.ClaudeSkills(), "review")
 	press(newModel(t, m), key('3'), key('s'))
@@ -117,6 +121,7 @@ func TestDetailPaneShowsTheNote(t *testing.T) {
 }
 
 func TestDropKeyDropsTheOverride(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	m.Skill(m.ClaudeSkills(), "review")
 	tm := newModel(t, m)
@@ -129,6 +134,7 @@ func TestDropKeyDropsTheOverride(t *testing.T) {
 }
 
 func TestSaveKeyWritesTheOverrides(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	m.Skill(m.ClaudeSkills(), "review")
 	tm := newModel(t, m)
@@ -141,6 +147,7 @@ func TestSaveKeyWritesTheOverrides(t *testing.T) {
 }
 
 func TestSaveKeyShowsTheError(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	m.Skill(m.ClaudeSkills(), "review")
 	settings := filepath.Join(m.Root, ".claude", "settings.local.json")
@@ -155,12 +162,14 @@ func TestSaveKeyShowsTheError(t *testing.T) {
 	if line(tm, "settings.local.json") == "" {
 		t.Errorf("view does not show the save error:\n%s", tm.View().Content)
 	}
-	if press(tm, down); line(tm, "settings.local.json") != "" {
+	press(tm, down)
+	if line(tm, "settings.local.json") != "" {
 		t.Error("the save error stays after the next key")
 	}
 }
 
 func TestUpKeyMovesBack(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	m.Skill(m.ClaudeSkills(), "alpha")
 	m.Skill(m.ClaudeSkills(), "beta")
@@ -174,6 +183,7 @@ func TestUpKeyMovesBack(t *testing.T) {
 }
 
 func TestKeysWithNoSkillsDoNothing(t *testing.T) {
+	t.Parallel()
 	tm := newModel(t, equiptest.New(t))
 
 	press(tm, down, key('1'), key('x'))
@@ -184,6 +194,7 @@ func TestKeysWithNoSkillsDoNothing(t *testing.T) {
 }
 
 func TestQuitKeysQuit(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	for _, k := range []tea.KeyPressMsg{
 		key('q'),
@@ -196,6 +207,7 @@ func TestQuitKeysQuit(t *testing.T) {
 }
 
 func TestQuitWithUnsavedChangesAsksFirst(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	m.Skill(m.ClaudeSkills(), "review")
 	tm := newModel(t, m)

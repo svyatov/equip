@@ -24,6 +24,7 @@ func session(t *testing.T, m *equiptest.Machine, dir string) *equip.Session {
 }
 
 func TestSetStateMakesAnUnsavedOverride(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	m.Skill(m.ClaudeSkills(), "review")
 	s := session(t, m, m.Root)
@@ -41,6 +42,7 @@ func TestSetStateMakesAnUnsavedOverride(t *testing.T) {
 }
 
 func TestDropOverrideReturnsSkillToDefault(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	m.Skill(m.ClaudeSkills(), "review")
 	s := session(t, m, m.Root)
@@ -83,6 +85,7 @@ func save(t *testing.T, s *equip.Session) {
 }
 
 func TestSaveWritesSkillOverridesForClaudeCode(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	for _, name := range []string{"docs", "lint", "review"} {
@@ -117,6 +120,7 @@ func writeFile(t *testing.T, path, content string) {
 }
 
 func TestSaveKeepsSettingsEquipDoesNotOwn(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -134,6 +138,7 @@ func TestSaveKeepsSettingsEquipDoesNotOwn(t *testing.T) {
 }
 
 func TestSaveKeepsNumbersExactly(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -153,6 +158,7 @@ func TestSaveKeepsNumbersExactly(t *testing.T) {
 }
 
 func TestSaveReplacesSettingsWithANewFile(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -176,6 +182,7 @@ func TestSaveReplacesSettingsWithANewFile(t *testing.T) {
 }
 
 func TestSaveExcludesTheSettingsFileItCreatesFromGit(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -190,6 +197,7 @@ func TestSaveExcludesTheSettingsFileItCreatesFromGit(t *testing.T) {
 }
 
 func TestSaveLeavesExcludeAloneWhenGitIgnoresTheSettingsFile(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -207,6 +215,7 @@ func TestSaveLeavesExcludeAloneWhenGitIgnoresTheSettingsFile(t *testing.T) {
 }
 
 func TestSaveExcludesOnANewLineAfterAnUnterminatedExclude(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -223,6 +232,7 @@ func TestSaveExcludesOnANewLineAfterAnUnterminatedExclude(t *testing.T) {
 }
 
 func TestSaveDoesNotExcludeASettingsFileItDidNotCreate(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -237,7 +247,7 @@ func TestSaveDoesNotExcludeASettingsFileItDidNotCreate(t *testing.T) {
 	}
 }
 
-func TestSaveOutsideGitWritesOnlyTheSettingsFile(t *testing.T) {
+func TestSaveOutsideGitWritesOnlyTheSettingsFile(t *testing.T) { //nolint:paralleltest // t.Chdir changes the whole process
 	m := equiptest.New(t)
 	dir := m.Mkdir(filepath.Join(m.Root, "scratch"))
 	t.Chdir(dir) // a stray relative write would land here
@@ -272,6 +282,7 @@ func readRecord(t *testing.T, m *equiptest.Machine) map[string]any {
 }
 
 func TestSaveWritesTheProjectRecord(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	root := m.Commit(repo)
@@ -292,6 +303,7 @@ func TestSaveWritesTheProjectRecord(t *testing.T) {
 }
 
 func TestReopenShowsSavedOverrides(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -308,11 +320,13 @@ func TestReopenShowsSavedOverrides(t *testing.T) {
 }
 
 func TestOpenRefusesABrokenRecord(t *testing.T) {
+	t.Parallel()
 	for name, body := range map[string]string{
 		"bad TOML":      "path = ",
 		"unknown state": "[overrides.skills]\nreview = \"sometimes\"\n",
 	} {
 		t.Run(name, func(t *testing.T) {
+			t.Parallel()
 			m := equiptest.New(t)
 			repo := m.Repo("app")
 			m.Skill(m.ClaudeSkills(), "review")
@@ -330,6 +344,7 @@ func TestOpenRefusesABrokenRecord(t *testing.T) {
 }
 
 func TestSaveRefusesBrokenSettings(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -346,8 +361,10 @@ func TestSaveRefusesBrokenSettings(t *testing.T) {
 }
 
 func TestSaveReadsNullSettingsAsEmpty(t *testing.T) {
+	t.Parallel()
 	for _, body := range []string{`null`, `{"skillOverrides": null}`} {
 		t.Run(body, func(t *testing.T) {
+			t.Parallel()
 			m := equiptest.New(t)
 			repo := m.Repo("app")
 			m.Skill(m.ClaudeSkills(), "review")
@@ -366,6 +383,7 @@ func TestSaveReadsNullSettingsAsEmpty(t *testing.T) {
 }
 
 func TestSaveWritesThroughASymlinkedSettingsFile(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -390,6 +408,7 @@ func TestSaveWritesThroughASymlinkedSettingsFile(t *testing.T) {
 }
 
 func TestOverrideForAnUninstalledSkillIsKeptAndAppliesOnceItReturns(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	gone := m.Skill(m.ClaudeSkills(), "gone")
@@ -422,6 +441,7 @@ func TestOverrideForAnUninstalledSkillIsKeptAndAppliesOnceItReturns(t *testing.T
 }
 
 func TestSaveWithNothingUnsavedWritesNothing(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -437,6 +457,7 @@ func TestSaveWithNothingUnsavedWritesNothing(t *testing.T) {
 }
 
 func TestSaveKeepsSettingsTextReadable(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -452,6 +473,7 @@ func TestSaveKeepsSettingsTextReadable(t *testing.T) {
 }
 
 func TestSaveKeepsTheSettingsFileMode(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -470,6 +492,7 @@ func TestSaveKeepsTheSettingsFileMode(t *testing.T) {
 }
 
 func TestSaveKeepsSkillOverridesForUndiscoveredSkills(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -486,6 +509,7 @@ func TestSaveKeepsSkillOverridesForUndiscoveredSkills(t *testing.T) {
 }
 
 func TestDroppingASavedOverrideIsUnsaved(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -502,6 +526,7 @@ func TestDroppingASavedOverrideIsUnsaved(t *testing.T) {
 }
 
 func TestSavingADroppedOverrideRemovesItsEntry(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")
@@ -519,6 +544,7 @@ func TestSavingADroppedOverrideRemovesItsEntry(t *testing.T) {
 }
 
 func TestSavingOnKeepsNameOnlyWhichReadsAsOn(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Skill(m.ClaudeSkills(), "review")

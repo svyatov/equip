@@ -80,7 +80,7 @@ func (m *model) View() tea.View {
 	if v.Unsaved > 0 {
 		top += "  " + warnStyle.Render(fmt.Sprintf("%d unsaved", v.Unsaved))
 	}
-	var list []string
+	list := make([]string, 0, len(v.Rows))
 	for i, r := range v.Rows {
 		mark, name := "  ", r.Name
 		if i == m.cur {

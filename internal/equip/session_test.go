@@ -20,6 +20,7 @@ func open(t *testing.T, m *equiptest.Machine, dir string) equip.View {
 }
 
 func TestProjectIsRepoRootFromSubdirectory(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	sub := m.Mkdir(filepath.Join(repo, "lib", "deep"))
@@ -45,6 +46,7 @@ func TestHarnessIgnoresInheritedGitEnvironment(t *testing.T) {
 }
 
 func TestProjectIsSubmoduleCheckoutInsideSubmodule(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	lib := m.Repo("lib")
 	m.Commit(lib)
@@ -58,6 +60,7 @@ func TestProjectIsSubmoduleCheckoutInsideSubmodule(t *testing.T) {
 }
 
 func TestProjectIsTheDirectoryOutsideGit(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	dir := m.Mkdir(filepath.Join(m.Root, "scratch", "notes"))
 
@@ -67,6 +70,7 @@ func TestProjectIsTheDirectoryOutsideGit(t *testing.T) {
 }
 
 func TestProjectPathHasSymlinksResolved(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	dir := m.Mkdir(filepath.Join(m.Root, "scratch"))
 	link := filepath.Join(m.Root, "link")
@@ -80,6 +84,7 @@ func TestProjectPathHasSymlinksResolved(t *testing.T) {
 }
 
 func TestProjectReportsRootCommit(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	root := m.Commit(repo)
@@ -91,6 +96,7 @@ func TestProjectReportsRootCommit(t *testing.T) {
 }
 
 func TestProjectKeepsOldestRootCommitAfterMergingUnrelatedHistory(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	oldest := m.Commit(repo)
@@ -105,6 +111,7 @@ func TestProjectKeepsOldestRootCommitAfterMergingUnrelatedHistory(t *testing.T) 
 }
 
 func TestProjectReportsRootCommitWhenMainCheckoutHasNoCommits(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	root := m.Commit(repo)
@@ -117,6 +124,7 @@ func TestProjectReportsRootCommitWhenMainCheckoutHasNoCommits(t *testing.T) {
 }
 
 func TestProjectHasNoRootCommitWithoutCommits(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 
@@ -126,7 +134,7 @@ func TestProjectHasNoRootCommitWithoutCommits(t *testing.T) {
 }
 
 func names(v equip.View) []string {
-	var out []string
+	out := make([]string, 0, len(v.Rows))
 	for _, r := range v.Rows {
 		out = append(out, r.Name)
 	}
@@ -134,6 +142,7 @@ func names(v equip.View) []string {
 }
 
 func TestViewListsClaudeCodeUserSkillsSortedByName(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	for _, name := range []string{"zeta", "alpha", "mid"} {
 		m.Skill(m.ClaudeSkills(), name)
@@ -146,6 +155,7 @@ func TestViewListsClaudeCodeUserSkillsSortedByName(t *testing.T) {
 }
 
 func TestViewSkipsEntriesWithoutSkillFile(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	m.Skill(m.ClaudeSkills(), "real")
 	m.Skill(filepath.Join(m.ClaudeSkills(), "synced"), "from-claude-ai")
@@ -161,6 +171,7 @@ func TestViewSkipsEntriesWithoutSkillFile(t *testing.T) {
 }
 
 func TestViewFollowsSymlinkedSkillDirectories(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	src := m.Skill(filepath.Join(m.Root, "repos", "tools"), "source-name")
 	m.Mkdir(m.ClaudeSkills())
@@ -175,6 +186,7 @@ func TestViewFollowsSymlinkedSkillDirectories(t *testing.T) {
 }
 
 func TestProjectIsMainCheckoutRootFromWorktree(t *testing.T) {
+	t.Parallel()
 	m := equiptest.New(t)
 	repo := m.Repo("app")
 	m.Commit(repo)

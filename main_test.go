@@ -6,6 +6,7 @@ import (
 )
 
 func TestFlags(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct{ arg, want string }{
 		{"--help", "Usage: equip [--help] [--version]\n"},
 		{"--version", "equip "},
@@ -21,6 +22,7 @@ func TestFlags(t *testing.T) {
 }
 
 func TestArgumentsAreRejected(t *testing.T) {
+	t.Parallel()
 	if err := run([]string{"--version", "extra"}, &strings.Builder{}); err == nil {
 		t.Error("run accepted a positional argument")
 	}
