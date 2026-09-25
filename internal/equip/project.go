@@ -9,22 +9,18 @@ import (
 	"strings"
 )
 
-// locate finds the Project of dir: the main checkout's root in git, else dir.
-// The path has symlinks resolved, as ~/.claude.json keys projects that way.
-func locate(machine Machine, dir string) (Project, error) {
-	dir, err := filepath.EvalSymlinks(dir)
-	if err != nil {
-		return Project{}, fmt.Errorf("locate project: %w", err)
-	}
-
+// locate finds the Project of dir, a path with symlinks resolved: the main
+// checkout's root in git, else dir.
+func locate(machine Machine, dir string) Project {
 	out, err := machine.Git(dir, "rev-parse", "--path-format=absolute", "--git-common-dir", "--show-toplevel")
 	if err != nil {
 		// ponytail: any git failure (no repo, no git binary) reads as outside
 		// git; match git's exit status if a real repo ever fails here.
-		return Project{Path: dir, RootCommit: "", gitDir: ""}, nil //nolint:nilerr // outside git is not an error
+		return Project{Path: dir, RootCommit: "", gitDir: "", checkout: dir}
 	}
 
-	common, root, _ := strings.Cut(strings.TrimSpace(out), "\n")
+	common, checkout, _ := strings.Cut(strings.TrimSpace(out), "\n")
+	root := checkout
 	// A worktree shares the main checkout's .git, whose parent is the main
 	// checkout. A submodule's lives under .git/modules, so it keeps its own
 	// top level.
@@ -42,7 +38,7 @@ func locate(machine Machine, dir string) (Project, error) {
 		commit = last
 	}
 
-	return Project{Path: root, RootCommit: commit, gitDir: common}, nil
+	return Project{Path: root, RootCommit: commit, gitDir: common, checkout: checkout}
 }
 
 // exclude adds rel, a path in the Project, to the main checkout's
