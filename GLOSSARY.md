@@ -25,7 +25,7 @@ An extension that gives an agent tools over the Model Context Protocol.
 The source a plugin comes from. It is not an extension and has no state of its own.
 
 **Project**:
-The directory equip runs in, which the agent treats as its working root.
+The git repository equip runs in, taken at its root and shared by all its worktrees. Outside git, the directory equip runs in.
 
 **State**:
 How an extension takes part in a project's sessions: on, manual-only, or off.
