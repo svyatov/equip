@@ -336,7 +336,7 @@ func TestSaveWritesTheProjectRecord(t *testing.T) {
 	want := map[string]any{
 		"path":        repo,
 		"root_commit": root,
-		"overrides":   map[string]any{"skills": map[string]any{"review": "manual-only"}},
+		"overrides":   map[string]any{"skills": map[string]any{"review": "manual-only"}, "plugins": map[string]any{}},
 	}
 	if got := readRecord(t, machine); !reflect.DeepEqual(got, want) {
 		t.Errorf("record = %v, want %v", got, want)
@@ -367,8 +367,9 @@ func TestOpenRefusesABrokenRecord(t *testing.T) {
 	t.Parallel()
 
 	for name, body := range map[string]string{
-		"bad TOML":      "path = ",
-		"unknown state": "[overrides.skills]\nreview = \"sometimes\"\n",
+		"bad TOML":                        "path = ",
+		"unknown state":                   "[overrides.skills]\nreview = \"sometimes\"\n",
+		"state the plugin does not offer": "[overrides.plugins]\n\"github@official\" = \"manual-only\"\n",
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()

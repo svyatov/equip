@@ -6,7 +6,6 @@ import (
 	"maps"
 	"path/filepath"
 	"slices"
-	"strings"
 )
 
 // ErrChangedSinceOpen is the error of a save that found owned entries
@@ -87,17 +86,13 @@ func Open(machine Machine, dir string) (*Session, error) {
 		return nil, err
 	}
 
-	saved, err := readRecord(machine, project)
-	if err != nil {
-		return nil, err
-	}
-
 	claudeExts := slices.DeleteFunc(slices.Clone(exts), func(e Extension) bool { return !e.has(ClaudeCode) })
 	// ponytail: broken settings read as no entries here; Save reports them.
 	disk, _ := readClaude(project, claudeExts)
-	if saved == nil {
-		// A first open imports the states set by hand, so a save keeps them.
-		saved = disk
+
+	saved, err := readRecord(machine, project, disk)
+	if err != nil {
+		return nil, err
 	}
 
 	session := &Session{
@@ -118,7 +113,7 @@ func Open(machine Machine, dir string) (*Session, error) {
 // SetState makes st an Override for the extension with key, unless the
 // extension does not offer st.
 func (s *Session) SetState(key string, st State) {
-	if ext, ok := s.ext(key); ok && !slices.Contains(ext.states(), st) {
+	if ext, ok := s.ext(key); ok && !slices.Contains(ext.Kind.claude().states, st) {
 		return
 	}
 
@@ -169,16 +164,6 @@ func (e Extension) costIn(agent Agent, st State) int {
 	return e.cost[agent]
 }
 
-// states returns the states the user can pick for the extension. A plugin is
-// all or nothing, so it has no manual-only.
-func (e Extension) states() []State {
-	if e.Kind == Plugin {
-		return []State{On, Off}
-	}
-
-	return States()
-}
-
 // Detail is what the detail pane shows of one extension.
 type Detail struct {
 	NotApplied  map[Agent]string // why an agent that has it does not get its state
@@ -212,11 +197,10 @@ func (s *Session) Detail(key string) Detail {
 		}
 	}
 
-	// A plugin's key is name@marketplace; a skill's has no @.
-	_, marketplace, _ := strings.Cut(ext.Key, "@")
 	detail := Detail{
-		Description: ext.Description, Marketplace: marketplace, Agents: nil, Locations: ext.Locations,
-		NotApplied: map[Agent]string{}, Costs: map[Agent]int{}, States: ext.states(), Contents: nil, Hooks: ext.hooks,
+		Description: ext.Description, Marketplace: marketplaceOf(ext.Key), Agents: nil, Locations: ext.Locations,
+		NotApplied: map[Agent]string{}, Costs: map[Agent]int{}, States: ext.Kind.claude().states,
+		Contents: nil, Hooks: ext.hooks,
 	}
 	state, _ := s.state(ext)
 

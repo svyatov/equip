@@ -25,6 +25,24 @@ type pluginInstall struct {
 	InstallPath string `json:"installPath"`
 }
 
+// marketplaceOf is the marketplace in key, a plugin's name@marketplace. A
+// skill's name has no @, so it has none.
+func marketplaceOf(key string) string {
+	_, marketplace, _ := strings.Cut(key, "@")
+
+	return marketplace
+}
+
+// keyKind is the kind of the extension with key. An Override may name an
+// extension that is not installed, so only its key tells its kind.
+func keyKind(key string) Kind {
+	if marketplaceOf(key) != "" {
+		return Plugin
+	}
+
+	return Skill
+}
+
 // discoverPlugins finds the Claude Code plugins installed for the Project.
 func discoverPlugins(machine Machine, project Project) ([]Extension, error) {
 	path := filepath.Join(machine.Home, ".claude", "plugins", "installed_plugins.json")
@@ -99,10 +117,9 @@ func readPlugin(key, dir string, setting json.RawMessage) Extension {
 	data, _ := os.ReadFile(filepath.Join(dir, ".claude-plugin", "plugin.json")) //nolint:gosec // equip builds the path
 	_ = json.Unmarshal(data, &man)
 	// With no manifest name, the marketplace entry name names the plugin.
-	entryName, _, _ := strings.Cut(key, "@")
-	man.Name = cmp.Or(man.Name, entryName)
+	man.Name = cmp.Or(man.Name, strings.TrimSuffix(key, "@"+marketplaceOf(key)))
 
-	fallback, set := entryState(Plugin, setting)
+	fallback, set := pluginState(setting)
 	if !set {
 		fallback = On
 		if man.DefaultEnabled != nil && !*man.DefaultEnabled {

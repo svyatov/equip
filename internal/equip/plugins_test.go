@@ -433,6 +433,73 @@ func TestFirstOpenImportsAHandSetPluginAsAnOverride(t *testing.T) {
 	}
 }
 
+// savedSkillOff saves review off in repo, then writes the settings and the
+// record that save left as settings and record.
+func savedSkillOff(t *testing.T, machine *equiptest.Machine, repo, settings, record string) {
+	t.Helper()
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
+	save(t, session)
+	writeFile(t, settingsLocal(repo), settings)
+
+	files, _ := filepath.Glob(filepath.Join(machine.StateHome, "equip", "*.toml"))
+	writeFile(t, files[0], record)
+}
+
+func TestOpenImportsPluginsARecordFromBeforePluginsDoesNotName(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	machine.Plugin("github@official", "user", "")
+	savedSkillOff(t, machine, repo,
+		`{"skillOverrides": {"review": "off"}, "enabledPlugins": {"github@official": false}}`,
+		"path = '"+repo+"'\n[overrides.skills]\nreview = 'off'\n")
+
+	view := open(t, machine, repo)
+
+	got := row(t, view, "github@official")
+	if got.State != equip.Off || !got.Override || got.Unsaved || got.ChangedOutside {
+		t.Errorf("row = %+v, want a saved off Override", got)
+	}
+
+	if view.Unsaved != 0 {
+		t.Errorf("Unsaved = %d, want 0", view.Unsaved)
+	}
+}
+
+func TestRecordFromBeforePluginsStillSeesSkillsChangedOutside(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	machine.Plugin("github@official", "user", "")
+	savedSkillOff(t, machine, repo,
+		`{"skillOverrides": {"review": "on"}}`,
+		"path = '"+repo+"'\n[overrides.skills]\nreview = 'off'\n")
+
+	if got := row(t, open(t, machine, repo), "review"); !got.ChangedOutside {
+		t.Errorf("row = %+v, want changed outside", got)
+	}
+}
+
+func TestPluginSetByHandAfterASaveIsChangedOutside(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	machine.Plugin("github@official", "user", "")
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
+	save(t, session)
+	writeFile(t, settingsLocal(repo),
+		`{"skillOverrides": {"review": "off"}, "enabledPlugins": {"github@official": false}}`)
+
+	if got := row(t, open(t, machine, repo), "github@official"); !got.ChangedOutside || !got.Unsaved {
+		t.Errorf("row = %+v, want an unsaved Override changed outside", got)
+	}
+}
+
 func TestSaveImportsAPluginChangedOutsideSinceOpen(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
