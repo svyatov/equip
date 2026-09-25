@@ -43,7 +43,7 @@ func New(t testing.TB) *Machine {
 		CacheHome:  filepath.Join(home, ".cache"),
 		CodexHome:  filepath.Join(home, ".codex"),
 		WorkDir:    root,
-		Git: equip.RunGit([]string{
+		Git: equip.GitRunner([]string{
 			"HOME=" + home,
 			"GIT_CONFIG_GLOBAL=" + os.DevNull,
 			"GIT_CONFIG_NOSYSTEM=1",

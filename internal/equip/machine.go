@@ -22,9 +22,11 @@ type Machine struct {
 	CodexHome  string // $CODEX_HOME
 	WorkDir    string
 
-	// Git runs git with args in dir and returns its standard output.
-	Git func(dir string, args ...string) (string, error)
+	Git GitFunc
 }
+
+// GitFunc runs git with args in dir and returns its standard output.
+type GitFunc func(dir string, args ...string) (string, error)
 
 // MachineFromEnv builds the Machine from the real environment.
 func MachineFromEnv() (Machine, error) {
@@ -46,13 +48,13 @@ func MachineFromEnv() (Machine, error) {
 		CacheHome:  env("XDG_CACHE_HOME", ".cache"),
 		CodexHome:  env("CODEX_HOME", ".codex"),
 		WorkDir:    wd,
-		Git:        RunGit(nil),
+		Git:        GitRunner(nil),
 	}, nil
 }
 
-// RunGit returns a Machine.Git that runs the git binary with env added to the
+// GitRunner returns a GitFunc that runs the git binary with env added to the
 // process environment.
-func RunGit(env []string) func(dir string, args ...string) (string, error) {
+func GitRunner(env []string) GitFunc {
 	return func(dir string, args ...string) (string, error) {
 		cmd := exec.Command("git", args...)
 		cmd.Dir = dir
