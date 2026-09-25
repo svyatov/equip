@@ -49,3 +49,5 @@ _Avoid_: Exception, pin
 - A **Project** uses zero or more **Presets** and zero or more **Overrides**
 - With one or more **Presets**, a **Project**'s active extensions are the union of their members plus its **Overrides**; every other extension is off
 - An **Extension** has one **State** per **Project**, shared by every **Agent** that has it
+- An **Extension** is identified by its kind and its name (for a **Plugin**, its name and **Marketplace**). Two **Agents** have the same extension when both match; skills that share a name are one extension, wherever they live
+- A **Preset** or **Override** may name an **Extension** that is not installed on this machine; it takes effect once the extension is installed
