@@ -28,9 +28,12 @@ const (
 	Off
 )
 
-var stateNames = [...]string{On: "on", ManualOnly: "manual-only", Off: "off"}
+// States returns the states, in the order the user picks them.
+func States() []State { return []State{On, ManualOnly, Off} }
 
-func (s State) String() string { return stateNames[s] }
+func (s State) String() string {
+	return [...]string{On: "on", ManualOnly: "manual-only", Off: "off"}[s]
+}
 
 // Session is one open Project.
 type Session struct {

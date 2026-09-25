@@ -9,7 +9,6 @@ linters:
   disable:
     - exhaustruct # zero values are valid by design
     - exhaustruct_v5 # the same linter under its new name
-    - gochecknoglobals # the globals are lipgloss styles and lookup tables
     - gomodguard # deprecated; depguard owns the import budget
     - varnamelen # short names in short scopes are the Go idiom
     - wsl # deprecated; wsl_v5 replaces it

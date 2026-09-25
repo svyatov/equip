@@ -11,19 +11,10 @@ import (
 	"strconv"
 )
 
-// skillValues are Claude Code's skillOverrides values.
-var skillValues = map[State]string{On: "on", ManualOnly: "user-invocable-only", Off: "off"}
-
-// skillStates reads Claude Code's skillOverrides values. "name-only" reads as
-// on.
-var skillStates = func() map[string]State {
-	states := map[string]State{"name-only": On}
-	for st, v := range skillValues {
-		states[v] = st
-	}
-
-	return states
-}()
+// skillValue is st as Claude Code's skillOverrides spells it.
+func skillValue(st State) string {
+	return [...]string{On: "on", ManualOnly: "user-invocable-only", Off: "off"}[st]
+}
 
 // settingsRel is the Project's Claude Code settings file that equip writes.
 const settingsRel = ".claude/settings.local.json"
@@ -90,9 +81,17 @@ func skillState(raw json.RawMessage) (State, bool) {
 	var v string
 
 	_ = json.Unmarshal(raw, &v) // leaves v empty on a non-string
-	st, ok := skillStates[v]
+	if v == "name-only" {
+		return On, true // it reads as on
+	}
 
-	return st, ok
+	for _, st := range States() {
+		if skillValue(st) == v {
+			return st, true
+		}
+	}
+
+	return 0, false
 }
 
 // writeClaude writes the skill states of overrides into the Project's
@@ -151,7 +150,7 @@ func mergeSkills(skills map[string]json.RawMessage, exts []Extension, overrides 
 		case st == On && string(skills[e.Key]) == `"name-only"`:
 			// "name-only" reads as on, so it already holds.
 		default:
-			skills[e.Key] = json.RawMessage(strconv.Quote(skillValues[st]))
+			skills[e.Key] = json.RawMessage(strconv.Quote(skillValue(st)))
 		}
 	}
 }

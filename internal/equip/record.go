@@ -8,7 +8,6 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"slices"
 
 	"github.com/pelletier/go-toml/v2"
 )
@@ -70,9 +69,13 @@ var errUnknownState = errors.New("unknown state")
 
 // parseState reads a state as State.String spells it.
 func parseState(name string) (State, bool) {
-	i := slices.Index(stateNames[:], name)
+	for _, st := range States() {
+		if st.String() == name {
+			return st, true
+		}
+	}
 
-	return State(i), i >= 0
+	return 0, false
 }
 
 // writeRecord writes the record of p with overrides.

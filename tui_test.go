@@ -20,7 +20,7 @@ func newModel(t *testing.T, m *equiptest.Machine) *model {
 		t.Fatal(err)
 	}
 
-	return &model{s: s}
+	return newTUI(s)
 }
 
 // press feeds keys to tm and returns the last command.
@@ -35,7 +35,7 @@ func press(tm *model, keys ...tea.KeyPressMsg) tea.Cmd {
 
 func key(r rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: r, Text: string(r)} }
 
-var down = tea.KeyPressMsg{Code: tea.KeyDown}
+func down() tea.KeyPressMsg { return tea.KeyPressMsg{Code: tea.KeyDown} }
 
 func quits(cmd tea.Cmd) bool {
 	if cmd == nil {
@@ -80,7 +80,7 @@ func TestStateKeySetsAnUnsavedOverrideOnTheHighlightedSkill(t *testing.T) {
 	m.Skill(m.ClaudeSkills(), "beta")
 	tm := newModel(t, m)
 
-	press(tm, down, key('3'))
+	press(tm, down(), key('3'))
 
 	if r := tm.s.View().Rows[1]; r.State != equip.Off || !r.Override {
 		t.Errorf("beta = %+v, want an Override off", r)
@@ -181,7 +181,7 @@ func TestSaveKeyShowsTheError(t *testing.T) {
 		t.Errorf("view does not show the save error:\n%s", tm.View().Content)
 	}
 
-	press(tm, down)
+	press(tm, down())
 
 	if line(tm, "settings.local.json") != "" {
 		t.Error("the save error stays after the next key")
@@ -195,7 +195,7 @@ func TestUpKeyMovesBack(t *testing.T) {
 	m.Skill(m.ClaudeSkills(), "beta")
 	tm := newModel(t, m)
 
-	press(tm, down, tea.KeyPressMsg{Code: tea.KeyUp}, key('3'))
+	press(tm, down(), tea.KeyPressMsg{Code: tea.KeyUp}, key('3'))
 
 	if r := tm.s.View().Rows[0]; !r.Override {
 		t.Errorf("alpha = %+v, want an Override", r)
@@ -206,7 +206,7 @@ func TestKeysWithNoSkillsDoNothing(t *testing.T) {
 	t.Parallel()
 	tm := newModel(t, equiptest.New(t))
 
-	press(tm, down, key('1'), key('x'))
+	press(tm, down(), key('1'), key('x'))
 
 	if n := tm.s.View().Unsaved; n != 0 {
 		t.Errorf("Unsaved = %d, want 0", n)

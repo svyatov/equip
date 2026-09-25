@@ -10,25 +10,40 @@ import (
 	"github.com/svyatov/equip/internal/equip"
 )
 
-var (
-	accent = lipgloss.Color("#af87ff")
+// styles are the lipgloss styles of the TUI.
+type styles struct {
+	top, dim, warn, cur, pane lipgloss.Style
+}
 
-	topStyle  = lipgloss.NewStyle().Bold(true).Foreground(accent)
-	dimStyle  = lipgloss.NewStyle().Foreground(lipgloss.Color("#8a8a8a"))
-	warnStyle = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#d7af5f"))
-	curStyle  = lipgloss.NewStyle().Bold(true).Foreground(accent)
-	paneStyle = lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1)
+func newStyles() styles {
+	accent := lipgloss.Color("#af87ff")
 
-	states = []equip.State{equip.On, equip.ManualOnly, equip.Off}
-	glyphs = map[equip.State]string{equip.On: "●", equip.ManualOnly: "◐", equip.Off: "○"}
-)
+	return styles{
+		top:  lipgloss.NewStyle().Bold(true).Foreground(accent),
+		dim:  lipgloss.NewStyle().Foreground(lipgloss.Color("#8a8a8a")),
+		warn: lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#d7af5f")),
+		cur:  lipgloss.NewStyle().Bold(true).Foreground(accent),
+		pane: lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).Padding(0, 1),
+	}
+}
+
+// glyph is the list mark of st.
+func glyph(st equip.State) string {
+	return [...]string{equip.On: "●", equip.ManualOnly: "◐", equip.Off: "○"}[st]
+}
 
 // model is the Bubble Tea root model over a Session.
 type model struct {
 	s        *equip.Session
+	style    styles
 	cur      int  // the highlighted row
 	quitting bool // asking to quit with unsaved changes
 	flash    string
+}
+
+// newTUI is the model of a fresh TUI over s.
+func newTUI(s *equip.Session) *model {
+	return &model{s: s, style: newStyles()}
 }
 
 func (m *model) Init() tea.Cmd { return nil }
@@ -57,35 +72,35 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *model) View() tea.View {
 	v := m.s.View()
 
-	top := topStyle.Render("equip  " + v.Project.Path)
+	top := m.style.top.Render("equip  " + v.Project.Path)
 	if v.Unsaved > 0 {
-		top += "  " + warnStyle.Render(fmt.Sprintf("%d unsaved", v.Unsaved))
+		top += "  " + m.style.warn.Render(fmt.Sprintf("%d unsaved", v.Unsaved))
 	}
 
 	list := make([]string, 0, len(v.Rows))
 	for i, r := range v.Rows {
 		mark, name := "  ", r.Name
 		if i == m.cur {
-			mark, name = curStyle.Render("▸ "), curStyle.Render(name)
+			mark, name = m.style.cur.Render("▸ "), m.style.cur.Render(name)
 		}
 
 		if r.Unsaved {
-			name += warnStyle.Render("*")
+			name += m.style.warn.Render("*")
 		}
 
-		list = append(list, mark+glyphs[r.State]+" "+name)
+		list = append(list, mark+glyph(r.State)+" "+name)
 	}
 
-	panes := []string{paneStyle.Render(strings.Join(list, "\n"))}
+	panes := []string{m.style.pane.Render(strings.Join(list, "\n"))}
 	if m.cur < len(v.Rows) {
-		panes = append(panes, paneStyle.Render(detail(v.Rows[m.cur])))
+		panes = append(panes, m.style.pane.Render(m.detail(v.Rows[m.cur])))
 	}
 
-	footer := dimStyle.Render("↑↓ move  1-3 set state  x drop override  s save  q quit")
+	footer := m.style.dim.Render("↑↓ move  1-3 set state  x drop override  s save  q quit")
 
 	switch {
 	case m.quitting:
-		footer = warnStyle.Render(fmt.Sprintf("%d unsaved changes. Quit without saving? y/n", v.Unsaved))
+		footer = m.style.warn.Render(fmt.Sprintf("%d unsaved changes. Quit without saving? y/n", v.Unsaved))
 	case m.flash != "":
 		footer = m.flash
 	}
@@ -109,7 +124,7 @@ func (m *model) press(key string) tea.Cmd {
 		m.cur = max(min(m.cur+1, len(rows)-1), 0)
 	case "1", "2", "3":
 		if m.cur < len(rows) {
-			m.s.SetState(rows[m.cur].Name, states[key[0]-'1'])
+			m.s.SetState(rows[m.cur].Name, equip.States()[key[0]-'1'])
 		}
 	case "x":
 		if m.cur < len(rows) {
@@ -118,7 +133,7 @@ func (m *model) press(key string) tea.Cmd {
 	case "s":
 		err := m.s.Save()
 		if err != nil {
-			m.flash = warnStyle.Render("save failed: " + err.Error())
+			m.flash = m.style.warn.Render("save failed: " + err.Error())
 		}
 	}
 
@@ -137,26 +152,26 @@ func (m *model) quit() tea.Cmd {
 }
 
 // detail is the detail pane of r: its origin and the states to pick from.
-func detail(r equip.Row) string {
-	lines := []string{curStyle.Render(r.Name), ""}
+func (m *model) detail(r equip.Row) string {
+	lines := []string{m.style.cur.Render(r.Name), ""}
 	if r.Override {
 		lines = append(lines,
-			"Origin  "+warnStyle.Render("override")+", set by hand here",
-			dimStyle.Render("        without it: "+r.Fallback.String()+" (default)"))
+			"Origin  "+m.style.warn.Render("override")+", set by hand here",
+			m.style.dim.Render("        without it: "+r.Fallback.String()+" (default)"))
 	} else {
 		lines = append(lines, "Origin  default")
 	}
 
 	if r.ChangedOutside {
-		lines = append(lines, "        "+warnStyle.Render("changed outside equip in Claude Code"))
+		lines = append(lines, "        "+m.style.warn.Render("changed outside equip in Claude Code"))
 	}
 
 	lines = append(lines, "", "State")
 
-	for i, st := range states {
+	for i, st := range equip.States() {
 		radio := " "
 		if st == r.State {
-			radio = glyphs[st]
+			radio = glyph(st)
 		}
 
 		lines = append(lines, fmt.Sprintf("  (%s) %d %s", radio, i+1, st))
