@@ -40,6 +40,8 @@ func (k Kind) claude() claudeKind {
 			settingsKey: "enabledPlugins",
 			states:      []State{On, Off},
 		},
+		// Claude Code keeps an MCP server's state in lists, not in a settings key.
+		MCPServer: {value: nil, state: nil, settingsKey: "", states: []State{On, Off}},
 	}[k]
 }
 
@@ -92,7 +94,7 @@ func readSettings(path string) (settingsFile, error) {
 
 // readClaude reads the states Claude Code has for exts in the Project. A
 // value equip does not know reads as no entry.
-func readClaude(project Project, exts []Extension) (map[string]State, error) {
+func readClaude(machine Machine, project Project, exts []Extension) (map[string]State, error) {
 	states := map[string]State{}
 
 	settings, err := readSettings(filepath.Join(project.Path, settingsRel))
@@ -100,13 +102,34 @@ func readClaude(project Project, exts []Extension) (map[string]State, error) {
 		return states, err
 	}
 
-	for _, e := range exts {
-		if st, ok := e.Kind.claude().state(settings.entries[e.Kind][e.Key]); ok {
-			states[e.Key] = st
+	config, err := readJSONObject(claudeJSONPath(machine))
+	if err != nil {
+		return states, err
+	}
+
+	lists := config.object("projects").object(project.Path)
+
+	for _, ext := range exts {
+		if state, ok := ext.claudeState(settings, lists); ok {
+			states[ext.Key] = state
 		}
 	}
 
 	return states, nil
+}
+
+// claudeState reads the extension's entry in the Project's settings or, for an
+// MCP server Claude Code keeps there, in lists, the Project's entry in
+// ~/.claude.json. It reports whether equip knows an entry.
+func (e Extension) claudeState(settings settingsFile, lists jsonObject) (State, bool) {
+	switch {
+	case e.Kind != MCPServer:
+		return e.Kind.claude().state(settings.entries[e.Kind][e.Key])
+	case e.lists.settings:
+		return e.lists.state(settings.keys, e.name())
+	}
+
+	return e.lists.state(lists, e.name())
 }
 
 // pluginState reads one enabledPlugins value, reporting whether equip knows it.
@@ -151,6 +174,8 @@ func writeClaude(machine Machine, project Project, exts []Extension, overrides m
 
 	mergeEntries(settings.entries, exts, overrides)
 
+	writeLists(settings.keys, exts, overrides, true)
+
 	out := map[string]any{}
 
 	for key, v := range settings.keys {
@@ -164,13 +189,7 @@ func writeClaude(machine Machine, project Project, exts []Extension, overrides m
 		}
 	}
 
-	var buf bytes.Buffer
-
-	enc := json.NewEncoder(&buf)
-	enc.SetEscapeHTML(false) // keeps "&&" in permission rules readable
-	enc.SetIndent("", "  ")
-
-	err = enc.Encode(out)
+	data, err := indentJSON(out)
 	if err != nil {
 		return fmt.Errorf("encode %s: %w", path, err)
 	}
@@ -182,13 +201,36 @@ func writeClaude(machine Machine, project Project, exts []Extension, overrides m
 		}
 	}
 
-	return writeFile(path, buf.Bytes())
+	err = writeFile(path, data)
+	if err != nil {
+		return err
+	}
+
+	return writeClaudeJSON(machine, project, exts, overrides)
+}
+
+// indentJSON encodes value as a file equip writes: indented as Claude Code
+// does.
+func indentJSON(value any) ([]byte, error) {
+	var buf bytes.Buffer
+
+	enc := json.NewEncoder(&buf)
+	enc.SetEscapeHTML(false) // keeps "&&" in permission rules readable
+	enc.SetIndent("", "  ")
+
+	err := enc.Encode(value)
+
+	return buf.Bytes(), err
 }
 
 // mergeEntries sets the entry of each of exts to its state in overrides, or
 // removes it when overrides has none.
 func mergeEntries(entries map[Kind]map[string]json.RawMessage, exts []Extension, overrides map[string]State) {
 	for _, ext := range exts {
+		if ext.Kind == MCPServer {
+			continue
+		}
+
 		byKey, claude := entries[ext.Kind], ext.Kind.claude()
 		state, overridden := overrides[ext.Key]
 

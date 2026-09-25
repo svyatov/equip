@@ -26,8 +26,12 @@ type pluginInstall struct {
 }
 
 // marketplaceOf is the marketplace in key, a plugin's name@marketplace. A
-// skill's name has no @, so it has none.
+// skill's name has no @, and an MCP server's may, so neither has one.
 func marketplaceOf(key string) string {
+	if strings.HasPrefix(key, mcpPrefix) {
+		return ""
+	}
+
 	_, marketplace, _ := strings.Cut(key, "@")
 
 	return marketplace
@@ -36,7 +40,10 @@ func marketplaceOf(key string) string {
 // keyKind is the kind of the extension with key. An Override may name an
 // extension that is not installed, so only its key tells its kind.
 func keyKind(key string) Kind {
-	if marketplaceOf(key) != "" {
+	switch {
+	case strings.HasPrefix(key, mcpPrefix):
+		return MCPServer
+	case marketplaceOf(key) != "":
 		return Plugin
 	}
 
@@ -141,6 +148,7 @@ func readPlugin(key, dir string, setting json.RawMessage) Extension {
 	return Extension{
 		Kind: Plugin, Key: key, Description: man.Description, cost: map[Agent]int{ClaudeCode: cost}, fallback: fallback,
 		Locations: []Location{{Path: dir, Agent: ClaudeCode}}, contents: contents, hooks: err == nil || man.Hooks != nil,
+		lists: mcpLists{on: "", off: "", settings: false},
 	}
 }
 
