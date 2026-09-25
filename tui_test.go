@@ -102,6 +102,20 @@ func TestDetailPaneShowsStatesOriginAndFallback(t *testing.T) {
 	}
 }
 
+func TestDetailPaneShowsTheNote(t *testing.T) {
+	m := equiptest.New(t)
+	m.Skill(m.ClaudeSkills(), "review")
+	press(newModel(t, m), key('3'), key('s'))
+	settings := filepath.Join(m.Root, ".claude", "settings.local.json")
+	if err := os.WriteFile(settings, []byte(`{"skillOverrides": {"review": "on"}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	if tm := newModel(t, m); line(tm, "changed outside equip in Claude Code") == "" {
+		t.Errorf("view does not show the note:\n%s", tm.View().Content)
+	}
+}
+
 func TestDropKeyDropsTheOverride(t *testing.T) {
 	m := equiptest.New(t)
 	m.Skill(m.ClaudeSkills(), "review")
