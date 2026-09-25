@@ -51,3 +51,4 @@ _Avoid_: Exception, pin
 - An **Extension** has one **State** per **Project**, shared by every **Agent** that has it
 - An **Extension** is identified by its kind and its name (for a **Plugin**, its name and **Marketplace**). Two **Agents** have the same extension when both match; skills that share a name are one extension, wherever they live
 - A **Preset** or **Override** may name an **Extension** that is not installed on this machine; it takes effect once the extension is installed
+- A **State** changed outside equip becomes an **Override** once the user saves
