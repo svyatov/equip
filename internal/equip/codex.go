@@ -37,27 +37,30 @@ const (
 
 // readCodexConfig reads the Codex config of the Project. Codex reads the
 // Project's config only when the user's config trusts the Project, and equip
-// never sets trust.
-func readCodexConfig(machine Machine, project Project) (codexConfig, error) {
+// never sets trust. A file equip cannot read leaves Codex out, so Claude Code
+// still opens and saves.
+func readCodexConfig(machine Machine, project Project) codexConfig {
 	userPath := filepath.Join(machine.CodexHome, "config.toml")
 
 	user, err := readTOML(userPath)
 	if err != nil {
-		return codexConfig{}, err
+		return codexConfig{notApplied: err.Error(), layers: nil}
 	}
 
 	cfg := codexConfig{notApplied: "", layers: []codexLayer{{data: user, path: userPath, owned: false}}}
 	if table(table(user, "projects"), project.Path)["trust_level"] != "trusted" {
 		cfg.notApplied = "this Project is not trusted"
 
-		return cfg, nil
+		return cfg
 	}
 
 	path := filepath.Join(project.Path, codexConfigRel)
 
 	data, err := readTOML(path)
 	if err != nil {
-		return codexConfig{}, err
+		cfg.notApplied = err.Error()
+
+		return cfg
 	}
 
 	// A tracked file belongs to everyone who clones the repo.
@@ -67,7 +70,34 @@ func readCodexConfig(machine Machine, project Project) (codexConfig, error) {
 
 	cfg.layers = append(cfg.layers, codexLayer{data: data, path: path, owned: cfg.notApplied == ""})
 
-	return cfg, nil
+	return cfg
+}
+
+// dead lists the MCP servers whose table in the Project's config holds only
+// equip's enabled and that no other layer defines, as when the user removed
+// the server. Codex refuses a config with such a table.
+func (c codexConfig) dead() []string {
+	var dead []string
+
+	for _, layer := range c.layers {
+		if !layer.owned {
+			continue
+		}
+
+		for name, value := range table(layer.data, "mcp_servers") {
+			entry, _ := value.(map[string]any)
+			_, enabled := entry["enabled"]
+			defined := slices.ContainsFunc(c.layers, func(l codexLayer) bool {
+				return !l.owned && table(table(l.data, "mcp_servers"), name) != nil
+			})
+
+			if len(entry) == 1 && enabled && !defined {
+				dead = append(dead, name)
+			}
+		}
+	}
+
+	return dead
 }
 
 // readCodex reads the states Codex has for exts in the Project's config. A
@@ -95,22 +125,25 @@ func readCodex(_ Machine, project Project, exts []Extension) (map[string]State, 
 
 // writeCodex writes the states of overrides for exts into the Project's
 // .codex/config.toml, keeping every key equip does not own, and keeps the
-// file out of git. It leaves the file alone when no entry changes.
+// file out of git. It removes the dead entries, and leaves the file alone when
+// no entry changes.
 // ponytail: re-encodes the file, which drops its comments and key order; edit
 // the TOML in place if users keep notes there.
 func writeCodex(machine Machine, project Project, exts []Extension, overrides map[string]State) error {
-	if len(exts) == 0 {
+	// Read again, as the file may have become tracked since open.
+	cfg := readCodexConfig(machine, project)
+	if cfg.notApplied != "" {
 		return nil
 	}
 
 	path := filepath.Join(project.Path, codexConfigRel)
+	doc := cfg.layers[len(cfg.layers)-1].data
+	dead := cfg.dead()
+	changed := len(dead) > 0
 
-	doc, err := readTOML(path)
-	if err != nil {
-		return err
+	for _, name := range dead {
+		setCodexState(doc, mcpPrefix+name, On, false)
 	}
-
-	changed := false
 
 	for _, ext := range exts {
 		st, set := overrides[ext.Key]
@@ -208,6 +241,8 @@ func table(doc map[string]any, key string) map[string]any {
 func discoverCodex(machine Machine, cfg codexConfig) []Extension {
 	byKey := map[string]*Extension{}
 
+	dead := cfg.dead()
+
 	for _, layer := range cfg.layers {
 		for key := range table(layer.data, "plugins") {
 			// Codex loads nothing it has no files of.
@@ -218,18 +253,7 @@ func discoverCodex(machine Machine, cfg codexConfig) []Extension {
 			}
 		}
 
-		for name := range table(layer.data, "mcp_servers") {
-			key := mcpPrefix + name
-			if byKey[key] == nil {
-				byKey[key] = &Extension{
-					Kind: MCPServer, Key: key, Description: "", cost: map[Agent]int{}, fallback: On,
-					Locations: nil, contents: nil, hooks: false, lists: mcpLists{on: "", off: "", settings: false},
-					builtIn: false,
-				}
-			}
-
-			byKey[key].Locations = append(byKey[key].Locations, Location{Path: layer.path, Agent: Codex})
-		}
+		addCodexServers(byKey, layer, dead)
 	}
 
 	exts := make([]Extension, 0, len(byKey))
@@ -239,7 +263,7 @@ func discoverCodex(machine Machine, cfg codexConfig) []Extension {
 		// states equip writes are Overrides, not defaults.
 		for _, layer := range cfg.layers {
 			if st, ok := codexState(layer.data, ext.Key); ok && !layer.owned {
-				ext.fallback = st
+				ext.fallback[Codex] = st
 			}
 		}
 
@@ -247,6 +271,26 @@ func discoverCodex(machine Machine, cfg codexConfig) []Extension {
 	}
 
 	return exts
+}
+
+// addCodexServers adds each MCP server in layer to byKey, but the dead ones.
+func addCodexServers(byKey map[string]*Extension, layer codexLayer, dead []string) {
+	for name := range table(layer.data, "mcp_servers") {
+		key := mcpPrefix + name
+		if slices.Contains(dead, name) {
+			continue
+		}
+
+		if byKey[key] == nil {
+			byKey[key] = &Extension{
+				Kind: MCPServer, Key: key, Description: "", cost: map[Agent]int{}, fallback: map[Agent]State{},
+				Locations: nil, contents: nil, hooks: false, lists: mcpLists{on: "", off: "", settings: false},
+				builtIn: false,
+			}
+		}
+
+		byKey[key].Locations = append(byKey[key].Locations, Location{Path: layer.path, Agent: Codex})
+	}
 }
 
 // codexTable is the Codex config table that holds the kind of the extension
@@ -284,6 +328,7 @@ func merge(exts, more []Extension) []Extension {
 		exts[same].Locations = append(exts[same].Locations, ext.Locations...)
 		exts[same].Description = cmp.Or(exts[same].Description, ext.Description)
 		maps.Copy(exts[same].cost, ext.cost)
+		maps.Copy(exts[same].fallback, ext.fallback)
 	}
 
 	return exts
@@ -310,7 +355,7 @@ func readCodexPlugin(key, dir string) Extension {
 	contents := pluginSkills(Codex, dir, man.Name)
 
 	return Extension{
-		Kind: Plugin, Key: key, Description: man.Description, fallback: On,
+		Kind: Plugin, Key: key, Description: man.Description, fallback: map[Agent]State{},
 		cost:      map[Agent]int{Codex: contentsCost(contents)},
 		Locations: []Location{{Path: dir, Agent: Codex}}, contents: contents, hooks: false,
 		lists: mcpLists{on: "", off: "", settings: false}, builtIn: false,

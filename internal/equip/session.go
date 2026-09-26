@@ -84,10 +84,7 @@ func Open(machine Machine, dir string) (*Session, error) {
 
 	project := locate(machine, dir)
 
-	codex, err := readCodexConfig(machine, project)
-	if err != nil {
-		return nil, err
-	}
+	codex := readCodexConfig(machine, project)
 
 	exts, err := discover(machine, project, dir, codex)
 	if err != nil {
@@ -101,7 +98,13 @@ func Open(machine Machine, dir string) (*Session, error) {
 	for _, agent := range Agents() {
 		// ponytail: broken config reads as no entries here; Save reports it.
 		disk[agent], _ = agent.config().read(machine, project, applied[agent])
-		maps.Copy(all, disk[agent])
+		// Where the agents disagree, the first agent's state is the record's,
+		// and the other's shows as changed outside.
+		for key, st := range disk[agent] {
+			if _, ok := all[key]; !ok {
+				all[key] = st
+			}
+		}
 	}
 
 	saved, err := readRecord(machine, project, all)
@@ -182,11 +185,11 @@ func (s *Session) View() View {
 		cost := 0
 
 		for _, agent := range Agents() {
-			totals[agent] += s.costIn(agent, ext, state)
-			cost = max(cost, s.costIn(agent, ext, state))
+			totals[agent] += s.costIn(agent, ext)
+			cost = max(cost, s.costIn(agent, ext))
 		}
 
-		codexPlugins = codexPlugins || ext.Kind == Plugin && ext.has(Codex) && (state == On || !s.applies(Codex, ext))
+		codexPlugins = codexPlugins || ext.Kind == Plugin && ext.has(Codex) && s.stateIn(Codex, ext) == On
 
 		_, changed := s.outside[ext.Key]
 		rows = append(rows, Row{
@@ -196,7 +199,7 @@ func (s *Session) View() View {
 			Cost:           cost,
 			State:          state,
 			Override:       override,
-			Fallback:       ext.fallback,
+			Fallback:       ext.fallback[ext.primary()],
 			Unsaved:        s.unsaved(ext.Key),
 			ChangedOutside: changed,
 		})
@@ -271,7 +274,7 @@ func (s *Session) Detail(key string) Detail {
 	for _, agent := range Agents() {
 		if ext.has(agent) {
 			detail.Agents = append(detail.Agents, agent)
-			detail.Costs[agent] = s.costIn(agent, ext, state)
+			detail.Costs[agent] = s.costIn(agent, ext)
 		}
 	}
 
@@ -367,18 +370,29 @@ func (s *Session) writeAgents() error {
 	for _, agent := range Agents() {
 		s.disk[agent] = s.entries(agent)
 	}
+	// The write removed the dead Codex entries.
+	s.codex = readCodexConfig(s.machine, s.project)
 
 	return nil
 }
 
-// costIn estimates the tokens ext puts into agent's sessions in st. An agent
-// that cannot apply the state, as Codex a skill's, keeps the full cost.
-func (s *Session) costIn(agent Agent, ext Extension, st State) int {
-	if s.applies(agent, ext) && st != On {
+// costIn estimates the tokens ext puts into agent's sessions.
+func (s *Session) costIn(agent Agent, ext Extension) int {
+	if s.stateIn(agent, ext) != On {
 		return 0
 	}
 
 	return ext.cost[agent]
+}
+
+// stateIn is the state ext has in agent's sessions: its Override where equip
+// writes it for agent, else agent's own default. So Codex keeps a skill on.
+func (s *Session) stateIn(agent Agent, ext Extension) State {
+	if st, ok := s.overrides[ext.Key]; ok && s.applies(agent, ext) {
+		return st
+	}
+
+	return ext.fallback[agent]
 }
 
 // applies reports whether equip writes the state of ext for agent.
@@ -403,7 +417,7 @@ func (s *Session) state(ext Extension) (State, bool) {
 	state, override := s.overrides[ext.Key]
 	if !override {
 		// With no presets, an extension falls back to the agent's default.
-		state = ext.fallback
+		state = ext.fallback[ext.primary()]
 	}
 
 	return state, override
@@ -456,8 +470,8 @@ func (s *Session) unsavedCount() int {
 	for _, disk := range s.disk {
 		maps.Copy(keys, disk)
 	}
-
-	count := 0
+	// A save removes each dead Codex entry.
+	count := len(s.codex.dead())
 
 	for key := range keys {
 		if s.unsaved(key) {

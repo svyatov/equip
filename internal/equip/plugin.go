@@ -136,7 +136,7 @@ func readPlugin(key, dir string, setting json.RawMessage) Extension {
 	_, err := os.Stat(filepath.Join(dir, "hooks", "hooks.json"))
 
 	return Extension{
-		Kind: Plugin, Key: key, Description: man.Description, fallback: fallback,
+		Kind: Plugin, Key: key, Description: man.Description, fallback: map[Agent]State{ClaudeCode: fallback},
 		cost:      map[Agent]int{ClaudeCode: cost + listingCost(dir, man.Name)},
 		Locations: []Location{{Path: dir, Agent: ClaudeCode}}, contents: contents, hooks: err == nil || man.Hooks != nil,
 		lists: mcpLists{on: "", off: "", settings: false}, builtIn: false,

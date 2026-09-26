@@ -240,6 +240,48 @@ func TestSavingADroppedOverrideRemovesItsCodexEntry(t *testing.T) {
 	}
 }
 
+func TestSaveRemovesTheCodexEntryOfAServerGoneFromTheUserConfig(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	writeFile(t, machine.CodexConfig(), "[mcp_servers.search]\ncommand = \"s\"\n")
+	trust(t, machine, repo)
+	session := newSession(t, machine, repo)
+	session.SetState("mcp:search", equip.Off)
+	save(t, session)
+	// Codex refuses a server table with no command or url.
+	writeFile(t, machine.CodexConfig(), "")
+	trust(t, machine, repo)
+	session = newSession(t, machine, repo)
+
+	if view := session.View(); len(view.Rows) != 0 || view.Unsaved != 1 {
+		t.Errorf("rows = %q, Unsaved = %d, want none and 1", names(view), view.Unsaved)
+	}
+
+	save(t, session)
+
+	if got := readTOML(t, codexProject(repo)); len(got) != 0 {
+		t.Errorf(".codex/config.toml = %v, want it empty", got)
+	}
+
+	if view := session.View(); view.Unsaved != 0 {
+		t.Errorf("Unsaved = %d after save, want 0", view.Unsaved)
+	}
+}
+
+func TestServerDefinedOnlyInTheProjectsCodexConfigIsKept(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	trust(t, machine, repo)
+	writeFile(t, codexProject(repo), "[mcp_servers.db]\ncommand = \"db\"\nenabled = false\n")
+	session := newSession(t, machine, repo)
+
+	if got := states(session.View()); !slices.Equal(got, []string{"MCP server db off"}) {
+		t.Errorf("rows = %q, want db off", got)
+	}
+}
+
 func TestUnknownCodexValueIsNotImportedAndSaveKeepsIt(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
@@ -312,6 +354,116 @@ func TestSkillStateIsNotWrittenForCodexInATrustedProject(t *testing.T) {
 	}
 }
 
+func TestCodexConfigTrackedThroughASymlinkedDirIsNotWritten(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	codexPlugin(t, machine, "github@official")
+	trust(t, machine, repo)
+
+	const config = "model = \"o3\"\n"
+	writeFile(t, filepath.Join(repo, "tools", "codex", "config.toml"), config)
+
+	err := os.Symlink(filepath.Join("tools", "codex"), filepath.Join(repo, ".codex"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	machine.RunGit(repo, "add", ".")
+	session := newSession(t, machine, repo)
+	session.SetState("github@official", equip.Off)
+
+	save(t, session)
+
+	if data, _ := os.ReadFile(filepath.Join(repo, "tools", "codex", "config.toml")); string(data) != config {
+		t.Errorf("tools/codex/config.toml = %q, want it as it was", data)
+	}
+
+	if got := session.Detail("github@official").NotApplied[equip.Codex]; !strings.Contains(got, "tracked by git") {
+		t.Errorf("NotApplied[Codex] = %q, want the file tracked by git", got)
+	}
+}
+
+func TestBrokenCodexUserConfigStillOpensAndSaves(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	writeFile(t, machine.CodexConfig(), "[")
+	session := newSession(t, machine, repo)
+
+	if got, want := names(session.View()), []string{"review"}; !slices.Equal(got, want) {
+		t.Errorf("rows = %q, want %q", got, want)
+	}
+
+	session.SetState("review", equip.Off)
+	save(t, session)
+}
+
+func TestBrokenTrustedProjectCodexConfigIsNotAppliedAndSaysWhy(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	codexPlugin(t, machine, "github@official")
+	trust(t, machine, repo)
+	writeFile(t, codexProject(repo), "[")
+	session := newSession(t, machine, repo)
+	session.SetState("github@official", equip.Off)
+
+	save(t, session)
+
+	if got := session.Detail("github@official").NotApplied[equip.Codex]; !strings.Contains(got, codexProject(repo)) {
+		t.Errorf("NotApplied[Codex] = %q, want the unreadable file named", got)
+	}
+
+	if data, _ := os.ReadFile(codexProject(repo)); string(data) != "[" {
+		t.Errorf(".codex/config.toml = %q, want it as it was", data)
+	}
+}
+
+func TestSaveAfterAFailedCodexWriteKeepsWhatClaudeCodeGotAsEquipsOwn(t *testing.T) {
+	t.Parallel()
+
+	if os.Geteuid() == 0 {
+		t.Skip("root writes every dir")
+	}
+
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	codexPlugin(t, machine, "github@official")
+	trust(t, machine, repo)
+	writeFile(t, codexProject(repo), "")
+	locked := filepath.Join(repo, ".codex")
+
+	err := os.Chmod(locked, 0o555)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
+	session.SetState("github@official", equip.Off)
+
+	err = session.Save()
+	if err == nil {
+		t.Fatal("Save = nil, want an error")
+	}
+
+	err = os.Chmod(locked, 0o755)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	save(t, session)
+
+	if got := row(t, session.View(), "review"); got.ChangedOutside || got.Unsaved {
+		t.Errorf("review row = %+v, want saved and not changed outside", got)
+	}
+}
+
 func TestSaveExcludesTheCodexConfigItWritesFromGit(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
@@ -363,6 +515,27 @@ func TestFirstOpenImportsAHandSetCodexEntryAsAnOverride(t *testing.T) {
 	got := row(t, open(t, machine, repo), "search")
 	if got.State != equip.Off || !got.Override || got.Fallback != equip.On || got.Unsaved || got.ChangedOutside {
 		t.Errorf("row = %+v, want a saved off Override over an on default", got)
+	}
+}
+
+func TestFirstOpenWithAgentsDisagreeingShowsTheCodexStateChangedOutside(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Plugin("github@official", "user", "")
+	codexPlugin(t, machine, "github@official")
+	trust(t, machine, repo)
+	writeFile(t, settingsLocal(repo), `{"enabledPlugins": {"github@official": false}}`)
+	writeFile(t, codexProject(repo), "[plugins.\"github@official\"]\nenabled = true\n")
+	session := newSession(t, machine, repo)
+
+	got := row(t, session.View(), "github@official")
+	if got.State != equip.On || !got.Override || !got.Unsaved || !got.ChangedOutside {
+		t.Errorf("row = %+v, want an unsaved on Override changed outside", got)
+	}
+
+	if got := session.Detail("github@official").ChangedIn; got != equip.Codex {
+		t.Errorf("ChangedIn = %v, want Codex", got)
 	}
 }
 
@@ -433,6 +606,37 @@ func TestOffCodexPluginCostsNothingOnlyWhereCodexAppliesIt(t *testing.T) {
 	if got := session.View(); row(t, got, "github@official").Cost != 0 || got.Totals[equip.Codex] != 0 {
 		t.Errorf("trusted: Cost = %d, Codex total = %d, want 0 and 0",
 			row(t, got, "github@official").Cost, got.Totals[equip.Codex])
+	}
+}
+
+func TestPluginOffInTheCodexUserConfigCostsNothingInAnUntrustedProject(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(filepath.Join(machine.CodexPlugin("github@official"), "skills"), "review")
+	writeFile(t, machine.CodexConfig(), "[plugins.\"github@official\"]\nenabled = false\n")
+
+	if got := open(t, machine, repo); row(t, got, "github@official").Cost != 0 || got.Totals[equip.Codex] != 0 {
+		t.Errorf("Cost = %d, Codex total = %d, want 0 and 0", row(t, got, "github@official").Cost, got.Totals[equip.Codex])
+	}
+}
+
+func TestPluginBothAgentsHaveKeepsEachAgentsDefault(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Plugin("github@official", "user", "")
+	machine.Skill(filepath.Join(machine.CodexPlugin("github@official"), "skills"), "review")
+	writeFile(t, machine.CodexConfig(), "[plugins.\"github@official\"]\nenabled = false\n")
+	session := newSession(t, machine, repo)
+
+	if got := row(t, session.View(), "github@official"); got.State != equip.On || got.Fallback != equip.On {
+		t.Errorf("row = %+v, want Claude Code's on default", got)
+	}
+
+	want := map[equip.Agent]int{equip.ClaudeCode: 0, equip.Codex: 0}
+	if got := session.Detail("github@official").Costs; !maps.Equal(got, want) {
+		t.Errorf("Costs = %v, want %v", got, want)
 	}
 }
 
