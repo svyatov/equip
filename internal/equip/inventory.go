@@ -50,16 +50,16 @@ func (k Kind) String() string {
 // Extension is one skill, plugin or MCP server, the same in every agent that
 // has it.
 type Extension struct {
-	cost        map[Agent]int // estimated tokens when on
-	Key         string        // a skill's is its directory name; a plugin's is name@marketplace
+	cost        map[Agent]int   // estimated tokens when on
+	fallback    map[Agent]State // each agent's default, without an Override; a missing one is on
+	Key         string          // a skill's is its directory name; a plugin's is name@marketplace
 	Description string
 	Locations   []Location // in discovery order
 	contents    []Content  // a plugin's, as when it is on
 	lists       mcpLists   // an MCP server's
 	Kind        Kind
-	fallback    State // the agent's default, without an Override
-	hooks       bool  // a plugin's
-	builtIn     bool  // built into Claude Code, so read from no Location
+	hooks       bool // a plugin's
+	builtIn     bool // built into Claude Code, so read from no Location
 }
 
 // has reports whether agent loads the extension.
@@ -68,9 +68,19 @@ func (e Extension) has(agent Agent) bool {
 		slices.ContainsFunc(e.Locations, func(s Location) bool { return s.Agent == agent })
 }
 
+// primary is the agent whose default the extension's row shows: Claude Code
+// when it has the extension.
+func (e Extension) primary() Agent {
+	if e.has(ClaudeCode) {
+		return ClaudeCode
+	}
+
+	return Codex
+}
+
 // discover finds the extensions installed for a session started in dir,
-// sorted by key, without running anything.
-func discover(machine Machine, project Project, dir string) ([]Extension, error) {
+// sorted by key, without running anything. Codex has the config codex.
+func discover(machine Machine, project Project, dir string, codex codexConfig) ([]Extension, error) {
 	personal := filepath.Join(machine.Home, ".claude", "skills")
 	inv := inventory{byKey: map[string]*Extension{}, seen: map[Location]bool{}, err: nil, required: personal}
 	inv.add(ClaudeCode, personal)
@@ -116,6 +126,8 @@ func discover(machine Machine, project Project, dir string) ([]Extension, error)
 	for _, ext := range inv.byKey {
 		exts = append(exts, *ext)
 	}
+
+	exts = merge(exts, discoverCodex(machine, codex))
 
 	slices.SortFunc(exts, func(a, b Extension) int {
 		return cmp.Or(cmp.Compare(a.name(), b.name()), cmp.Compare(a.Kind, b.Kind))
@@ -164,7 +176,8 @@ func (inv *inventory) add(agent Agent, root string) int {
 		ext := inv.byKey[entry.Name()]
 		if ext == nil {
 			ext = &Extension{
-				Kind: Skill, Key: entry.Name(), Description: "", Locations: nil, cost: map[Agent]int{}, fallback: On,
+				Kind: Skill, Key: entry.Name(), Description: "", Locations: nil, cost: map[Agent]int{},
+				fallback: map[Agent]State{},
 				contents: nil, hooks: false, lists: mcpLists{on: "", off: "", settings: false}, builtIn: false,
 			}
 			inv.byKey[entry.Name()] = ext

@@ -41,6 +41,26 @@ func locate(machine Machine, dir string) Project {
 	return Project{Path: root, RootCommit: commit, gitDir: common, checkout: checkout}
 }
 
+// tracked reports whether git tracks rel, a path in the Project, or the file
+// the symlinks on its way lead to. Outside git nothing is tracked.
+func tracked(machine Machine, project Project, rel string) bool {
+	if project.gitDir == "" {
+		return false
+	}
+	// git does not follow symlinks, so ask about the file they lead to. A file
+	// outside the repo reads as untracked.
+	path := filepath.Join(project.Path, rel)
+
+	resolved, err := filepath.EvalSymlinks(path)
+	if err == nil {
+		path = resolved
+	}
+
+	_, err = machine.Git(project.Path, "ls-files", "--error-unmatch", "--", path)
+
+	return err == nil
+}
+
 // exclude adds rel, a path in the Project, to the main checkout's
 // .git/info/exclude unless git already ignores it. Outside git it does
 // nothing.

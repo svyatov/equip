@@ -118,10 +118,11 @@ func mcpJSONLists() mcpLists {
 	return mcpLists{on: "enabledMcpjsonServers", off: "disabledMcpjsonServers", settings: true}
 }
 
-// entry reports whether Claude Code's config holds an entry for the extension
-// once equip writes st. An MCP server's lists hold none for its default.
-func (e Extension) entry(st State) bool {
-	return e.Kind != MCPServer || st == On && e.lists.on != "" || st == Off && e.lists.off != ""
+// entry reports whether agent's config holds an entry for the extension once
+// equip writes st. Claude Code's lists of an MCP server hold none for its
+// default.
+func (e Extension) entry(agent Agent, st State) bool {
+	return agent == Codex || e.Kind != MCPServer || st == On && e.lists.on != "" || st == Off && e.lists.off != ""
 }
 
 // state reads name's entry in the lists of obj, reporting whether it has one.
@@ -224,7 +225,8 @@ func discoverServers(machine Machine, project Project) ([]Extension, error) {
 
 	for name, fallback := range machine.ClaudeBuiltins {
 		byName[name] = &Extension{
-			Kind: MCPServer, Key: mcpPrefix + name, Description: "", cost: map[Agent]int{}, fallback: fallback,
+			Kind: MCPServer, Key: mcpPrefix + name, Description: "", cost: map[Agent]int{},
+			fallback:  map[Agent]State{ClaudeCode: fallback},
 			Locations: nil, contents: nil, hooks: false, lists: claudeJSONLists(fallback), builtIn: true,
 		}
 	}
@@ -250,7 +252,7 @@ func rejectMCPJSONServers(byName map[string]*Extension, machine Machine, project
 
 		for _, name := range jsonObject(settings.keys).list(mcpJSONLists().off) {
 			if ext := byName[name]; ext != nil && ext.lists.settings {
-				ext.fallback = Off
+				ext.fallback[ClaudeCode] = Off
 			}
 		}
 	}
@@ -265,7 +267,8 @@ func addServers(byName map[string]*Extension, servers jsonObject, path string, l
 		ext := byName[name]
 		if ext == nil {
 			ext = &Extension{
-				Kind: MCPServer, Key: mcpPrefix + name, Description: "", cost: map[Agent]int{}, fallback: On,
+				Kind: MCPServer, Key: mcpPrefix + name, Description: "", cost: map[Agent]int{},
+				fallback:  map[Agent]State{},
 				Locations: nil, contents: nil, hooks: false, lists: lists, builtIn: false,
 			}
 			byName[name] = ext

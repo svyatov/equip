@@ -206,3 +206,20 @@ func (m *Machine) WriteFile(path, content string) {
 		m.t.Fatal(err)
 	}
 }
+
+// CodexConfig is the Codex user config.
+func (m *Machine) CodexConfig() string { return filepath.Join(m.CodexHome, "config.toml") }
+
+// CodexPlugin writes the Codex plugin key, "name@marketplace", into the Codex
+// plugin cache and returns its dir there. Codex installs it once a config
+// names it.
+func (m *Machine) CodexPlugin(key string) string {
+	m.t.Helper()
+
+	name, marketplace, _ := strings.Cut(key, "@")
+	dir := m.Mkdir(filepath.Join(m.CodexHome, "plugins", "cache", marketplace, name, "1.0.0"))
+	m.WriteFile(filepath.Join(dir, ".codex-plugin", "plugin.json"),
+		`{"name": "`+name+`", "description": "The `+name+` plugin."}`)
+
+	return dir
+}
