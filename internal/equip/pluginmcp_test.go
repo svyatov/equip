@@ -1,6 +1,9 @@
 package equip_test
 
 import (
+	"errors"
+	"io/fs"
+	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -61,21 +64,28 @@ func TestFirstOpenImportsAPluginMCPServerSetOffByHandInClaudeCode(t *testing.T) 
 func TestSaveTurnsAPluginMCPServerOffInCodex(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
-	writeFile(t, filepath.Join(codexPlugin(t, machine, "github@official"), ".mcp.json"),
-		`{"mcpServers": {"search": {"command": "search"}}}`)
-	trust(t, machine, repo)
+	repo := codexPluginServer(t, machine)
 	session := newSession(t, machine, repo)
 
 	session.SetState(search(t, session).Key, equip.Off)
 	save(t, session)
 
-	want := map[string]any{"github@official": map[string]any{
-		"mcp_servers": map[string]any{"search": map[string]any{"enabled": false}},
-	}}
-	if got := readTOML(t, codexProject(repo))["plugins"]; !reflect.DeepEqual(got, want) {
+	if got, want := readTOML(t, codexProject(repo))["plugins"], codexSearchOff(); !reflect.DeepEqual(got, want) {
 		t.Errorf("plugins = %v, want %v", got, want)
 	}
+	// Claude Code does not have the plugin, so it gets no entry.
+	_, err := os.Stat(claudeJSON(machine))
+	if !errors.Is(err, fs.ErrNotExist) {
+		t.Errorf("stat ~/.claude.json = %v, want it missing", err)
+	}
+}
+
+// codexSearchOff is the plugins table of a Codex config with search in
+// github@official off.
+func codexSearchOff() map[string]any {
+	return map[string]any{"github@official": map[string]any{
+		"mcp_servers": map[string]any{"search": map[string]any{"enabled": false}},
+	}}
 }
 
 // codexPluginServer installs the Codex plugin github@official with the MCP
@@ -147,8 +157,8 @@ func TestPluginMCPServerBothAgentsHaveIsOneContentThatSaveTurnsOffInBoth(t *test
 		t.Errorf("disabledMcpServers = %v, want %v", got, want)
 	}
 
-	if _, ok := readTOML(t, codexProject(repo))["plugins"]; !ok {
-		t.Error(".codex/config.toml has no plugins table, want the server off there")
+	if got, want := readTOML(t, codexProject(repo))["plugins"], codexSearchOff(); !reflect.DeepEqual(got, want) {
+		t.Errorf("plugins = %v, want %v", got, want)
 	}
 }
 
@@ -182,6 +192,44 @@ func TestPluginMCPServerFollowsItsPluginWithoutAnOverride(t *testing.T) {
 
 	if got := search(t, session); got.State != equip.Off || got.Override {
 		t.Errorf("search = %+v, want off with no Override", got)
+	}
+}
+
+func TestPluginMCPServerOverriddenOnIsOffWhileItsPluginIsOff(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	pluginServer(t, machine)
+	session := newSession(t, machine, repo)
+
+	session.SetState(search(t, session).Key, equip.On)
+	session.SetState("github@official", equip.Off)
+
+	if got := search(t, session); got.State != equip.Off || !got.Override {
+		t.Errorf("search = %+v, want off with its Override kept", got)
+	}
+}
+
+func TestPluginMCPServerSetOffByHandAfterASaveIsUnsavedAndChangedOutside(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	pluginServer(t, machine)
+	machine.Skill(machine.ClaudeSkills(), "review")
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
+	save(t, session)
+	writeFile(t, claudeJSON(machine), `{"projects": {"`+repo+`": {"disabledMcpServers": ["plugin:gh:search"]}}}`)
+
+	reopened := newSession(t, machine, repo)
+
+	got := search(t, reopened)
+	if !got.Unsaved || !got.ChangedOutside || got.ChangedIn != equip.ClaudeCode {
+		t.Errorf("search = %+v, want unsaved and changed outside in Claude Code", got)
+	}
+
+	if plugin := row(t, reopened.View(), "github@official"); !plugin.Unsaved {
+		t.Errorf("plugin row = %+v, want unsaved", plugin)
 	}
 }
 

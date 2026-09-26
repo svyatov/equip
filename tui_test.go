@@ -226,6 +226,27 @@ func TestTabThenStateKeyTurnsOffTheHighlightedMCPServerInsideThePlugin(t *testin
 	}
 }
 
+func TestDetailPaneMarksAPluginMCPServerChangedOutside(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	dir := machine.Plugin("github@official", "user", "")
+	machine.WriteFile(filepath.Join(dir, ".mcp.json"), `{"mcpServers": {"search": {"command": "search"}}}`)
+	machine.Skill(machine.ClaudeSkills(), "review")
+	press(newModel(t, machine), down(), key('3'), key('s'))
+	machine.WriteFile(filepath.Join(machine.Home, ".claude.json"),
+		`{"projects": {"`+machine.Root+`": {"disabledMcpServers": ["plugin:github:search"]}}}`)
+
+	tui := newModel(t, machine)
+
+	if got := line(tui, "MCP server search"); !strings.Contains(got, "*") {
+		t.Errorf("search line %q, want the unsaved marker", got)
+	}
+
+	if line(tui, "changed outside equip in Claude Code") == "" {
+		t.Errorf("view does not show the note:\n%s", tui.View().Content)
+	}
+}
+
 func TestTabDoesNothingOnARowWithNoMCPServers(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)

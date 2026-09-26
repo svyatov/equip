@@ -173,6 +173,7 @@ func pluginSkills(agent Agent, dir, name string) []Content {
 
 		contents = append(contents, Content{
 			Key: "", Name: entry.Name(), Description: field(data, "description"), Kind: Skill, State: On, Override: false,
+			Unsaved: false, ChangedOutside: false, ChangedIn: ClaudeCode,
 			// Both agents list it under the plugin's name.
 			Cost: skillCost(agent, name+":"+entry.Name(), data),
 		})
@@ -236,6 +237,9 @@ func pluginServers(agent Agent, key, dir string, man manifest) []Extension {
 			fallback: map[Agent]State{}, Locations: []Location{{Path: dir, Agent: agent}}, contents: nil, hooks: false,
 			// Claude Code 2.1.283 names a plugin's server by the plugin's
 			// manifest name, which falls back to its marketplace entry name.
+			// ponytail: two plugins with the same manifest name share an entry,
+			// so one's Override undoes the other's; key the lists by that name
+			// if such plugins show up.
 			lists: claudeJSONLists(On), builtIn: false, plugin: key, server: name, listed: "plugin:" + man.Name + ":" + name,
 		})
 	}

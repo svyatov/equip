@@ -297,8 +297,8 @@ func addCodexServers(byKey map[string]*Extension, layer codexLayer, dead []strin
 }
 
 // codexPath is the path of the Codex config table that holds the extension's
-// state. Codex 0.155.1 reads a plugin's MCP server's from the merged config,
-// so from a trusted Project's config too.
+// state. Codex 0.155.1 reads the states of a plugin's MCP servers from the
+// merged config, so from a trusted Project's config too.
 func (e Extension) codexPath() []string {
 	switch {
 	case e.plugin != "":

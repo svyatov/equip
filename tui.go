@@ -345,21 +345,29 @@ func (m *model) contents(contents []equip.Content, key string) []string {
 		return nil
 	}
 
-	lines := []string{"", "Contents  " + m.style.dim.Render("follow the plugin, but an MCP server's override")}
+	lines := []string{"", "Contents  " + m.style.dim.Render("follow the plugin unless overridden")}
 
 	for _, content := range contents {
-		mark, ovr := "  ", ""
+		mark, name, ovr := "  ", content.Name, ""
 		if content.Key != "" && content.Key == key {
 			mark = m.style.cur.Render("▸ ")
+		}
+
+		if content.Unsaved {
+			name += m.style.warn.Render("*")
 		}
 
 		if content.Override {
 			ovr = m.style.warn.Render(" ovr")
 		}
 
-		lines = append(lines, fmt.Sprintf("%s%s %s %s %s%s %s", mark, glyph(content.State), content.Kind, content.Name,
+		lines = append(lines, fmt.Sprintf("%s%s %s %s %s%s %s", mark, glyph(content.State), content.Kind, name,
 			costOf(content.Kind, content.Cost), ovr,
 			m.style.dim.MaxWidth(shortDescriptionWidth).MaxHeight(1).Render(content.Description)))
+
+		if content.ChangedOutside {
+			lines = append(lines, "    "+m.style.warn.Render("changed outside equip in "+content.ChangedIn.String()))
+		}
 	}
 
 	return lines
