@@ -63,12 +63,15 @@ type Session struct {
 	project   Project
 	orphans   []string // the paths of the records the Project can adopt
 	exts      []Extension
-	library   []Preset       // by name, as written, and a new one
-	draft     *Preset        // the one preset with unwritten edits, as edited; nil with none
-	active    []string       // the ids of the active presets, pending, sorted
-	recorded  []recordPreset // the active presets at the last save
-	mu        sync.Mutex
-	approvals bool // Claude Code takes the .mcp.json approvals in settings.local.json
+	library   []Preset // by name, as written, and a new one
+	draft     *Preset  // the one preset with unwritten edits, as edited; nil with none
+	// unfinished are the other Projects that use the draft, opened by a
+	// write of it that failed, before its preset file changed; nil with none.
+	unfinished []Affected
+	active     []string       // the ids of the active presets, pending, sorted
+	recorded   []recordPreset // the active presets at the last save
+	mu         sync.Mutex
+	approvals  bool // Claude Code takes the .mcp.json approvals in settings.local.json
 }
 
 // View is what the user sees of a Session.
@@ -175,23 +178,24 @@ func Open(machine Machine, dir string) (*Session, error) {
 	}
 
 	session := &Session{
-		machine:   machine,
-		project:   project,
-		exts:      exts,
-		library:   library,
-		draft:     nil,
-		active:    nil,
-		recorded:  nil,
-		applied:   applied,
-		codex:     codex,
-		overrides: nil,
-		saved:     nil,
-		disk:      nil,
-		outside:   nil,
-		measured:  map[string]measurement{},
-		approvals: approvalsCount(machine, project),
-		orphans:   orphans(machine, project),
-		mu:        sync.Mutex{},
+		machine:    machine,
+		project:    project,
+		exts:       exts,
+		library:    library,
+		draft:      nil,
+		unfinished: nil,
+		active:     nil,
+		recorded:   nil,
+		applied:    applied,
+		codex:      codex,
+		overrides:  nil,
+		saved:      nil,
+		disk:       nil,
+		outside:    nil,
+		measured:   map[string]measurement{},
+		approvals:  approvalsCount(machine, project),
+		orphans:    orphans(machine, project),
+		mu:         sync.Mutex{},
 	}
 	session.start(saved, presets, disk)
 	session.readMeasurements()
@@ -879,9 +883,11 @@ func (s *Session) state(ext Extension) (State, bool) {
 
 // take takes now, agent's entries on disk, and imports each entry that
 // changed since the last read and differs from the record as an unsaved
-// Override. It reports whether any entry changed.
+// Override. While an active preset changed since the last save, it imports
+// none, so the preset change shows as unsaved states. It reports whether any
+// entry changed.
 func (s *Session) take(agent Agent, now map[string]State) bool {
-	changed := false
+	changed, presetChanged := false, s.presetChanged()
 	recorded := s.entries(agent, s.saved, ids(s.recorded))
 
 	for _, e := range s.applied[agent] {
@@ -892,7 +898,7 @@ func (s *Session) take(agent Agent, now map[string]State) bool {
 
 		changed = true
 		state, set := now[key]
-		imported := set && differ(now, recorded, key)
+		imported := set && differ(now, recorded, key) && !presetChanged
 		// A pending toggle the change replaces was changed outside too.
 		if _, was := s.outside[key]; imported || differ(s.overrides, s.saved, key) && !was {
 			s.outside[key] = agent
@@ -915,6 +921,12 @@ func (s *Session) take(agent Agent, now map[string]State) bool {
 	s.disk[agent] = now
 
 	return changed
+}
+
+// presetChanged reports whether an active preset changed since the last
+// save: its members hash differs from the record's.
+func (s *Session) presetChanged() bool {
+	return !slices.Equal(s.recorded, s.recordPresets(ids(s.recorded)))
 }
 
 // unsavedCount counts the pending changes a save would write.
