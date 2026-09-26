@@ -625,6 +625,25 @@ func TestWriteSkipsAProjectWhosePresetChangedOutsideSinceItsSave(t *testing.T) {
 	unchanged(t, files)
 }
 
+func TestWriteSkipsAProjectWithAMissingPreset(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	other := machine.Repo("other")
+	machine.Preset("Empty", `id = "e1"`)
+	using(t, machine, other, "r1", "e1")
+	// Its hash still matches the record's, but a missing preset hides hand
+	// edits there.
+	removePreset(t, machine, "Empty")
+	session := newSession(t, machine, machine.Repo("app"))
+
+	add(t, session, "r1", "review")
+
+	others := session.PreviewWrite().Others
+	if got, want := affected(others), []string{other + ": skipped: changed outside equip"}; !slices.Equal(got, want) {
+		t.Errorf("affected = %q, want %q", got, want)
+	}
+}
+
 func TestDeleteRemovesThePresetFromEveryProject(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)

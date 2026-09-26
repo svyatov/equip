@@ -285,11 +285,7 @@ func (s *Session) View() View {
 		}
 	}
 
-	for _, id := range s.active {
-		if s.presetIndex(id) < 0 {
-			presets = append(presets, id)
-		}
-	}
+	presets = append(presets, s.missing(s.active)...)
 
 	return View{
 		Project: s.project, Rows: rows, Facets: s.facets(rows), Unsaved: s.unsavedCount(), Totals: totals, Unknown: unknown,
@@ -905,7 +901,7 @@ func (s *Session) state(ext Extension) (State, bool) {
 // none, so the preset change shows as unsaved states. It reports whether any
 // entry changed.
 func (s *Session) take(agent Agent, now map[string]State) bool {
-	changed, presetChanged := false, s.presetNote() != ""
+	changed, presetChanged := false, len(s.presetsChanged()) > 0
 	recorded := s.entries(agent, s.saved, ids(s.recorded))
 
 	for _, e := range s.applied[agent] {
@@ -941,22 +937,43 @@ func (s *Session) take(agent Agent, now map[string]State) bool {
 	return changed
 }
 
-// presetNote notes each active preset that changed since the last save, its
-// members hash differs from the record's, and each one missing, noted by its
-// id, as the record keeps no name. It is empty with none.
-func (s *Session) presetNote() string {
-	var notes []string
+// presetsChanged are the ids of the active presets that changed since the
+// last save, whose members hash differs from the record's, or are missing.
+func (s *Session) presetsChanged() []string {
+	var changed []string
 
 	for i, now := range s.recordPresets(ids(s.recorded)) {
-		switch at := s.presetIndex(now.ID); {
-		case at < 0:
-			notes = append(notes, "preset "+now.ID+" missing")
-		case now != s.recorded[i]:
+		if s.presetIndex(now.ID) < 0 || now != s.recorded[i] {
+			changed = append(changed, now.ID)
+		}
+	}
+
+	return changed
+}
+
+// presetNote notes each active preset that changed since the last save, and
+// each one missing, noted by its id, as the record keeps no name. It is empty
+// with none.
+func (s *Session) presetNote() string {
+	changed := s.presetsChanged()
+	notes := make([]string, 0, len(changed))
+
+	for _, id := range changed {
+		if at := s.presetIndex(id); at >= 0 {
 			notes = append(notes, "preset "+s.library[at].Name+" changed outside equip")
+		} else {
+			notes = append(notes, "preset "+id+" missing")
 		}
 	}
 
 	return strings.Join(notes, ", ")
+}
+
+// missing are the presets with ids the library does not have, sorted.
+func (s *Session) missing(ids []string) []string {
+	return slices.DeleteFunc(slices.Compact(slices.Sorted(slices.Values(ids))), func(id string) bool {
+		return s.presetIndex(id) >= 0
+	})
 }
 
 // unsavedCount counts the pending changes a save would write.

@@ -616,6 +616,26 @@ func TestLibraryListsAMissingPresetActiveHere(t *testing.T) {
 	}
 }
 
+func TestLibraryListsAMissingPresetByName(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	repo := machine.Repo("app")
+	machine.Preset("Old", `id = "O1"`)
+	using(t, machine, repo, "O1")
+	removePreset(t, machine, "Old")
+
+	presets := newSession(t, machine, repo).Presets()
+
+	got := make([]string, 0, len(presets))
+	for _, preset := range presets {
+		got = append(got, preset.Name)
+	}
+
+	if want := []string{"O1", "Ruby", "Writing"}; !slices.Equal(got, want) {
+		t.Errorf("library = %q, want %q", got, want)
+	}
+}
+
 func TestMissingPresetSavedWithNoMembersImportsNoHandEdit(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)

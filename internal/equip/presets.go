@@ -143,15 +143,15 @@ func (s *Session) Presets() []Preset {
 
 		return errors.Is(err, fs.ErrNotExist)
 	})
-	library := slices.Clip(s.library)
+	library := slices.Clone(s.library)
 	// A missing preset shows while the record or the pending choice has it.
-	for _, id := range slices.Compact(slices.Sorted(slices.Values(append(ids(s.recorded), s.active...)))) {
-		if s.presetIndex(id) < 0 {
-			library = append(library, Preset{
-				ID: id, Name: id, Members: nil, Projects: nil, Active: false, New: false, Missing: true, Unwritten: false,
-			})
-		}
+	for _, id := range s.missing(slices.Concat(ids(s.recorded), s.active)) {
+		library = append(library, Preset{
+			ID: id, Name: id, Members: nil, Projects: nil, Active: false, New: false, Missing: true, Unwritten: false,
+		})
 	}
+
+	slices.SortFunc(library, byName)
 
 	out := make([]Preset, 0, len(library))
 
@@ -612,7 +612,7 @@ func (s *Session) affected(change presetChange) []Affected {
 			project.Skipped = err.Error()
 		// Open ran the change check there, which cannot see hand edits while
 		// an active preset changed since the last save.
-		case len(other.outside) > 0 || other.presetNote() != "":
+		case len(other.outside) > 0 || len(other.presetsChanged()) > 0:
 			project.Skipped = "changed outside equip"
 		default:
 			before, after := other.preview(change)

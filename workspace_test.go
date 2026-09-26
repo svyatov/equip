@@ -147,6 +147,63 @@ func TestSpaceKeepsAnActivePresetWhoseFileIsMissing(t *testing.T) {
 	}
 }
 
+func TestMissingPresetShowsMissingAndCannotBeDeleted(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	old := filepath.Join(machine.ConfigHome, "equip", "presets", "Old.toml")
+	machine.WriteFile(old, `id = "o1"`)
+
+	session, err := equip.Open(machine.Machine, machine.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session.SetPresets([]string{"o1"})
+
+	err = session.Save()
+	if err == nil {
+		err = os.Remove(old)
+	}
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tui := newModel(t, machine)
+	press(tui, key('p'), down(), down(), key('d'))
+
+	if got := line(tui, "[x] o1"); !strings.Contains(got, "missing") {
+		t.Errorf("o1 line %q, want it checked and missing:\n%s", got, tui.View().Content)
+	}
+
+	if line(tui, "preset o1 missing: sync its file") == "" || line(tui, "Delete preset o1?") != "" {
+		t.Errorf("d on a missing preset did not refuse:\n%s", tui.View().Content)
+	}
+}
+
+func TestDetailPaneNotesAPresetChangedOutside(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+
+	session, err := equip.Open(machine.Machine, machine.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session.SetPresets([]string{"r1"})
+
+	err = session.Save()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	machine.Preset("Ruby", "id = \"r1\"\nskills = [\"docs\", \"lint\"]\n")
+
+	if tui := newModel(t, machine); line(tui, "preset Ruby changed outside equip") == "" {
+		t.Errorf("detail pane of docs does not show the note:\n%s", tui.View().Content)
+	}
+}
+
 func TestSpaceRemovesOnlyTheHighlightedPreset(t *testing.T) {
 	t.Parallel()
 	tui := presetModel(t)
