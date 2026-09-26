@@ -5,7 +5,7 @@
 # so bump the pins by hand with `mise up --bump`.
 
 [tools]
-golangci-lint = "2.13.2"
+golangci-lint = "2.14.0"
 lefthook = "2.1.14"
 "go:golang.org/x/vuln/cmd/govulncheck" = "1.8.0"
 
