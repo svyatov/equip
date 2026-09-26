@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"testing"
 
@@ -52,12 +53,24 @@ func quits(cmd tea.Cmd) bool {
 	return ok
 }
 
-// line returns the first line of the view that contains s.
+// line returns the first line of the view that contains s. A line holds the
+// sidebar, the list and the detail pane side by side, so s can match in any of
+// them; for the highlighted row, use highlighted.
 func line(tui *model, s string) string {
 	for l := range strings.Lines(tui.View().Content) {
 		if strings.Contains(l, s) {
 			return l
 		}
+	}
+
+	return ""
+}
+
+// highlighted returns the name of the highlighted row in the list tui shows.
+func highlighted(tui *model) string {
+	rows := tui.rows(tui.s.View())
+	if tui.cur < len(rows) {
+		return rows[tui.cur].Name
 	}
 
 	return ""
@@ -618,6 +631,26 @@ func TestSidebarCountsTheRowsOfEachFacet(t *testing.T) {
 	}
 }
 
+func TestSidebarPutsABlankLineBeforeEachGroupOfFacets(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "review")
+
+	view := newModel(t, machine).View().Content
+	lines := strings.Split(view, "\n")
+	above := func(s string) string {
+		return lines[slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, s) })-1]
+	}
+
+	if strings.Contains(above("Claude Code only"), "MCP servers") {
+		t.Errorf("no blank line before the agents' facets:\n%s", view)
+	}
+
+	if !strings.Contains(above("Plugins"), "Skills") {
+		t.Errorf("a blank line inside the kinds' facets:\n%s", view)
+	}
+}
+
 func TestPickingAFacetNarrowsTheList(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
@@ -659,8 +692,8 @@ func TestPickingAFacetHighlightsTheFirstRow(t *testing.T) {
 
 	press(tui, down(), key(']'))
 
-	if got := line(tui, "alpha"); !strings.Contains(got, "▸") {
-		t.Errorf("row line %q is not highlighted:\n%s", got, tui.View().Content)
+	if got := highlighted(tui); got != "alpha" {
+		t.Errorf("highlighted %q, want alpha", got)
 	}
 }
 
@@ -687,9 +720,9 @@ func TestKeysStayOnTheListAfterTheHighlightedPluginLeavesTheFacet(t *testing.T) 
 	machine.WriteFile(filepath.Join(dir, ".mcp.json"), `{"mcpServers": {"search": {"command": "search"}}}`)
 	tui := newModel(t, machine)
 
-	// Off by hand, then its Override dropped from the Overrides facet.
+	// Off by hand, then saved from the Unsaved changes facet.
 	tab := tea.KeyPressMsg{Code: tea.KeyTab}
-	press(tui, tab, key('2'), key('['), key('['), tab, key('x'))
+	press(tui, tab, key('2'), key('['), tab, key('s'))
 
 	if tui.inContents {
 		t.Fatalf("keys still act on the MCP server of a plugin that left the facet:\n%s", tui.View().Content)
@@ -709,6 +742,21 @@ func TestSlashSearchesTheListByName(t *testing.T) {
 
 	if view := tui.View().Content; strings.Contains(view, "lint") || !strings.Contains(view, "Review") {
 		t.Errorf("search /rEv does not show Review alone:\n%s", view)
+	}
+}
+
+func TestSearchFindsAPluginByItsMCPServersName(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	dir := machine.Plugin("github@official", "user", "")
+	machine.WriteFile(filepath.Join(dir, ".mcp.json"), `{"mcpServers": {"Issues": {"command": "issues"}}}`)
+	machine.Skill(machine.ClaudeSkills(), "lint")
+	tui := newModel(t, machine)
+
+	press(tui, key('/'), key('i'), key('S'), key('s'))
+
+	if view := tui.View().Content; strings.Contains(view, "lint") || !strings.Contains(view, "github@official") {
+		t.Errorf("search /iSs does not show the plugin alone:\n%s", view)
 	}
 }
 
@@ -766,7 +814,13 @@ func TestBackspaceDeletesTheLastLetterOfTheSearch(t *testing.T) {
 	machine.Skill(machine.ClaudeSkills(), "review")
 	tui := newModel(t, machine)
 
-	press(tui, key('/'), key('é'), key('x'), backspace(), backspace(), backspace(), key('i'), key('e'), backspace())
+	press(tui, key('/'), key('é'), backspace())
+
+	if tui.query != "" {
+		t.Errorf("search is %q after é and backspace, want none", tui.query)
+	}
+
+	press(tui, backspace(), key('i'), key('e'), backspace())
 
 	if line(tui, "/i") == "" || !strings.Contains(tui.View().Content, "lint") {
 		t.Errorf("search is not /i:\n%s", tui.View().Content)
@@ -774,6 +828,31 @@ func TestBackspaceDeletesTheLastLetterOfTheSearch(t *testing.T) {
 }
 
 func backspace() tea.KeyPressMsg { return tea.KeyPressMsg{Code: tea.KeyBackspace} }
+
+func TestCtrlCQuitsWhileSearching(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "review")
+	tui := newModel(t, machine)
+
+	if cmd := press(tui, key('/'), tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl}); !quits(cmd) {
+		t.Error("ctrl+c does not quit while the search is open")
+	}
+}
+
+func TestSpecialKeysLeaveTheSearchAndHighlightAlone(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "lint")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	tui := newModel(t, machine)
+
+	press(tui, down(), key('/'), down())
+
+	if got := highlighted(tui); got != "review" {
+		t.Errorf("highlighted %q, want review", got)
+	}
+}
 
 func TestTypingHighlightsTheFirstMatch(t *testing.T) {
 	t.Parallel()
@@ -787,12 +866,12 @@ func TestTypingHighlightsTheFirstMatch(t *testing.T) {
 
 	press(tui, down(), down(), key('/'), key('e'))
 
-	if got := line(tui, "rename"); !strings.Contains(got, "▸") {
-		t.Errorf("row line %q is not highlighted:\n%s", got, tui.View().Content)
+	if got := highlighted(tui); got != "rename" {
+		t.Errorf("highlighted %q, want rename", got)
 	}
 }
 
-func TestHighlightStaysOnAnMCPServerOfThePluginThatTakesTheRow(t *testing.T) {
+func TestHighlightLeavesTheContentsWhenAnotherRowTakesItsPlace(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	alpha := machine.Plugin("alpha@official", "user", "")
@@ -801,32 +880,61 @@ func TestHighlightStaysOnAnMCPServerOfThePluginThatTakesTheRow(t *testing.T) {
 	beta := machine.Plugin("beta@official", "user", "")
 	machine.WriteFile(filepath.Join(beta, ".mcp.json"), `{"mcpServers": {"three": {"command": "three"}}}`)
 	tui := newModel(t, machine)
-	tab, up := tea.KeyPressMsg{Code: tea.KeyTab}, tea.KeyPressMsg{Code: tea.KeyUp}
 
-	// beta off and alpha's two off, then two's Override dropped from the
-	// Overrides facet, so beta takes alpha's row.
-	press(tui, down(), key('2'), up, tab, down(), key('2'), key('['), key('['), tab, down(), key('x'))
+	// alpha's two highlighted, then a search that keeps beta alone.
+	press(tui, tea.KeyPressMsg{Code: tea.KeyTab}, down(), key('/'), key('b'))
 
-	if tui.server != 0 {
-		t.Fatalf("highlighted MCP server %d, want 0, the only one of beta", tui.server)
-	}
-
-	if got := line(tui, "three"); !strings.Contains(got, "▸") {
-		t.Errorf("contents line %q is not highlighted:\n%s", got, tui.View().Content)
+	if tui.inContents {
+		t.Errorf("keys still act on MCP server %d, of beta now:\n%s", tui.server, tui.View().Content)
 	}
 }
 
-func TestHighlightMovesUpWhenTheLastRowLeavesTheFacet(t *testing.T) {
+func TestARowThatLeavesTheFacetStaysUntilTheHighlightMoves(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	machine.Skill(machine.ClaudeSkills(), "alpha")
-	machine.Skill(machine.ClaudeSkills(), "beta")
+
+	for _, name := range []string{"alpha", "beta", "gamma"} {
+		machine.Skill(machine.ClaudeSkills(), name)
+	}
+
 	tui := newModel(t, machine)
 
-	// The On facet, then beta off.
-	press(tui, key(']'), key(']'), key(']'), key(']'), key(']'), key(']'), down(), key('3'))
+	// The On facet, then alpha off twice over.
+	press(tui, key(']'), key(']'), key(']'), key(']'), key(']'), key(']'), key('3'), key('3'))
 
-	if got := line(tui, "alpha"); !strings.Contains(got, "▸") {
-		t.Errorf("row line %q is not highlighted:\n%s", got, tui.View().Content)
+	if r := tui.s.View().Rows[1]; r.State != equip.On {
+		t.Errorf("beta = %+v, want on: the second key acts on alpha again", r)
+	}
+
+	press(tui, down())
+
+	if got := highlighted(tui); got != "beta" || strings.Contains(tui.View().Content, "alpha") {
+		t.Errorf("highlighted %q, want beta with alpha gone:\n%s", got, tui.View().Content)
+	}
+}
+
+func TestHighlightStaysOnItsRowWhenTheSearchWidens(t *testing.T) {
+	t.Parallel()
+
+	esc, enter := tea.KeyPressMsg{Code: tea.KeyEscape}, tea.KeyPressMsg{Code: tea.KeyEnter}
+
+	for name, keys := range map[string][]tea.KeyPressMsg{
+		"backspace":    {key('/'), key('b'), key('e'), backspace(), backspace()},
+		"esc typing":   {key('/'), key('b'), key('e'), esc},
+		"esc after it": {key('/'), key('b'), key('e'), enter, esc},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			machine := equiptest.New(t)
+			machine.Skill(machine.ClaudeSkills(), "alpha")
+			machine.Skill(machine.ClaudeSkills(), "beta")
+			tui := newModel(t, machine)
+
+			press(tui, keys...)
+
+			if got := highlighted(tui); got != "beta" || !strings.Contains(tui.View().Content, "alpha") {
+				t.Errorf("highlighted %q, want beta in the whole list:\n%s", got, tui.View().Content)
+			}
+		})
 	}
 }

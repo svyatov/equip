@@ -1,6 +1,7 @@
 package equip_test
 
 import (
+	"slices"
 	"testing"
 
 	"github.com/svyatov/equip/internal/equip"
@@ -26,6 +27,23 @@ func wantCounts(t *testing.T, v equip.View, want map[string]int) {
 		if got[name] != n {
 			t.Errorf("facet %q count = %d, want %d (all: %v)", name, got[name], n, got)
 		}
+	}
+}
+
+func TestFacetsGroupIntoKindsAgentsStatesAndChanges(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+
+	var got []string
+
+	for _, f := range open(t, machine, machine.Root).Facets {
+		if f.NewGroup {
+			got = append(got, f.Name)
+		}
+	}
+
+	if want := []string{"Claude Code only", "On", "Overrides"}; !slices.Equal(got, want) {
+		t.Errorf("facets that start a group = %q, want %q", got, want)
 	}
 }
 

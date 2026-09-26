@@ -51,6 +51,10 @@ _Avoid_: Profile, bundle, loadout
 A state the user set by hand for one extension in one project, which wins over the project's presets.
 _Avoid_: Exception, pin
 
+**Facet**:
+A way to narrow the list of extensions by kind, agent, state, or change, shown with the count of extensions it keeps.
+_Avoid_: Filter, category
+
 ## Relationships
 
 - A **Plugin** contains zero or more **Skills** and **MCP servers**, its **Contents**

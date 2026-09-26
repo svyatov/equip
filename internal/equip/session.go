@@ -75,8 +75,9 @@ type View struct {
 
 // Facet is a way to narrow the list.
 type Facet struct {
-	keys map[string]bool // of the rows it keeps
-	Name string
+	keys     map[string]bool // of the rows it keeps
+	Name     string
+	NewGroup bool // the first of the agents' facets, of the states' or of the changes'
 }
 
 // Has reports whether the facet keeps row.
@@ -91,20 +92,20 @@ type facet struct {
 	name string
 }
 
-// kind is the facet of the rows of kind k.
-func kind(name string, k Kind) facet {
+// kindFacet is the facet of the rows of kind k.
+func kindFacet(name string, k Kind) facet {
 	return facet{name: name, has: func(_ Extension, row Row) bool { return row.Kind == k }}
 }
 
-// only is the facet of the rows only agent has.
-func only(agent Agent) facet {
+// onlyFacet is the facet of the rows only agent has.
+func onlyFacet(agent Agent) facet {
 	return facet{name: agent.String() + " only", has: func(ext Extension, _ Row) bool {
 		return !slices.ContainsFunc(Agents(), func(other Agent) bool { return other != agent && ext.has(other) })
 	}}
 }
 
-// state is the facet of the rows in state st.
-func state(name string, st State) facet {
+// stateFacet is the facet of the rows in state st.
+func stateFacet(name string, st State) facet {
 	return facet{name: name, has: func(_ Extension, row Row) bool { return row.State == st }}
 }
 
@@ -256,7 +257,7 @@ func (s *Session) View() View {
 			State:          state,
 			Override:       override,
 			Fallback:       ext.fallback[ext.primary()],
-			Unsaved:        s.rowUnsaved(ext),
+			Unsaved:        s.inRow(ext, s.unsaved),
 			ChangedOutside: changed,
 		})
 	}
@@ -423,33 +424,33 @@ func (s *Session) Save() error {
 
 // facets are the facets of rows, in the order the sidebar shows them.
 func (s *Session) facets(rows []Row) []Facet {
-	all := []facet{
-		{name: "All", has: func(Extension, Row) bool { return true }},
-		kind("Skills", Skill), kind("Plugins", Plugin), kind("MCP servers", MCPServer),
-		only(ClaudeCode), only(Codex),
-		state("On", On), state("Manual-only", ManualOnly), state("Off", Off),
-		// A plugin's row has an Override of its own or one of its MCP servers'.
-		{name: "Overrides", has: func(ext Extension, row Row) bool {
-			return row.Override || slices.ContainsFunc(s.exts, func(e Extension) bool {
-				_, override := s.overrides[e.Key]
-
-				return e.plugin == ext.Key && override
-			})
-		}},
-		{name: "Unsaved changes", has: func(_ Extension, row Row) bool { return row.Unsaved }},
+	groups := [][]facet{
+		{
+			{name: "All", has: func(Extension, Row) bool { return true }},
+			kindFacet("Skills", Skill), kindFacet("Plugins", Plugin), kindFacet("MCP servers", MCPServer),
+		},
+		{onlyFacet(ClaudeCode), onlyFacet(Codex)},
+		{stateFacet("On", On), stateFacet("Manual-only", ManualOnly), stateFacet("Off", Off)},
+		{
+			{name: "Overrides", has: func(ext Extension, _ Row) bool { return s.inRow(ext, s.overridden) }},
+			{name: "Unsaved changes", has: func(_ Extension, row Row) bool { return row.Unsaved }},
+		},
 	}
-	out := make([]Facet, 0, len(all))
 
-	for _, def := range all {
-		keys := map[string]bool{}
+	var out []Facet
 
-		for _, row := range rows {
-			if ext, _ := s.ext(row.Key); def.has(ext, row) {
-				keys[row.Key] = true
+	for groupIndex, group := range groups {
+		for index, def := range group {
+			keys := map[string]bool{}
+
+			for _, row := range rows {
+				if ext, _ := s.ext(row.Key); def.has(ext, row) {
+					keys[row.Key] = true
+				}
 			}
-		}
 
-		out = append(out, Facet{Name: def.name, keys: keys})
+			out = append(out, Facet{Name: def.name, keys: keys, NewGroup: groupIndex > 0 && index == 0})
+		}
 	}
 
 	return out
@@ -838,12 +839,19 @@ func (s *Session) unsavedCount() int {
 	return count
 }
 
-// rowUnsaved reports whether the row of ext has an unsaved change: its own or,
+// inRow reports whether has holds for a key in the row of ext: its own or,
 // for a plugin, one of its MCP servers'.
-func (s *Session) rowUnsaved(ext Extension) bool {
-	return s.unsaved(ext.Key) || slices.ContainsFunc(s.exts, func(e Extension) bool {
-		return e.plugin == ext.Key && s.unsaved(e.Key)
+func (s *Session) inRow(ext Extension, has func(key string) bool) bool {
+	return has(ext.Key) || slices.ContainsFunc(s.exts, func(e Extension) bool {
+		return e.plugin == ext.Key && has(e.Key)
 	})
+}
+
+// overridden reports whether key has an Override.
+func (s *Session) overridden(key string) bool {
+	_, ok := s.overrides[key]
+
+	return ok
 }
 
 // unsaved reports whether a save would change the Override for key or its
