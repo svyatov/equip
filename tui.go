@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -64,22 +65,29 @@ type model struct {
 	style      styles
 	s          *equip.Session
 	flash      string
-	query      string // the search: the list keeps the rows whose names contain it
-	key        string // of the highlighted row, which the highlight stays on while the list has it
-	pinned     string // of a row the keys changed, which the list keeps until the highlight leaves it
-	cur        int    // the highlighted row
-	facet      int    // the picked facet
-	server     int    // the highlighted MCP server among the highlighted plugin's contents
-	inContents bool   // the keys act on the highlighted MCP server, not the row
-	quitting   bool   // asking to quit with unsaved changes
-	searching  bool   // the keys type into the search
+	query      string   // the search: the list keeps the rows whose names contain it
+	key        string   // of the highlighted row, which the highlight stays on while the list has it
+	pinned     string   // of a row the keys changed, which the list keeps until the highlight leaves it
+	orphans    []string // the records of a moved repo the first open offers, while it asks to adopt one
+	cur        int      // the highlighted row
+	facet      int      // the picked facet
+	server     int      // the highlighted MCP server among the highlighted plugin's contents
+	inContents bool     // the keys act on the highlighted MCP server, not the row
+	quitting   bool     // asking to quit with unsaved changes
+	searching  bool     // the keys type into the search
 }
 
-// newTUI is the model of a fresh TUI over s.
-func newTUI(s *equip.Session) *model {
+// digitKeys is the count of the digit keys 1 to 9, which pick a record in
+// the adopt prompt. ponytail: a tenth record is left out; page the prompt if
+// one repo ever leaves that many behind.
+const digitKeys = 9
+
+// newTUI is the model of a fresh TUI over session.
+func newTUI(session *equip.Session) *model {
+	orphans := session.View().Orphans
 	tui := &model{
-		s: s, style: newStyles(), cur: 0, facet: 0, server: 0, inContents: false, quitting: false, searching: false,
-		flash: "", query: "", key: "", pinned: "",
+		s: session, style: newStyles(), cur: 0, facet: 0, server: 0, inContents: false, quitting: false,
+		searching: false, flash: "", query: "", key: "", pinned: "", orphans: orphans[:min(len(orphans), digitKeys)],
 	}
 	tui.clamp()
 
@@ -118,8 +126,12 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmd tea.Cmd
 
 	switch {
+	case key == "ctrl+c":
+		cmd = m.quit()
+	case len(m.orphans) > 0:
+		m.adopt(key)
 	case m.searching:
-		cmd = m.search(keyMsg)
+		m.search(keyMsg)
 	case !m.narrow(key):
 		cmd = m.press(key)
 	}
@@ -160,10 +172,40 @@ func (m *model) View() tea.View {
 	return view
 }
 
+// adopt acts on key while asking to adopt the record of a moved repo: a
+// number adopts the record it picks among the orphans, and n keeps the
+// states imported at open.
+func (m *model) adopt(key string) {
+	if key == "n" {
+		m.orphans = nil
+
+		return
+	}
+
+	i, err := strconv.Atoi(key)
+	if err != nil || i < 1 || i > len(m.orphans) {
+		return
+	}
+
+	err = m.s.Adopt(m.orphans[i-1])
+	if err != nil {
+		m.flash = m.style.warn.Render("adopt failed: " + err.Error())
+	}
+
+	m.orphans = nil
+}
+
 // footer is the bottom line, with unsaved changes pending: the quit guard,
-// the flash, or the keys.
+// the adopt prompt, the flash, or the keys.
 func (m *model) footer(unsaved int) string {
 	switch {
+	case len(m.orphans) > 0:
+		lines := []string{m.style.warn.Render("Adopt this repo's record from a path that is gone?")}
+		for i, path := range m.orphans {
+			lines = append(lines, fmt.Sprintf("  %d %s", i+1, path))
+		}
+
+		return strings.Join(append(lines, m.style.dim.Render("its number adopts it  n start fresh")), "\n")
 	case m.quitting:
 		return m.style.warn.Render(fmt.Sprintf("%d unsaved changes. Quit without saving? y/n", unsaved))
 	case m.flash != "":
@@ -222,11 +264,9 @@ func (m *model) list(rows []equip.Row) string {
 }
 
 // search acts on keyMsg while the keys type into the search: enter ends it,
-// esc clears it too, and ctrl+c quits. A key that types nothing does nothing.
-func (m *model) search(keyMsg tea.KeyPressMsg) tea.Cmd {
+// and esc clears it too. A key that types nothing does nothing.
+func (m *model) search(keyMsg tea.KeyPressMsg) {
 	switch keyMsg.String() {
-	case "ctrl+c":
-		return m.quit()
 	case "enter":
 		m.searching = false
 	case "esc":
@@ -240,8 +280,6 @@ func (m *model) search(keyMsg tea.KeyPressMsg) tea.Cmd {
 			m.first()
 		}
 	}
-
-	return nil
 }
 
 // first highlights the first row of a list narrowed anew.
@@ -316,7 +354,7 @@ func (m *model) press(key string) tea.Cmd {
 	servers := m.servers(rows)
 
 	switch key {
-	case "q", "ctrl+c":
+	case "q":
 		return m.quit()
 	case "tab":
 		m.inContents = !m.inContents && len(servers) > 0

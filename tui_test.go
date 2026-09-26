@@ -938,3 +938,142 @@ func TestHighlightStaysOnItsRowWhenTheSearchWidens(t *testing.T) {
 		})
 	}
 }
+
+// movedAway saves github in each of states in its own clone of one repo, then
+// removes the clones, as if moved. It returns their old paths and the repo
+// they were cloned from, which has no record yet.
+func movedAway(t *testing.T, machine *equiptest.Machine, states ...equip.State) ([]string, string) {
+	t.Helper()
+
+	repo := machine.Repo("app")
+	machine.Commit(repo)
+	machine.WriteFile(filepath.Join(machine.Home, ".claude.json"), `{"mcpServers": {"github": {"command": "gh"}}}`)
+
+	olds := make([]string, 0, len(states))
+
+	for i, state := range states {
+		old := filepath.Join(machine.Root, fmt.Sprintf("old%d", i+1))
+		machine.RunGit(repo, "clone", "-q", repo, old)
+
+		session, err := equip.Open(machine.Machine, old)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		session.SetState("mcp:github", state)
+
+		err = session.Save()
+		if err == nil {
+			err = os.RemoveAll(old)
+		}
+
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		olds = append(olds, old)
+	}
+
+	return olds, repo
+}
+
+// newModelIn is the model of a TUI opened in dir.
+func newModelIn(t *testing.T, machine *equiptest.Machine, dir string) *model {
+	t.Helper()
+
+	session, err := equip.Open(machine.Machine, dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return newTUI(session)
+}
+
+func TestAdoptPromptAdoptsTheRecordOfAMovedRepo(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	olds, repo := movedAway(t, machine, equip.Off)
+	tui := newModelIn(t, machine, repo)
+
+	if line(tui, "1 "+olds[0]) == "" {
+		t.Fatalf("view does not offer %s:\n%s", olds[0], tui.View().Content)
+	}
+
+	press(tui, key('1'))
+
+	if row := tui.s.View().Rows[0]; row.State != equip.Off || !row.Override || line(tui, olds[0]) != "" {
+		t.Errorf("github = %+v, want an override off and no prompt:\n%s", row, tui.View().Content)
+	}
+}
+
+func TestAdoptPromptPicksAmongSeveralMovedRepos(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	olds, repo := movedAway(t, machine, equip.Off, equip.On)
+	tui := newModelIn(t, machine, repo)
+
+	press(tui, key('2'))
+
+	if row := tui.s.View().Rows[0]; row.State != equip.On || !row.Override || line(tui, olds[1]) != "" {
+		t.Errorf("github = %+v, want the second record's override on and no prompt:\n%s", row, tui.View().Content)
+	}
+}
+
+func TestAdoptPromptDeclinedKeepsTheImportAndIgnoresOtherKeys(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	olds, repo := movedAway(t, machine, equip.Off)
+	tui := newModelIn(t, machine, repo)
+
+	if quits(press(tui, key('2'), key('q'), key('n'))) {
+		t.Fatal("q quit while asking to adopt")
+	}
+
+	if row := tui.s.View().Rows[0]; row.State != equip.On || row.Override || line(tui, olds[0]) != "" {
+		t.Errorf("github = %+v, want on with no override and no prompt:\n%s", row, tui.View().Content)
+	}
+}
+
+func TestAdoptPromptShowsAFailedAdoption(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	_, repo := movedAway(t, machine, equip.Off)
+	records, _ := filepath.Glob(filepath.Join(machine.StateHome, "equip", "*.toml"))
+	data, _ := os.ReadFile(records[0])
+	machine.WriteFile(records[0], strings.Replace(string(data), "'off'", "'bogus'", 1))
+	tui := newModelIn(t, machine, repo)
+
+	press(tui, key('1'))
+
+	if row := tui.s.View().Rows[0]; row.State != equip.On || row.Override || line(tui, "adopt failed") == "" {
+		t.Errorf("github = %+v, want on with no override and the error:\n%s", row, tui.View().Content)
+	}
+}
+
+func TestAdoptPromptListsNoMoreRecordsThanDigitKeys(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	_, repo := movedAway(t, machine, equip.Off)
+	root := machine.RunGit(repo, "rev-list", "--max-parents=0", "HEAD")
+
+	for i := range 9 {
+		machine.WriteFile(filepath.Join(machine.StateHome, "equip", fmt.Sprintf("gone%d.toml", i)),
+			fmt.Sprintf("path = '%s/gone%d'\nroot_commit = '%s'\n", machine.Root, i, root))
+	}
+
+	tui := newModelIn(t, machine, repo)
+
+	if line(tui, "  9 ") == "" || line(tui, "  10 ") != "" {
+		t.Errorf("prompt does not list exactly 9 records:\n%s", tui.View().Content)
+	}
+}
+
+func TestCtrlCQuitsWhileAskingToAdopt(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	_, repo := movedAway(t, machine, equip.Off)
+
+	if !quits(press(newModelIn(t, machine, repo), tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})) {
+		t.Error("ctrl+c did not quit")
+	}
+}
