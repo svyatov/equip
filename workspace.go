@@ -74,7 +74,7 @@ func (m *model) workspaceTop() string {
 		active = strings.Join(now.Presets, " + ")
 	}
 
-	turned := turned(m.before, now)
+	turned := now.TurnedSince(m.before)
 	changed := turned[equip.On]+turned[equip.Off] > 0
 	top := []string{m.style.top.Render("equip presets"), "active here: " + active}
 
@@ -93,20 +93,6 @@ func (m *model) workspaceTop() string {
 	}
 
 	return strings.Join(top, "  ")
-}
-
-// turned counts the rows that turned into each state between the views
-// before and now.
-func turned(before, now equip.View) map[equip.State]int {
-	counts := map[equip.State]int{}
-
-	for _, row := range now.Rows {
-		if i := index(before.Rows, row.Key); i >= 0 && before.Rows[i].State != row.State {
-			counts[row.State]++
-		}
-	}
-
-	return counts
 }
 
 // library is the library pane: each preset with whether it is active here,

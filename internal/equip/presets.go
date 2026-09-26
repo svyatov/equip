@@ -90,17 +90,7 @@ func readPresets(machine Machine) ([]Preset, error) {
 func (s *Session) Presets() []Preset {
 	// ponytail: reads every record on each call; keep the counts if a
 	// machine ever holds enough records to notice.
-	files, _ := filepath.Glob(filepath.Join(s.machine.StateHome, "equip", "*.toml"))
-
-	var records []record
-
-	for _, file := range files {
-		rec, err := decodeRecord(file)
-		if err == nil {
-			records = append(records, rec)
-		}
-	}
-
+	recs := records(s.machine)
 	out := make([]Preset, 0, len(s.library))
 
 	for _, preset := range s.library {
@@ -111,7 +101,7 @@ func (s *Session) Presets() []Preset {
 			_, preset.Members[i].Installed = s.ext(member.Key)
 		}
 
-		for _, rec := range records {
+		for _, rec := range recs {
 			if slices.Contains(ids(rec.Presets), preset.ID) {
 				preset.Projects++
 			}
@@ -123,10 +113,26 @@ func (s *Session) Presets() []Preset {
 	return out
 }
 
-// SetPresets makes the presets with ids the active ones in the Project.
-func (s *Session) SetPresets(ids []string) {
+// SetPresets makes the presets with the ids active the active ones in the
+// Project.
+func (s *Session) SetPresets(active []string) {
 	// Sorted, so the same presets in another order are no change.
-	s.active = slices.Compact(slices.Sorted(slices.Values(ids)))
+	s.active = slices.Compact(slices.Sorted(slices.Values(active)))
+}
+
+// TurnedSince counts the rows that turned into each state since the view
+// before: with the totals of both, the effect of the changes in between.
+func (v View) TurnedSince(before View) map[State]int {
+	counts := map[State]int{}
+
+	for _, row := range v.Rows {
+		i := slices.IndexFunc(before.Rows, func(was Row) bool { return was.Key == row.Key })
+		if i >= 0 && before.Rows[i].State != row.State {
+			counts[row.State]++
+		}
+	}
+
+	return counts
 }
 
 // ids are the ids of presets.
@@ -148,10 +154,12 @@ func (s *Session) recordPresets() []recordPreset {
 		sum := sha256.New()
 
 		for _, preset := range s.library {
+			if preset.ID != active {
+				continue
+			}
+
 			for _, member := range preset.Members {
-				if preset.ID == active {
-					_, _ = sum.Write([]byte(member.Key + "\n")) // a hash never fails to write
-				}
+				_, _ = sum.Write([]byte(member.Key + "\n")) // a hash never fails to write
 			}
 		}
 

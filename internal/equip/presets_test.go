@@ -46,7 +46,7 @@ mcp_servers = ["github"]`)
 
 func TestLibraryShowsWhereEachPresetIsActive(t *testing.T) {
 	t.Parallel()
-	machine := presetMachine(t)
+	machine := equiptest.WithPresets(t)
 	app := newSession(t, machine, machine.Repo("app"))
 	app.SetPresets([]string{"r1"})
 	save(t, app)
@@ -68,7 +68,7 @@ func TestLibraryShowsWhereEachPresetIsActive(t *testing.T) {
 
 func TestLibraryKeepsAndMarksMembersNotInstalled(t *testing.T) {
 	t.Parallel()
-	machine := presetMachine(t)
+	machine := equiptest.WithPresets(t)
 
 	members := newSession(t, machine, machine.Root).Presets()[0].Members
 
@@ -84,7 +84,7 @@ func TestLibraryKeepsAndMarksMembersNotInstalled(t *testing.T) {
 
 func TestViewNamesTheActivePresets(t *testing.T) {
 	t.Parallel()
-	machine := presetMachine(t)
+	machine := equiptest.WithPresets(t)
 	session := newSession(t, machine, machine.Root)
 
 	session.SetPresets([]string{"w1", "r1"})
@@ -96,7 +96,7 @@ func TestViewNamesTheActivePresets(t *testing.T) {
 
 func TestAdoptingKeepsTheActivePresetsOfAMovedRepo(t *testing.T) {
 	t.Parallel()
-	machine := presetMachine(t)
+	machine := equiptest.WithPresets(t)
 	repo := machine.Repo("app")
 	machine.Commit(repo)
 	session := newSession(t, machine, repo)
@@ -138,28 +138,9 @@ func TestPresetWithoutAnIDFailsToOpen(t *testing.T) {
 	}
 }
 
-// presetMachine has the skills docs, lint and review, and the presets Ruby
-// (r1, with lint and the skill rspec, not installed) and Writing (w1, with
-// docs).
-func presetMachine(t *testing.T) *equiptest.Machine {
-	t.Helper()
-
-	machine := equiptest.New(t)
-	for _, name := range []string{"docs", "lint", "review"} {
-		machine.Skill(machine.ClaudeSkills(), name)
-	}
-
-	machine.Preset("Ruby", `id = "r1"
-skills = ["lint", "rspec"]`)
-	machine.Preset("Writing", `id = "w1"
-skills = ["docs"]`)
-
-	return machine
-}
-
 func TestActivePresetTurnsOnItsMembersAndOffEverythingElse(t *testing.T) {
 	t.Parallel()
-	machine := presetMachine(t)
+	machine := equiptest.WithPresets(t)
 	session := newSession(t, machine, machine.Root)
 
 	session.SetPresets([]string{"r1"})
@@ -172,7 +153,7 @@ func TestActivePresetTurnsOnItsMembersAndOffEverythingElse(t *testing.T) {
 
 func TestSaveWithAnActivePresetWritesAnEntryForEveryInstalledExtension(t *testing.T) {
 	t.Parallel()
-	machine := presetMachine(t)
+	machine := equiptest.WithPresets(t)
 	repo := machine.Repo("app")
 	session := newSession(t, machine, repo)
 	session.SetPresets([]string{"r1"})
@@ -198,7 +179,7 @@ func TestSaveWithAnActivePresetWritesAnEntryForEveryInstalledExtension(t *testin
 
 func TestSaveRecordsTheActivePresetsWithAHashOfTheirMembers(t *testing.T) {
 	t.Parallel()
-	machine := presetMachine(t)
+	machine := equiptest.WithPresets(t)
 	repo := machine.Repo("app")
 	session := newSession(t, machine, repo)
 	session.SetPresets([]string{"w1", "r1"})
@@ -237,7 +218,7 @@ func TestSaveRecordsTheActivePresetsWithAHashOfTheirMembers(t *testing.T) {
 
 func TestSessionTotalCountsOnlyWhatActivePresetsTurnOn(t *testing.T) {
 	t.Parallel()
-	machine := presetMachine(t)
+	machine := equiptest.WithPresets(t)
 	session := newSession(t, machine, machine.Root)
 	lint := row(t, session.View(), "lint").Cost
 
@@ -303,7 +284,7 @@ mcp_servers = ["db"]`)
 
 func TestRemovingTheLastActivePresetReturnsEverythingToAgentDefaults(t *testing.T) {
 	t.Parallel()
-	machine := presetMachine(t)
+	machine := equiptest.WithPresets(t)
 	repo := machine.Repo("app")
 	session := newSession(t, machine, repo)
 	session.SetPresets([]string{"r1"})
@@ -330,7 +311,7 @@ func TestRemovingTheLastActivePresetReturnsEverythingToAgentDefaults(t *testing.
 
 func TestActivePresetsTurnOnTheUnionOfTheirMembersAndOverridesWin(t *testing.T) {
 	t.Parallel()
-	machine := presetMachine(t)
+	machine := equiptest.WithPresets(t)
 	session := newSession(t, machine, machine.Root)
 	session.SetState("docs", equip.ManualOnly)
 	session.SetState("review", equip.On)

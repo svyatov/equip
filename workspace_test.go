@@ -9,22 +9,11 @@ import (
 	"github.com/svyatov/equip/internal/equiptest"
 )
 
-// presetModel is a TUI over the skills docs, lint and review, with the
-// presets Ruby (lint and the skill rspec, not installed) and Writing (docs).
+// presetModel is a TUI over equiptest.WithPresets.
 func presetModel(t *testing.T) *model {
 	t.Helper()
 
-	machine := equiptest.New(t)
-	for _, name := range []string{"docs", "lint", "review"} {
-		machine.Skill(machine.ClaudeSkills(), name)
-	}
-
-	machine.Preset("Ruby", `id = "r1"
-skills = ["lint", "rspec"]`)
-	machine.Preset("Writing", `id = "w1"
-skills = ["docs"]`)
-
-	return newModel(t, machine)
+	return newModel(t, equiptest.WithPresets(t))
 }
 
 // topLine is the first line of the view.

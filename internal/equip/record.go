@@ -120,13 +120,10 @@ func orphans(machine Machine, project Project) []string {
 		return nil
 	}
 
-	files, _ := filepath.Glob(filepath.Join(machine.StateHome, "equip", "*.toml"))
-
 	var paths []string
 
-	for _, file := range files {
-		rec, err := decodeRecord(file)
-		if err != nil || rec.RootCommit != project.RootCommit {
+	for _, rec := range records(machine) {
+		if rec.RootCommit != project.RootCommit {
 			continue
 		}
 
@@ -137,6 +134,22 @@ func orphans(machine Machine, project Project) []string {
 	}
 
 	return paths
+}
+
+// records are the records on this machine that decode, one per Project.
+func records(machine Machine) []record {
+	files, _ := filepath.Glob(filepath.Join(machine.StateHome, "equip", "*.toml"))
+
+	var recs []record
+
+	for _, file := range files {
+		rec, err := decodeRecord(file)
+		if err == nil {
+			recs = append(recs, rec)
+		}
+	}
+
+	return recs
 }
 
 // errUnknownState is the error of a record with a state equip does not know,
