@@ -271,9 +271,9 @@ func (m *model) press(key string) tea.Cmd {
 		m.inContents = !m.inContents && len(servers) > 0
 		m.server = 0
 	case "up", "k":
-		m.move(-1, len(rows), len(servers))
+		m.move(-1)
 	case "down", "j":
-		m.move(1, len(rows), len(servers))
+		m.move(1)
 	case "1", "2", "3", "x", "m":
 		if target, ok := m.target(rows, servers); ok {
 			return m.act(key, target)
@@ -310,12 +310,12 @@ func (m *model) narrow(key string) bool {
 }
 
 // move moves the highlight by delta among the MCP servers in the contents,
-// else among the rows; servers and rows count them.
-func (m *model) move(delta, rows, servers int) {
+// else among the rows. clamp keeps it on them.
+func (m *model) move(delta int) {
 	if m.inContents {
-		m.server = max(min(m.server+delta, servers-1), 0)
+		m.server += delta
 	} else {
-		m.cur = max(min(m.cur+delta, rows-1), 0)
+		m.cur += delta
 	}
 }
 
