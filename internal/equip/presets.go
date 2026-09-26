@@ -397,18 +397,30 @@ func edits(written, draft []Member) []Member {
 
 // PreviewWrite returns the views of the Project's saved states before and
 // after the write of the preset with unwritten edits: what the write changes
-// here, pending changes left out. It writes nothing.
-func (s *Session) PreviewWrite() (View, View) {
-	overrides, active, library := s.overrides, s.active, s.library
-	defer func() { s.overrides, s.active, s.library = overrides, active, library }()
+// here, pending changes left out. It also returns each other Project that
+// uses the preset. It writes nothing.
+func (s *Session) PreviewWrite() (View, View, []Affected) {
+	// With no unwritten edits, no record has the empty id active.
+	library, presetID := slices.Clone(s.library), ""
+	if s.draft != nil {
+		presetID = s.draft.ID
+		library[s.presetIndex(presetID)].Members = s.draft.Members
+	}
+
+	before, after := s.preview(library, "")
+
+	return before, after, s.affected(presetID, library, "")
+}
+
+// preview returns the views of the saved states before and after the library
+// becomes library, and the preset with id gone is no longer active.
+func (s *Session) preview(library []Preset, gone string) (View, View) {
+	overrides, active, was := s.overrides, s.active, s.library
+	defer func() { s.overrides, s.active, s.library = overrides, active, was }()
 
 	s.overrides, s.active = s.saved, ids(s.recorded)
 	before := s.View()
-
-	if s.draft != nil {
-		s.library = slices.Clone(library)
-		s.library[s.presetIndex(s.draft.ID)].Members = s.draft.Members
-	}
+	s.library, s.active = library, slices.DeleteFunc(s.active, func(id string) bool { return id == gone })
 
 	return before, s.View()
 }
@@ -423,30 +435,160 @@ func (s *Session) WritePreset() error {
 		return nil
 	}
 
-	active := ids(s.recorded)
-	here := slices.Contains(active, s.draft.ID)
-
-	if here {
-		changed, err := s.changedOutside()
-		if err != nil {
-			return err
-		}
-
-		if changed {
-			return ErrChangedSinceOpen
-		}
+	here, err := s.savedActive(s.draft.ID)
+	if err != nil {
+		return err
 	}
+	// Opened before the write, so each reads the preset as its record saved it.
+	_, _, others := s.PreviewWrite()
 
-	err := s.writeDraft()
+	err = s.writeDraft()
 	if err == nil && here {
-		err = s.rewriteHere(active)
+		err = s.rewriteHere(ids(s.recorded))
 	}
-	// Kept until every write lands, so a failed one can be written again.
-	if err == nil {
+	// Kept until the preset and this Project are written, so a failed write
+	// can run again.
+	if err != nil {
+		return err
+	}
+
+	s.draft = nil
+
+	return s.rewrite(others, "")
+}
+
+// savedActive reports whether the Project saved the preset with id active.
+// If it did and an agent's entries changed since they were read, it imports
+// the changes and returns ErrChangedSinceOpen.
+func (s *Session) savedActive(id string) (bool, error) {
+	if !slices.Contains(ids(s.recorded), id) {
+		return false, nil
+	}
+
+	changed, err := s.changedOutside()
+	if err == nil && changed {
+		err = ErrChangedSinceOpen
+	}
+
+	return true, err
+}
+
+// PreviewDelete is PreviewWrite for the delete of the preset with id.
+func (s *Session) PreviewDelete(id string) (View, View, []Affected) {
+	library := slices.DeleteFunc(slices.Clone(s.library), func(p Preset) bool { return p.ID == id })
+	before, after := s.preview(library, id)
+
+	return before, after, s.affected(id, library, id)
+}
+
+// DeletePreset deletes the preset with id: its file, and its id from every
+// record on this machine. It rewrites the agent config of each Project that
+// used it, but one the write skips.
+func (s *Session) DeletePreset(presetID string) error {
+	index := s.presetIndex(presetID)
+	if index < 0 {
+		return fmt.Errorf("%w: %s", errNoPreset, presetID)
+	}
+	// Only the preset with unwritten edits can be new.
+	if s.library[index].New {
+		s.DiscardPreset()
+
+		return nil
+	}
+
+	here, err := s.savedActive(presetID)
+	if err != nil {
+		return err
+	}
+	// Opened before the delete, so each reads the preset as its record saved it.
+	_, _, others := s.PreviewDelete(presetID)
+
+	err = os.Remove(presetPath(s.machine, s.library[index].Name))
+	if err != nil {
+		return fmt.Errorf("delete preset: %w", err)
+	}
+
+	isGone := func(active string) bool { return active == presetID }
+	s.library, s.active = slices.Delete(s.library, index, index+1), slices.DeleteFunc(s.active, isGone)
+
+	if s.draft != nil && s.draft.ID == presetID {
 		s.draft = nil
 	}
 
-	return err
+	if here {
+		err = s.rewriteHere(slices.DeleteFunc(ids(s.recorded), isGone))
+	}
+
+	return errors.Join(err, s.rewrite(others, presetID))
+}
+
+// Affected is another Project on this machine that uses a preset, and what a
+// write or delete of the preset does there.
+type Affected struct {
+	session *Session
+	Path    string
+	// Skipped is why the write leaves the Project alone, its agent config
+	// and record; empty when it writes them.
+	Skipped string
+	Turned  []Row // the extensions whose saved state the write changes there
+}
+
+// affected opens each other Project on this machine whose record has the
+// preset with id active, with what turns there once the library becomes
+// library and the preset with id gone is no longer active.
+func (s *Session) affected(id string, library []Preset, gone string) []Affected {
+	var out []Affected
+
+	for _, rec := range records(s.machine) {
+		if rec.Path == s.project.Path || !slices.Contains(ids(rec.Presets), id) {
+			continue
+		}
+
+		other, err := Open(s.machine, rec.Path)
+		project := Affected{Path: rec.Path, session: other, Skipped: "", Turned: nil}
+
+		switch {
+		case errors.Is(err, fs.ErrNotExist):
+			project.Skipped = "path no longer exists"
+		case err != nil:
+			project.Skipped = err.Error()
+		// Open ran the change check there, which cannot see hand edits while
+		// an active preset changed since the last save.
+		case len(other.outside) > 0 || other.stale():
+			project.Skipped = "changed outside equip"
+		default:
+			before, after := other.preview(library, gone)
+			project.Turned = after.TurnedSince(before)
+		}
+
+		out = append(out, project)
+	}
+
+	return out
+}
+
+// rewrite writes the saved states of each of others, with the library as this
+// Session has it, into its agent config and record. The preset with id gone
+// is no longer active there, a skipped Project's record too.
+func (s *Session) rewrite(others []Affected, gone string) error {
+	var errs []error
+
+	for _, project := range others {
+		if project.Skipped != "" {
+			if gone != "" {
+				errs = append(errs, forget(s.machine, project.Path, gone))
+			}
+
+			continue
+		}
+
+		other := project.session
+		other.library = slices.Clone(s.library)
+		active := slices.DeleteFunc(ids(other.recorded), func(id string) bool { return id == gone })
+		errs = append(errs, other.rewriteHere(active))
+	}
+
+	return errors.Join(errs...)
 }
 
 // rewriteHere writes the saved states, with the presets as written, into the

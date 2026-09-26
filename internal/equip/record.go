@@ -167,6 +167,26 @@ func parseState(name string) (State, bool) {
 	return 0, false
 }
 
+// forget removes the preset with presetID from the active presets in the
+// record of the Project at path.
+func forget(machine Machine, path, presetID string) error {
+	file := recordPath(machine, path)
+
+	rec, err := decodeRecord(file)
+	if err != nil {
+		return err
+	}
+
+	rec.Presets = slices.DeleteFunc(rec.Presets, func(p recordPreset) bool { return p.ID == presetID })
+
+	data, err := toml.Marshal(rec)
+	if err != nil {
+		return fmt.Errorf("encode record: %w", err)
+	}
+
+	return writeFile(file, data)
+}
+
 // writeRecord writes the record of project with overrides and the active
 // presets.
 func writeRecord(machine Machine, project Project, overrides map[string]State, presets []recordPreset) error {

@@ -17,7 +17,16 @@ const (
 	askWrite    = "write"    // write the preset with unwritten edits
 	askActivate = "activate" // make the preset the write created active here
 	askLeave    = "leave"    // write or discard the unwritten edits before moving off
+	askDelete   = "delete"   // delete the highlighted preset
 )
+
+// preview is what a write or delete of a preset changes, as its confirm
+// shows it: this Project's saved states before and after, and each other
+// Project that uses the preset.
+type preview struct {
+	others        []equip.Affected
+	before, after equip.View
+}
 
 // What the name typed is for.
 const (
@@ -34,6 +43,7 @@ type workspace struct {
 	created   string     // the id of the preset the last write created
 	query     string     // the add list's search
 	before    equip.View // at the workspace's opening
+	preview   preview    // of the write or delete the right pane asks for
 	preset    int        // the highlighted preset
 	member    int        // the highlighted member, or extension in the add list
 	open      bool
@@ -47,6 +57,7 @@ func newWorkspace(before equip.View) workspace {
 	return workspace{
 		before: before, open: false, name: "", naming: "", asking: "", leave: "", created: "", query: "", preset: 0,
 		member: 0, members: false, adding: false, searching: false,
+		preview: preview{before: before, after: before, others: nil},
 	}
 }
 
@@ -131,10 +142,20 @@ func (m *model) onPreset(key string, cur equip.Preset) {
 		m.ws.naming, m.ws.name = nameRename, cur.Name
 	case "a":
 		m.ws.adding, m.ws.members, m.ws.searching, m.ws.query, m.ws.member = true, true, false, "", 0
+	case "d":
+		// A preset not written yet goes at once, as nothing uses it.
+		if cur.New {
+			m.s.DiscardPreset()
+		} else {
+			m.ws.asking = askDelete
+			m.ws.preview.before, m.ws.preview.after, m.ws.preview.others = m.s.PreviewDelete(cur.ID)
+		}
 	case "w":
-		m.ws.asking, m.ws.leave = askWrite, ""
-		if !cur.Unwritten {
-			m.ws.asking, m.flash = "", m.style.dim.Render("no unwritten edits in "+cur.Name)
+		m.ws.leave = ""
+		if cur.Unwritten {
+			m.confirmWrite()
+		} else {
+			m.flash = m.style.dim.Render("no unwritten edits in " + cur.Name)
 		}
 	case spaceKey:
 		if m.ws.members {
@@ -143,6 +164,13 @@ func (m *model) onPreset(key string, cur equip.Preset) {
 			m.toggleActive(cur)
 		}
 	}
+}
+
+// confirmWrite asks to write the preset with unwritten edits. It previews the
+// write once here, as the preview opens each other Project that uses it.
+func (m *model) confirmWrite() {
+	m.ws.asking = askWrite
+	m.ws.preview.before, m.ws.preview.after, m.ws.preview.others = m.s.PreviewWrite()
 }
 
 // guard reports whether a preset has unwritten edits, and then asks to
@@ -295,17 +323,31 @@ func (m *model) answer(key string, presets []equip.Preset) {
 		if key == "y" {
 			m.s.TogglePreset(m.ws.created)
 		}
-	case askLeave:
-		switch key {
-		case "w":
-			m.ws.asking = askWrite
-
-			return
-		case "d":
-			m.s.DiscardPreset()
-		default:
-			m.ws.leave = ""
+	case askDelete:
+		if key == "y" {
+			m.remove(presets)
 		}
+	case askLeave:
+		m.answerLeave(key)
+
+		return
+	}
+
+	m.moveOn()
+}
+
+// answerLeave acts on key as the answer to write or discard the unwritten
+// edits before moving off them.
+func (m *model) answerLeave(key string) {
+	switch key {
+	case "w":
+		m.confirmWrite()
+
+		return
+	case "d":
+		m.s.DiscardPreset()
+	default:
+		m.ws.leave = ""
 	}
 
 	m.moveOn()
@@ -339,6 +381,19 @@ func (m *model) write(presets []equip.Preset) {
 		m.ws.before = m.s.View()
 		m.moveOn()
 	}
+}
+
+// remove deletes the highlighted preset of presets. The workspace then
+// compares with the view after the delete, which saved what it changed here.
+func (m *model) remove(presets []equip.Preset) {
+	cur, _ := m.current(presets)
+
+	err := m.s.DeletePreset(cur.ID)
+	if err != nil {
+		m.flash = m.style.warn.Render("delete failed: " + err.Error())
+	}
+
+	m.ws.before = m.s.View()
 }
 
 // current is the highlighted preset of presets, reporting whether there is one.
@@ -387,17 +442,17 @@ func (m *model) workspaceView() string {
 // workspaceFooter is the workspace's bottom line: the quit guard, the flash,
 // the name typed, or the keys.
 func (m *model) workspaceFooter() string {
-	keys := "↑↓ preset  space active here  n new  r rename  a add members  w write preset  tab members  esc back"
+	keys := "↑↓ preset  space active here  n new  r rename  d delete  a add members  w write preset  tab members  esc back"
 
 	switch {
 	case m.quitting || m.flash != "":
 		return m.footer()
 	case m.ws.naming != "":
 		return "name: " + m.ws.name + m.style.cur.Render("▏") + m.style.dim.Render("  enter done  esc cancel")
-	case m.ws.asking == askWrite || m.ws.asking == askActivate:
-		keys = "y yes  n no"
 	case m.ws.asking == askLeave:
 		keys = "w write  d discard  esc stay"
+	case m.ws.asking != "":
+		keys = "y yes  n no"
 	case m.ws.searching:
 		keys = "type to search  enter done  esc clear"
 	case m.ws.adding:
@@ -561,7 +616,7 @@ func (m *model) addList(preset equip.Preset) string {
 // preset.
 func (m *model) right(preset equip.Preset, presets []equip.Preset) string {
 	switch m.ws.asking {
-	case askWrite:
+	case askWrite, askDelete:
 		return m.confirm(preset)
 	case askActivate:
 		return strings.Join([]string{
@@ -636,18 +691,25 @@ func (m *model) extension(key, name string, presets []equip.Preset) string {
 	return name + m.style.dim.Render("  not installed") + "\n\n" + line
 }
 
-// confirm is the right pane that asks to write preset: the extensions whose
-// saved state the write changes here, and each agent's session total before
-// and after.
+// confirm is the right pane that asks to write or delete preset: what that
+// turns on and off in each other Project that uses it, or why it skips one,
+// the extensions whose saved state it changes here, and each agent's session
+// total before and after.
 func (m *model) confirm(preset equip.Preset) string {
 	verb := "Write"
-	if preset.New {
+
+	switch {
+	case m.ws.asking == askDelete:
+		verb = "Delete"
+	case preset.New:
 		verb = "Create"
 	}
 
-	before, after := m.s.PreviewWrite()
+	before, after := m.ws.preview.before, m.ws.preview.after
 	changes := after.TurnedSince(before)
-	lines := []string{m.style.warn.Render(verb + " preset " + preset.Name + "?"), "", "This project"}
+	lines := []string{m.style.warn.Render(verb + " preset " + preset.Name + "?"), ""}
+	lines = append(lines, m.others(m.ws.preview.others)...)
+	lines = append(lines, "", "This project")
 
 	if len(changes) == 0 {
 		lines = append(lines, m.style.dim.Render("  no extension changes state here"))
@@ -669,4 +731,44 @@ func (m *model) confirm(preset equip.Preset) string {
 		"y "+strings.ToLower(verb)+"  n cancel")
 
 	return strings.Join(lines, "\n")
+}
+
+// others are the confirm's lines of the other Projects that use a preset:
+// the extensions that turn on (+) and off (-) in each, or why it is skipped.
+func (m *model) others(others []equip.Affected) []string {
+	if len(others) == 0 {
+		return []string{m.style.dim.Render("no other project uses it")}
+	}
+
+	lines := []string{"Other projects"}
+
+	for _, project := range others {
+		if project.Skipped != "" {
+			lines = append(lines, "  "+project.Path+m.style.warn.Render("  skipped: "+project.Skipped))
+
+			continue
+		}
+
+		lines = append(lines, "  "+project.Path)
+
+		var turnedOn, turnedOff []string
+
+		for _, row := range project.Turned {
+			if row.State == equip.On {
+				turnedOn = append(turnedOn, row.Name)
+			} else {
+				turnedOff = append(turnedOff, row.Name)
+			}
+		}
+
+		if len(turnedOn) > 0 {
+			lines = append(lines, "    + "+strings.Join(turnedOn, ", "))
+		}
+
+		if len(turnedOff) > 0 {
+			lines = append(lines, "    - "+strings.Join(turnedOff, ", "))
+		}
+	}
+
+	return lines
 }

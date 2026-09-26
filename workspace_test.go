@@ -239,21 +239,46 @@ func TestMovingOffAPresetWithUnwrittenEditsAsksToWriteOrDiscard(t *testing.T) {
 func ruby(t *testing.T) (*model, *equiptest.Machine) {
 	t.Helper()
 	machine := equiptest.WithPresets(t)
+	using(t, machine, machine.Root, "r1")
 
-	session, err := equip.Open(machine.Machine, machine.Root)
+	tui := newModel(t, machine)
+	press(tui, key('p'))
+
+	return tui, machine
+}
+
+// using opens dir on machine and saves the presets with ids active there.
+func using(t *testing.T, machine *equiptest.Machine, dir string, ids ...string) {
+	t.Helper()
+
+	session, err := equip.Open(machine.Machine, dir)
 	if err == nil {
-		session.SetPresets([]string{"r1"})
+		session.SetPresets(ids)
 		err = session.Save()
 	}
 
 	if err != nil {
 		t.Fatal(err)
 	}
+}
 
-	tui := newModel(t, machine)
-	press(tui, key('p'))
+func TestWriteConfirmListsTheOtherProjectsAndTheSkippedOnes(t *testing.T) {
+	t.Parallel()
+	tui, machine := ruby(t)
+	other, edited := machine.Repo("other"), machine.Repo("edited")
+	using(t, machine, other, "r1")
+	using(t, machine, edited, "r1")
+	machine.WriteFile(filepath.Join(edited, ".claude", "settings.local.json"), `{"skillOverrides": {"docs": "on"}}`)
 
-	return tui, machine
+	// The add list offers docs, then review; its esc leaves lint highlighted
+	// in the members pane.
+	press(tui, key('a'), down(), key(' '), esc(), key(' '), key('w'))
+
+	for _, want := range []string{other, "    + review", "    - lint", edited + "  skipped: changed outside equip"} {
+		if line(tui, want) == "" {
+			t.Errorf("confirm does not show %q:\n%s", want, tui.View().Content)
+		}
+	}
 }
 
 func TestWriteConfirmShowsTheChangesHereAndNCancels(t *testing.T) {
@@ -284,6 +309,63 @@ func TestWriteConfirmShowsTheChangesHereAndNCancels(t *testing.T) {
 	// The write saved review on, so nothing is left unsaved.
 	if top := topLine(tui); strings.Contains(top, "unsaved") {
 		t.Errorf("top line %q shows the written change as unsaved", top)
+	}
+}
+
+func TestDKeyDeletesThePresetAfterAConfirm(t *testing.T) {
+	t.Parallel()
+	tui, machine := ruby(t)
+	file := filepath.Join(machine.ConfigHome, "equip", "presets", "Ruby.toml")
+
+	press(tui, key('d'))
+
+	for _, want := range []string{"Delete preset Ruby?", "no other project uses it", "○ → ● review"} {
+		if line(tui, want) == "" {
+			t.Errorf("confirm does not show %q:\n%s", want, tui.View().Content)
+		}
+	}
+
+	press(tui, key('n'))
+
+	_, err := os.Stat(file)
+	if err != nil {
+		t.Errorf("n deleted Ruby: %v", err)
+	}
+
+	press(tui, key('d'), key('y'))
+
+	_, err = os.Stat(file)
+	if err == nil || line(tui, "Ruby") != "" {
+		t.Errorf("y did not delete Ruby:\n%s", tui.View().Content)
+	}
+
+	if top := topLine(tui); !strings.Contains(top, "none (agent defaults)") || strings.Contains(top, "unsaved") {
+		t.Errorf("top line %q, want no preset active and nothing unsaved", top)
+	}
+}
+
+func TestDeleteShowsTheError(t *testing.T) {
+	t.Parallel()
+	tui, machine := ruby(t)
+	machine.WriteFile(filepath.Join(machine.Root, ".claude", "settings.local.json"), `{"skillOverrides": {"docs": "on"}}`)
+
+	press(tui, key('d'), key('y'))
+
+	if line(tui, "delete failed: changed outside equip since open") == "" || line(tui, "[x] Ruby") == "" {
+		t.Errorf("view does not show the failed delete:\n%s", tui.View().Content)
+	}
+}
+
+func TestDKeyDropsAPresetNotWrittenYetAtOnce(t *testing.T) {
+	t.Parallel()
+	tui := presetModel(t)
+
+	press(tui, key('p'), key('n'))
+	press(tui, typed("Docs")...)
+	press(tui, enter(), key('d'))
+
+	if line(tui, "Docs") != "" || tui.s.Unwritten() {
+		t.Errorf("d does not drop Docs:\n%s", tui.View().Content)
 	}
 }
 

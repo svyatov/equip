@@ -879,9 +879,10 @@ func (s *Session) state(ext Extension) (State, bool) {
 
 // take takes now, agent's entries on disk, and imports each entry that
 // changed since the last read and differs from the record as an unsaved
-// Override. It reports whether any entry changed.
+// Override. With a stale record, it imports none, so the preset change shows
+// as unsaved states. It reports whether any entry changed.
 func (s *Session) take(agent Agent, now map[string]State) bool {
-	changed := false
+	changed, stale := false, s.stale()
 	recorded := s.entries(agent, s.saved, ids(s.recorded))
 
 	for _, e := range s.applied[agent] {
@@ -892,7 +893,7 @@ func (s *Session) take(agent Agent, now map[string]State) bool {
 
 		changed = true
 		state, set := now[key]
-		imported := set && differ(now, recorded, key)
+		imported := set && differ(now, recorded, key) && !stale
 		// A pending toggle the change replaces was changed outside too.
 		if _, was := s.outside[key]; imported || differ(s.overrides, s.saved, key) && !was {
 			s.outside[key] = agent
@@ -915,6 +916,12 @@ func (s *Session) take(agent Agent, now map[string]State) bool {
 	s.disk[agent] = now
 
 	return changed
+}
+
+// stale reports whether an active preset changed since the last save: its
+// members hash differs from the record's.
+func (s *Session) stale() bool {
+	return !slices.Equal(s.recorded, s.recordPresets(ids(s.recorded)))
 }
 
 // unsavedCount counts the pending changes a save would write.
