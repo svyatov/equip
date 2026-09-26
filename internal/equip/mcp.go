@@ -1,6 +1,7 @@
 package equip
 
 import (
+	"cmp"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,8 +17,11 @@ import (
 const mcpPrefix = "mcp:"
 
 // name is what the list shows of the extension: an MCP server's name without
-// its prefix, else its key.
-func (e Extension) name() string { return keyName(e.Key) }
+// its prefix, and a plugin's MCP server's without its plugin, else its key.
+func (e Extension) name() string { return cmp.Or(e.server, keyName(e.Key)) }
+
+// listName is the name Claude Code lists the MCP server's state under.
+func (e Extension) listName() string { return cmp.Or(e.listed, e.name()) }
 
 // keyName is the name in key: an MCP server's without its prefix, else the key.
 func keyName(key string) string { return strings.TrimPrefix(key, mcpPrefix) }
@@ -156,7 +160,7 @@ func writeLists(obj jsonObject, exts []Extension, overrides map[string]State, se
 	for _, ext := range exts {
 		if ext.Kind == MCPServer && ext.lists.settings == settings {
 			st, set := overrides[ext.Key]
-			changed = ext.lists.write(obj, ext.name(), st, set) || changed
+			changed = ext.lists.write(obj, ext.listName(), st, set) || changed
 		}
 	}
 
@@ -228,6 +232,7 @@ func discoverServers(machine Machine, project Project) ([]Extension, error) {
 			Kind: MCPServer, Key: mcpPrefix + name, Description: "", cost: map[Agent]int{},
 			fallback:  map[Agent]State{ClaudeCode: fallback},
 			Locations: nil, contents: nil, hooks: false, lists: claudeJSONLists(fallback), builtIn: true,
+			plugin: "", server: "", listed: "",
 		}
 	}
 
@@ -269,7 +274,8 @@ func addServers(byName map[string]*Extension, servers jsonObject, path string, l
 			ext = &Extension{
 				Kind: MCPServer, Key: mcpPrefix + name, Description: "", cost: map[Agent]int{},
 				fallback:  map[Agent]State{},
-				Locations: nil, contents: nil, hooks: false, lists: lists, builtIn: false,
+				Locations: nil, contents: nil, hooks: false, lists: lists, builtIn: false, plugin: "", server: "",
+				listed: "",
 			}
 			byName[name] = ext
 		}

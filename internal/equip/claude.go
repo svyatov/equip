@@ -129,7 +129,7 @@ func (e Extension) claudeState(settings settingsFile, projectEntry jsonObject) (
 		return e.lists.state(settings.keys, e.name())
 	}
 
-	return e.lists.state(projectEntry, e.name())
+	return e.lists.state(projectEntry, e.listName())
 }
 
 // pluginState reads one enabledPlugins value, reporting whether equip knows it.

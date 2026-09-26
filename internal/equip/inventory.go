@@ -54,9 +54,12 @@ type Extension struct {
 	fallback    map[Agent]State // each agent's default, without an Override; a missing one is on
 	Key         string          // a skill's is its directory name; a plugin's is name@marketplace
 	Description string
+	lists       mcpLists   // an MCP server's
+	plugin      string     // the key of the plugin an MCP server comes in; empty outside a plugin
+	server      string     // a plugin's MCP server's name in its plugin
+	listed      string     // the name Claude Code lists a plugin's MCP server under
 	Locations   []Location // in discovery order
 	contents    []Content  // a plugin's, as when it is on
-	lists       mcpLists   // an MCP server's
 	Kind        Kind
 	hooks       bool // a plugin's
 	builtIn     bool // built into Claude Code, so read from no Location
@@ -179,6 +182,7 @@ func (inv *inventory) add(agent Agent, root string) int {
 				Kind: Skill, Key: entry.Name(), Description: "", Locations: nil, cost: map[Agent]int{},
 				fallback: map[Agent]State{},
 				contents: nil, hooks: false, lists: mcpLists{on: "", off: "", settings: false}, builtIn: false,
+				plugin: "", server: "", listed: "",
 			}
 			inv.byKey[entry.Name()] = ext
 		}

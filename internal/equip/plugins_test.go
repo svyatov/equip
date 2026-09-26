@@ -216,7 +216,10 @@ func TestPluginDetailListsItsSkills(t *testing.T) {
 	machine.Skill(filepath.Join(dir, "skills"), "review")
 
 	want := []equip.Content{
-		{Name: "review", Description: "The review skill.", Kind: equip.Skill, State: equip.On, Cost: 9},
+		{
+			Key: "", Name: "review", Description: "The review skill.", Kind: equip.Skill, State: equip.On, Cost: 9,
+			Override: false, Unsaved: false, ChangedOutside: false, ChangedIn: equip.ClaudeCode,
+		},
 	}
 	if got := newSession(t, machine, repo).Detail("github@official").Contents; !slices.Equal(got, want) {
 		t.Errorf("Contents = %+v, want %+v", got, want)
@@ -233,7 +236,10 @@ func TestPluginSkillFollowsItsPlugin(t *testing.T) {
 	session.SetState("github@official", equip.Off)
 
 	want := []equip.Content{
-		{Name: "review", Description: "The review skill.", Kind: equip.Skill, State: equip.Off, Cost: 0},
+		{
+			Key: "", Name: "review", Description: "The review skill.", Kind: equip.Skill, State: equip.Off, Cost: 0,
+			Override: false, Unsaved: false, ChangedOutside: false, ChangedIn: equip.ClaudeCode,
+		},
 	}
 	if got := session.Detail("github@official").Contents; !slices.Equal(got, want) {
 		t.Errorf("Contents = %+v, want %+v", got, want)

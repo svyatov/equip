@@ -30,6 +30,10 @@ type codexConfig struct {
 const (
 	// codexConfigRel is the Project's Codex config, the one equip writes.
 	codexConfigRel = ".codex/config.toml"
+	// codexPlugins and codexServers are the Codex config tables of plugins
+	// and of MCP servers, each by its name.
+	codexPlugins = "plugins"
+	codexServers = "mcp_servers"
 	// codexPluginsBlockBytes is the size of the fixed "## Plugins" block
 	// Codex puts into a session once when any plugin is on.
 	codexPluginsBlockBytes = 1000
@@ -84,11 +88,11 @@ func (c codexConfig) dead() []string {
 			continue
 		}
 
-		for name, value := range table(layer.data, "mcp_servers") {
+		for name, value := range table(layer.data, codexServers) {
 			entry, _ := value.(map[string]any)
 			_, enabled := entry["enabled"]
 			defined := slices.ContainsFunc(c.layers, func(l codexLayer) bool {
-				return !l.owned && table(table(l.data, "mcp_servers"), name) != nil
+				return !l.owned && table(table(l.data, codexServers), name) != nil
 			})
 
 			if len(entry) == 1 && enabled && !defined {
@@ -115,7 +119,7 @@ func readCodex(_ Machine, project Project, exts []Extension) (map[string]State, 
 	}
 
 	for _, ext := range exts {
-		if st, ok := codexState(doc, ext.Key); ok {
+		if st, ok := codexState(doc, ext.codexPath()); ok {
 			states[ext.Key] = st
 		}
 	}
@@ -142,12 +146,12 @@ func writeCodex(machine Machine, project Project, exts []Extension, overrides ma
 	changed := len(dead) > 0
 
 	for _, name := range dead {
-		setCodexState(doc, mcpPrefix+name, On, false)
+		setCodexState(doc, []string{codexServers, name}, On, false)
 	}
 
 	for _, ext := range exts {
 		st, set := overrides[ext.Key]
-		changed = setCodexState(doc, ext.Key, st, set) || changed
+		changed = setCodexState(doc, ext.codexPath(), st, set) || changed
 	}
 
 	if !changed {
@@ -167,33 +171,31 @@ func writeCodex(machine Machine, project Project, exts []Extension, overrides ma
 	return writeFile(path, data)
 }
 
-// setCodexState sets the state of the extension with key in doc to state, or
+// setCodexState sets the state in the table at path in doc to state, or
 // removes it with no state, reporting whether doc changed. A value equip does
 // not know is not equip's to remove.
-func setCodexState(doc map[string]any, key string, state State, set bool) bool {
-	parent, name := codexTable(key), keyName(key)
-
-	was, known := codexState(doc, key)
+func setCodexState(doc map[string]any, path []string, state State, set bool) bool {
+	was, known := codexState(doc, path)
 
 	switch {
 	case set && known && was == state, !set && !known:
 		return false
 	case set:
-		tableAt(tableAt(doc, parent), name)["enabled"] = state == On
+		entry := doc
+		for _, key := range path {
+			entry = tableAt(entry, key)
+		}
+
+		entry["enabled"] = state == On
 
 		return true
 	}
 	// Tables that held only equip's entry go with it.
-	tables := table(doc, parent)
-	entry := table(tables, name)
-	delete(entry, "enabled")
+	tables := tablesOn(doc, path)
+	delete(tables[len(path)], "enabled")
 
-	if len(entry) == 0 {
-		delete(tables, name)
-	}
-
-	if len(tables) == 0 {
-		delete(doc, parent)
+	for i := len(path); i > 0 && len(tables[i]) == 0; i-- {
+		delete(tables[i-1], path[i-1])
 	}
 
 	return true
@@ -244,12 +246,13 @@ func discoverCodex(machine Machine, cfg codexConfig) []Extension {
 	dead := cfg.dead()
 
 	for _, layer := range cfg.layers {
-		for key := range table(layer.data, "plugins") {
+		for key := range table(layer.data, codexPlugins) {
 			// Codex loads nothing it has no files of.
 			dir := codexPluginDir(machine, key)
 			if dir != "" {
-				ext := readCodexPlugin(key, dir)
-				byKey[key] = &ext
+				for _, ext := range readCodexPlugin(key, dir) {
+					byKey[ext.Key] = &ext
+				}
 			}
 		}
 
@@ -262,7 +265,7 @@ func discoverCodex(machine Machine, cfg codexConfig) []Extension {
 		// Codex merges its layers table by table; the last one wins. The
 		// states equip writes are Overrides, not defaults.
 		for _, layer := range cfg.layers {
-			if st, ok := codexState(layer.data, ext.Key); ok && !layer.owned {
+			if st, ok := codexState(layer.data, ext.codexPath()); ok && !layer.owned {
 				ext.fallback[Codex] = st
 			}
 		}
@@ -275,7 +278,7 @@ func discoverCodex(machine Machine, cfg codexConfig) []Extension {
 
 // addCodexServers adds each MCP server in layer to byKey, but the dead ones.
 func addCodexServers(byKey map[string]*Extension, layer codexLayer, dead []string) {
-	for name := range table(layer.data, "mcp_servers") {
+	for name := range table(layer.data, codexServers) {
 		key := mcpPrefix + name
 		if slices.Contains(dead, name) {
 			continue
@@ -285,7 +288,7 @@ func addCodexServers(byKey map[string]*Extension, layer codexLayer, dead []strin
 			byKey[key] = &Extension{
 				Kind: MCPServer, Key: key, Description: "", cost: map[Agent]int{}, fallback: map[Agent]State{},
 				Locations: nil, contents: nil, hooks: false, lists: mcpLists{on: "", off: "", settings: false},
-				builtIn: false,
+				builtIn: false, plugin: "", server: "", listed: "",
 			}
 		}
 
@@ -293,20 +296,37 @@ func addCodexServers(byKey map[string]*Extension, layer codexLayer, dead []strin
 	}
 }
 
-// codexTable is the Codex config table that holds the kind of the extension
-// with key, each by its name.
-func codexTable(key string) string {
-	if keyKind(key) == MCPServer {
-		return "mcp_servers"
+// codexPath is the path of the Codex config table that holds the extension's
+// state. Codex 0.155.1 reads the states of a plugin's MCP servers from the
+// merged config, so from a trusted Project's config too.
+func (e Extension) codexPath() []string {
+	switch {
+	case e.plugin != "":
+		return []string{codexPlugins, e.plugin, codexServers, e.name()}
+	case e.Kind == MCPServer:
+		return []string{codexServers, e.name()}
 	}
 
-	return "plugins"
+	return []string{codexPlugins, e.Key}
 }
 
-// codexState reads the state in the table of the extension with key in doc,
-// reporting whether the table holds one.
-func codexState(doc map[string]any, key string) (State, bool) {
-	enabled, ok := table(table(doc, codexTable(key)), keyName(key))["enabled"].(bool)
+// tablesOn lists doc and each table on path in it, nil from the first one
+// missing.
+func tablesOn(doc map[string]any, path []string) []map[string]any {
+	tables := make([]map[string]any, 1, len(path)+1)
+	tables[0] = doc
+
+	for _, key := range path {
+		tables = append(tables, table(tables[len(tables)-1], key))
+	}
+
+	return tables
+}
+
+// codexState reads the state in the table at path in doc, reporting whether
+// the table holds one.
+func codexState(doc map[string]any, path []string) (State, bool) {
+	enabled, ok := tablesOn(doc, path)[len(path)]["enabled"].(bool)
 	if !enabled {
 		return Off, ok
 	}
@@ -349,15 +369,19 @@ func codexPluginDir(machine Machine, key string) string {
 	return filepath.Join(versions, entries[len(entries)-1].Name())
 }
 
-// readCodexPlugin reads the Codex plugin key from its dir in the plugin cache.
-func readCodexPlugin(key, dir string) Extension {
+// readCodexPlugin reads the Codex plugin key from its dir in the plugin cache,
+// followed by its MCP servers.
+func readCodexPlugin(key, dir string) []Extension {
 	man := readManifest(key, dir, ".codex-plugin")
 	contents := pluginSkills(Codex, dir, man.Name)
 
-	return Extension{
+	plugin := Extension{
 		Kind: Plugin, Key: key, Description: man.Description, fallback: map[Agent]State{},
 		cost:      map[Agent]int{Codex: contentsCost(contents)},
 		Locations: []Location{{Path: dir, Agent: Codex}}, contents: contents, hooks: false,
-		lists: mcpLists{on: "", off: "", settings: false}, builtIn: false,
+		lists: mcpLists{on: "", off: "", settings: false}, builtIn: false, plugin: "", server: "",
+		listed: "",
 	}
+
+	return append([]Extension{plugin}, pluginServers(Codex, key, dir, man)...)
 }

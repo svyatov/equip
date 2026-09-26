@@ -181,6 +181,11 @@ func (s *Session) View() View {
 	codexPlugins := false
 
 	for _, ext := range s.exts {
+		// A plugin's MCP server shows among the plugin's contents.
+		if ext.plugin != "" {
+			continue
+		}
+
 		state, override := s.state(ext)
 		cost := 0
 
@@ -200,7 +205,7 @@ func (s *Session) View() View {
 			State:          state,
 			Override:       override,
 			Fallback:       ext.fallback[ext.primary()],
-			Unsaved:        s.unsaved(ext.Key),
+			Unsaved:        s.rowUnsaved(ext),
 			ChangedOutside: changed,
 		})
 	}
@@ -235,14 +240,21 @@ type Detail struct {
 	ChangedIn Agent
 }
 
-// Content is one extension inside a plugin. It follows its plugin and is
-// never an Override.
+// Content is one extension inside a plugin. A skill follows its plugin and is
+// never an Override; an MCP server follows it unless it has an Override.
 type Content struct {
+	Key         string // an MCP server's, what SetState and DropOverride take; a skill has none
 	Name        string
 	Description string
 	Kind        Kind
 	State       State
-	Cost        int // estimated tokens in the agent the plugin was read for, Claude Code when both have it
+	Cost        int  // estimated tokens in the agent the plugin was read for, Claude Code when both have it
+	Override    bool // an MCP server's State was set by hand in this Project
+	Unsaved     bool // a save would change an MCP server's Override or entries
+	// ChangedOutside reports that an MCP server changed through an edit
+	// outside equip, in the agent ChangedIn.
+	ChangedOutside bool
+	ChangedIn      Agent
 }
 
 // Detail returns the detail of the extension with key.
@@ -258,17 +270,7 @@ func (s *Session) Detail(key string) Detail {
 	detail := Detail{
 		Description: ext.Description, Marketplace: marketplaceOf(ext.Key), Agents: nil, Locations: ext.Locations,
 		NotApplied: map[Agent]string{}, Costs: map[Agent]int{}, States: ext.Kind.claude().states,
-		Contents: nil, Hooks: ext.hooks, BuiltIn: ext.builtIn, ChangedIn: s.outside[key],
-	}
-	state, _ := s.state(ext)
-
-	for _, content := range ext.contents {
-		content.State = state
-		if state != On {
-			content.Cost = 0
-		}
-
-		detail.Contents = append(detail.Contents, content)
+		Contents: s.contents(ext), Hooks: ext.hooks, BuiltIn: ext.builtIn, ChangedIn: s.outside[key],
 	}
 
 	for _, agent := range Agents() {
@@ -325,6 +327,37 @@ func (s *Session) Save() error {
 	clear(s.outside)
 
 	return nil
+}
+
+// contents are the plugin's skills, which follow it, then its MCP servers,
+// which follow it unless they have an Override.
+func (s *Session) contents(plugin Extension) []Content {
+	var contents []Content
+
+	state, _ := s.state(plugin)
+
+	for _, content := range plugin.contents {
+		content.State = state
+		if state != On {
+			content.Cost = 0
+		}
+
+		contents = append(contents, content)
+	}
+
+	for _, server := range s.exts {
+		if server.plugin == plugin.Key {
+			state, override := s.state(server)
+			changedIn, changed := s.outside[server.Key]
+			contents = append(contents, Content{
+				Key: server.Key, Name: server.name(), Description: "",
+				Kind: MCPServer, State: state, Cost: 0, Override: override,
+				Unsaved: s.unsaved(server.Key), ChangedOutside: changed, ChangedIn: changedIn,
+			})
+		}
+	}
+
+	return contents
 }
 
 // changedOutside reads each agent's entries again and imports the ones that
@@ -415,6 +448,13 @@ func (s *Session) ext(key string) (Extension, bool) {
 // state returns the state of ext and whether an Override set it.
 func (s *Session) state(ext Extension) (State, bool) {
 	state, override := s.overrides[ext.Key]
+	// A plugin's MCP server loads only while its plugin is on.
+	if plugin, ok := s.ext(ext.plugin); ok {
+		if pluginState, _ := s.state(plugin); pluginState != On {
+			return pluginState, override
+		}
+	}
+
 	if !override {
 		// With no presets, an extension falls back to the agent's default.
 		state = ext.fallback[ext.primary()]
@@ -480,6 +520,14 @@ func (s *Session) unsavedCount() int {
 	}
 
 	return count
+}
+
+// rowUnsaved reports whether the row of ext has an unsaved change: its own or,
+// for a plugin, one of its MCP servers'.
+func (s *Session) rowUnsaved(ext Extension) bool {
+	return s.unsaved(ext.Key) || slices.ContainsFunc(s.exts, func(e Extension) bool {
+		return e.plugin == ext.Key && s.unsaved(e.Key)
+	})
 }
 
 // unsaved reports whether a save would change the Override for key or its

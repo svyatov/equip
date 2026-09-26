@@ -54,16 +54,18 @@ func costOf(kind equip.Kind, tokens int) string {
 
 // model is the Bubble Tea root model over a Session.
 type model struct {
-	style    styles
-	s        *equip.Session
-	flash    string
-	cur      int  // the highlighted row
-	quitting bool // asking to quit with unsaved changes
+	style      styles
+	s          *equip.Session
+	flash      string
+	cur        int  // the highlighted row
+	server     int  // the highlighted MCP server among the highlighted plugin's contents
+	inContents bool // the keys act on the highlighted MCP server, not the row
+	quitting   bool // asking to quit with unsaved changes
 }
 
 // newTUI is the model of a fresh TUI over s.
 func newTUI(s *equip.Session) *model {
-	return &model{s: s, style: newStyles(), cur: 0, quitting: false, flash: ""}
+	return &model{s: s, style: newStyles(), cur: 0, server: 0, inContents: false, quitting: false, flash: ""}
 }
 
 func (m *model) Init() tea.Cmd { return nil }
@@ -119,43 +121,54 @@ func (m *model) View() tea.View {
 
 	panes := []string{m.style.pane.Render(strings.Join(list, "\n"))}
 	if m.cur < len(session.Rows) {
-		row := session.Rows[m.cur]
-		panes = append(panes, m.style.pane.Render(m.detail(row, m.s.Detail(row.Key))))
+		row, server := session.Rows[m.cur], ""
+		if m.inContents {
+			server, _ = m.target(session.Rows, m.servers(session.Rows))
+		}
+
+		panes = append(panes, m.style.pane.Render(m.detail(row, m.s.Detail(row.Key), server)))
 	}
 
-	footer := m.style.dim.Render("↑↓ move  1-3 set state  x drop override  s save  q quit")
-
-	switch {
-	case m.quitting:
-		footer = m.style.warn.Render(fmt.Sprintf("%d unsaved changes. Quit without saving? y/n", session.Unsaved))
-	case m.flash != "":
-		footer = m.flash
-	}
-
-	view := tea.NewView(strings.Join(top, "  ") + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, panes...) + "\n" + footer)
+	view := tea.NewView(strings.Join(top, "  ") + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, panes...) + "\n" +
+		m.footer(session.Unsaved))
 	view.AltScreen = true
 
 	return view
 }
 
+// footer is the bottom line, with unsaved changes pending: the quit guard,
+// the flash, or the keys.
+func (m *model) footer(unsaved int) string {
+	switch {
+	case m.quitting:
+		return m.style.warn.Render(fmt.Sprintf("%d unsaved changes. Quit without saving? y/n", unsaved))
+	case m.flash != "":
+		return m.flash
+	case m.inContents:
+		return m.style.dim.Render("↑↓ MCP server  1-2 set state  x drop override  tab list  s save  q quit")
+	}
+
+	return m.style.dim.Render("↑↓ move  1-3 set state  x drop override  tab MCP servers  s save  q quit")
+}
+
 // press acts on key on the main screen.
 func (m *model) press(key string) tea.Cmd {
 	rows := m.s.View().Rows
+	servers := m.servers(rows)
 
 	switch key {
 	case "q", "ctrl+c":
 		return m.quit()
+	case "tab":
+		m.inContents = !m.inContents && len(servers) > 0
+		m.server = 0
 	case "up", "k":
-		m.cur = max(m.cur-1, 0)
+		m.move(-1, len(rows), len(servers))
 	case "down", "j":
-		m.cur = max(min(m.cur+1, len(rows)-1), 0)
-	case "1", "2", "3":
-		if m.cur < len(rows) {
-			m.setState(rows[m.cur].Key, int(key[0]-'1'))
-		}
-	case "x":
-		if m.cur < len(rows) {
-			m.s.DropOverride(rows[m.cur].Key)
+		m.move(1, len(rows), len(servers))
+	case "1", "2", "3", "x":
+		if target, ok := m.target(rows, servers); ok {
+			m.act(key, target)
 		}
 	case "s":
 		err := m.s.Save()
@@ -165,6 +178,58 @@ func (m *model) press(key string) tea.Cmd {
 	}
 
 	return nil
+}
+
+// move moves the highlight by delta among the MCP servers in the contents,
+// else among the rows; servers and rows count them.
+func (m *model) move(delta, rows, servers int) {
+	if m.inContents {
+		m.server = max(min(m.server+delta, servers-1), 0)
+	} else {
+		m.cur = max(min(m.cur+delta, rows-1), 0)
+	}
+}
+
+// servers are the keys of the MCP servers among the contents of the
+// highlighted row of rows.
+func (m *model) servers(rows []equip.Row) []string {
+	if m.cur >= len(rows) {
+		return nil
+	}
+
+	var keys []string
+
+	for _, content := range m.s.Detail(rows[m.cur].Key).Contents {
+		if content.Key != "" {
+			keys = append(keys, content.Key)
+		}
+	}
+
+	return keys
+}
+
+// target is the key the state keys act on: the highlighted MCP server in the
+// contents, else the highlighted row of rows. It reports whether there is one.
+func (m *model) target(rows []equip.Row, servers []string) (string, bool) {
+	if m.inContents {
+		return servers[m.server], true
+	}
+
+	if m.cur < len(rows) {
+		return rows[m.cur].Key, true
+	}
+
+	return "", false
+}
+
+// act drops the Override of the extension with target on x, else sets the
+// state the number key picks.
+func (m *model) act(key, target string) {
+	if key == "x" {
+		m.s.DropOverride(target)
+	} else {
+		m.setState(target, int(key[0]-'1'))
+	}
 }
 
 // setState sets the extension with key to the state the key numbered i picks
@@ -187,8 +252,9 @@ func (m *model) quit() tea.Cmd {
 }
 
 // detail is the detail pane of row: what it is, which agents have it, its
-// origin, the states to pick from and where it comes from.
-func (m *model) detail(row equip.Row, ext equip.Detail) string {
+// origin, the states to pick from, its contents with the MCP server with key
+// server highlighted, and where it comes from.
+func (m *model) detail(row equip.Row, ext equip.Detail, server string) string {
 	agents := make([]string, 0, len(ext.Agents))
 	for _, agent := range ext.Agents {
 		agents = append(agents, agent.String())
@@ -237,7 +303,7 @@ func (m *model) detail(row equip.Row, ext equip.Detail) string {
 		lines = append(lines, fmt.Sprintf("  (%s) %d %s", radio, index+1, state))
 	}
 
-	lines = append(lines, m.contents(ext.Contents)...)
+	lines = append(lines, m.contents(ext.Contents, server)...)
 	lines = append(lines, m.locations(ext)...)
 
 	return strings.Join(lines, "\n")
@@ -272,18 +338,36 @@ func costLine(kind equip.Kind, ext equip.Detail) string {
 	return line
 }
 
-// contents are the detail pane lines of a plugin's contents, read-only.
-func (m *model) contents(contents []equip.Content) []string {
+// contents are the detail pane lines of a plugin's contents, with the MCP
+// server with key highlighted.
+func (m *model) contents(contents []equip.Content, key string) []string {
 	if len(contents) == 0 {
 		return nil
 	}
 
-	lines := []string{"", "Contents  " + m.style.dim.Render("follow the plugin")}
+	lines := []string{"", "Contents  " + m.style.dim.Render("follow the plugin unless overridden")}
 
 	for _, content := range contents {
-		lines = append(lines, fmt.Sprintf("  %s %s %s %s %s", glyph(content.State), content.Kind, content.Name,
-			costOf(content.Kind, content.Cost),
+		mark, name, ovr := "  ", content.Name, ""
+		if content.Key != "" && content.Key == key {
+			mark = m.style.cur.Render("▸ ")
+		}
+
+		if content.Unsaved {
+			name += m.style.warn.Render("*")
+		}
+
+		if content.Override {
+			ovr = m.style.warn.Render(" ovr")
+		}
+
+		lines = append(lines, fmt.Sprintf("%s%s %s %s %s%s %s", mark, glyph(content.State), content.Kind, name,
+			costOf(content.Kind, content.Cost), ovr,
 			m.style.dim.MaxWidth(shortDescriptionWidth).MaxHeight(1).Render(content.Description)))
+
+		if content.ChangedOutside {
+			lines = append(lines, "    "+m.style.warn.Render("changed outside equip in "+content.ChangedIn.String()))
+		}
 	}
 
 	return lines
