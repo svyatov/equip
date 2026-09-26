@@ -101,7 +101,7 @@ func discoverPlugins(machine Machine, project Project) ([]Extension, error) {
 			continue
 		}
 
-		exts = append(exts, readPlugin(key, dir, defaults[key]))
+		exts = append(exts, readPlugin(key, dir, defaults[key])...)
 	}
 
 	return exts, nil
@@ -116,9 +116,10 @@ type manifest struct {
 	Hooks          json.RawMessage `json:"hooks"`      // loaded with hooks/hooks.json
 }
 
-// readPlugin reads the plugin key from its dir in the plugin cache. setting is
-// its enabledPlugins entry in the settings equip does not write.
-func readPlugin(key, dir string, setting json.RawMessage) Extension {
+// readPlugin reads the plugin key from its dir in the plugin cache, followed
+// by its MCP servers. setting is its enabledPlugins entry in the settings
+// equip does not write.
+func readPlugin(key, dir string, setting json.RawMessage) []Extension {
 	man := readManifest(key, dir, ".claude-plugin")
 
 	fallback, set := pluginState(setting)
@@ -130,17 +131,17 @@ func readPlugin(key, dir string, setting json.RawMessage) Extension {
 	}
 
 	contents := pluginSkills(ClaudeCode, dir, man.Name)
-	cost := contentsCost(contents)
-	contents = append(contents, pluginServers(dir, man)...)
 
 	_, err := os.Stat(filepath.Join(dir, "hooks", "hooks.json"))
 
-	return Extension{
+	plugin := Extension{
 		Kind: Plugin, Key: key, Description: man.Description, fallback: map[Agent]State{ClaudeCode: fallback},
-		cost:      map[Agent]int{ClaudeCode: cost + listingCost(dir, man.Name)},
+		cost:      map[Agent]int{ClaudeCode: contentsCost(contents) + listingCost(dir, man.Name)},
 		Locations: []Location{{Path: dir, Agent: ClaudeCode}}, contents: contents, hooks: err == nil || man.Hooks != nil,
-		lists: mcpLists{on: "", off: "", settings: false}, builtIn: false,
+		lists: mcpLists{on: "", off: "", settings: false}, builtIn: false, plugin: "", listed: "",
 	}
+
+	return append([]Extension{plugin}, pluginServers(ClaudeCode, key, dir, man)...)
 }
 
 // readManifest reads the manifest of the plugin key in dir, in the sub dir
@@ -171,7 +172,7 @@ func pluginSkills(agent Agent, dir, name string) []Content {
 		}
 
 		contents = append(contents, Content{
-			Name: entry.Name(), Description: field(data, "description"), Kind: Skill, State: On,
+			Key: "", Name: entry.Name(), Description: field(data, "description"), Kind: Skill, State: On, Override: false,
 			// Both agents list it under the plugin's name.
 			Cost: skillCost(agent, name+":"+entry.Name(), data),
 		})
@@ -214,9 +215,10 @@ func listingCost(dir, name string) int {
 	return cost
 }
 
-// pluginServers reads the MCP servers of the plugin in dir, with manifest man.
-// An MCP server's cost stays unknown until it is measured, so it is 0.
-func pluginServers(dir string, man manifest) []Content {
+// pluginServers reads the MCP servers agent has from the plugin key in dir,
+// with manifest man. An MCP server's cost stays unknown until it is measured,
+// so it is 0.
+func pluginServers(agent Agent, key, dir string, man manifest) []Extension {
 	var mcp struct {
 		Servers map[string]json.RawMessage `json:"mcpServers"`
 	}
@@ -227,10 +229,16 @@ func pluginServers(dir string, man manifest) []Content {
 	// or bundles it names.
 	_ = json.Unmarshal(man.MCPServers, &mcp.Servers)
 
-	contents := make([]Content, 0, len(mcp.Servers))
-	for _, name := range slices.Sorted(maps.Keys(mcp.Servers)) {
-		contents = append(contents, Content{Name: name, Description: "", Kind: MCPServer, State: On, Cost: 0})
+	exts := make([]Extension, 0, len(mcp.Servers))
+	for name := range mcp.Servers {
+		exts = append(exts, Extension{
+			Kind: MCPServer, Key: mcpPrefix + key + ":" + name, Description: "", cost: map[Agent]int{},
+			fallback: map[Agent]State{}, Locations: []Location{{Path: dir, Agent: agent}}, contents: nil, hooks: false,
+			// Claude Code 2.1.283 names a plugin's server by the plugin's
+			// manifest name, which falls back to its marketplace entry name.
+			lists: claudeJSONLists(On), builtIn: false, plugin: key, listed: "plugin:" + man.Name + ":" + name,
+		})
 	}
 
-	return contents
+	return exts
 }

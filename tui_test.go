@@ -199,6 +199,46 @@ func TestDetailPaneListsThePluginsContents(t *testing.T) {
 	}
 }
 
+func TestTabThenStateKeyTurnsOffTheHighlightedMCPServerInsideThePlugin(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	dir := machine.Plugin("github@official", "user", "")
+	machine.WriteFile(filepath.Join(dir, ".mcp.json"),
+		`{"mcpServers": {"issues": {"command": "issues"}, "search": {"command": "search"}}}`)
+	machine.Skill(filepath.Join(dir, "skills"), "review") // follows the plugin, so tab skips it
+	tui := newModel(t, machine)
+	up := tea.KeyPressMsg{Code: tea.KeyUp}
+
+	// Down stops at the last server, so two ups are back on the first.
+	press(tui, tea.KeyPressMsg{Code: tea.KeyTab}, down(), down(), down(), up, up, key('2'))
+
+	if r := tui.s.View().Rows[0]; r.State != equip.On || r.Override {
+		t.Errorf("plugin = %+v, want on with no Override", r)
+	}
+
+	got := line(tui, "MCP server issues")
+	if !strings.Contains(got, "▸") || !strings.Contains(got, "○") || !strings.Contains(got, "ovr") {
+		t.Errorf("issues line %q, want highlighted and off with the override mark", got)
+	}
+
+	if got := line(tui, "MCP server search"); !strings.Contains(got, "●") || strings.Contains(got, "▸") {
+		t.Errorf("search line %q, want on and not highlighted", got)
+	}
+}
+
+func TestTabDoesNothingOnARowWithNoMCPServers(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "review")
+	tui := newModel(t, machine)
+
+	press(tui, tea.KeyPressMsg{Code: tea.KeyTab}, key('3'))
+
+	if r := tui.s.View().Rows[0]; r.State != equip.Off {
+		t.Errorf("review = %+v, want off", r)
+	}
+}
+
 func TestDetailPaneCutsAPluginSkillsDescriptionShort(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)

@@ -181,6 +181,11 @@ func (s *Session) View() View {
 	codexPlugins := false
 
 	for _, ext := range s.exts {
+		// A plugin's MCP server shows among the plugin's contents.
+		if ext.plugin != "" {
+			continue
+		}
+
 		state, override := s.state(ext)
 		cost := 0
 
@@ -238,11 +243,13 @@ type Detail struct {
 // Content is one extension inside a plugin. It follows its plugin and is
 // never an Override.
 type Content struct {
+	Key         string // an MCP server's, what SetState and DropOverride take; a skill has none
 	Name        string
 	Description string
 	Kind        Kind
 	State       State
-	Cost        int // estimated tokens in the agent the plugin was read for, Claude Code when both have it
+	Cost        int  // estimated tokens in the agent the plugin was read for, Claude Code when both have it
+	Override    bool // an MCP server's State was set by hand in this Project
 }
 
 // Detail returns the detail of the extension with key.
@@ -258,17 +265,7 @@ func (s *Session) Detail(key string) Detail {
 	detail := Detail{
 		Description: ext.Description, Marketplace: marketplaceOf(ext.Key), Agents: nil, Locations: ext.Locations,
 		NotApplied: map[Agent]string{}, Costs: map[Agent]int{}, States: ext.Kind.claude().states,
-		Contents: nil, Hooks: ext.hooks, BuiltIn: ext.builtIn, ChangedIn: s.outside[key],
-	}
-	state, _ := s.state(ext)
-
-	for _, content := range ext.contents {
-		content.State = state
-		if state != On {
-			content.Cost = 0
-		}
-
-		detail.Contents = append(detail.Contents, content)
+		Contents: s.contents(ext), Hooks: ext.hooks, BuiltIn: ext.builtIn, ChangedIn: s.outside[key],
 	}
 
 	for _, agent := range Agents() {
@@ -325,6 +322,35 @@ func (s *Session) Save() error {
 	clear(s.outside)
 
 	return nil
+}
+
+// contents are the plugin's skills, which follow it, then its MCP servers,
+// which follow it unless they have an Override.
+func (s *Session) contents(plugin Extension) []Content {
+	var contents []Content
+
+	state, _ := s.state(plugin)
+
+	for _, content := range plugin.contents {
+		content.State = state
+		if state != On {
+			content.Cost = 0
+		}
+
+		contents = append(contents, content)
+	}
+
+	for _, server := range s.exts {
+		if server.plugin == plugin.Key {
+			state, override := s.state(server)
+			contents = append(contents, Content{
+				Key: server.Key, Name: server.name(), Description: "",
+				Kind: MCPServer, State: state, Cost: 0, Override: override,
+			})
+		}
+	}
+
+	return contents
 }
 
 // changedOutside reads each agent's entries again and imports the ones that
@@ -415,12 +441,17 @@ func (s *Session) ext(key string) (Extension, bool) {
 // state returns the state of ext and whether an Override set it.
 func (s *Session) state(ext Extension) (State, bool) {
 	state, override := s.overrides[ext.Key]
-	if !override {
-		// With no presets, an extension falls back to the agent's default.
-		state = ext.fallback[ext.primary()]
+	if override {
+		return state, true
 	}
-
-	return state, override
+	// A plugin's MCP server loads only while its plugin is on.
+	if plugin, ok := s.ext(ext.plugin); ok {
+		if state, _ = s.state(plugin); state != On {
+			return state, false
+		}
+	}
+	// With no presets, an extension falls back to the agent's default.
+	return ext.fallback[ext.primary()], false
 }
 
 // take takes now, agent's entries on disk, and imports each entry that

@@ -577,7 +577,10 @@ func TestCodexPluginCostsItsSkillsListedUnderItsName(t *testing.T) {
 	}
 
 	want := []equip.Content{
-		{Name: "review", Description: "The review skill.", Kind: equip.Skill, State: equip.On, Cost: 8},
+		{
+			Key: "", Name: "review", Description: "The review skill.", Kind: equip.Skill, State: equip.On, Cost: 8,
+			Override: false,
+		},
 	}
 	if got := session.Detail("github@official").Contents; !slices.Equal(got, want) {
 		t.Errorf("Contents = %+v, want %+v", got, want)
