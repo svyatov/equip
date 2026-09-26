@@ -82,7 +82,7 @@ func serveFakeMCP(mode string) {
 
 	if path := os.Getenv("EQUIP_FAKE_CWD"); path != "" {
 		dir, _ := os.Getwd()
-		_ = os.WriteFile(path, []byte(dir), 0o600) //nolint:gosec // the test that starts the fake names the file
+		_ = os.WriteFile(path, []byte(dir), 0o600)
 	}
 
 	for stdin.Scan() {

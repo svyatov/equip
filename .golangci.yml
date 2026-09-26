@@ -139,10 +139,11 @@ linters:
         linters: [forbidigo]
         text: os\.Exit
       # Fixture files in a test's temp dir need no tight permissions, and
-      # tests read files by the paths they build.
+      # tests read and write files by the paths they build. G703's taint
+      # analysis also varies between runs, so it would flake here.
       - path: (_test\.go|internal/equiptest/)
         linters: [gosec]
-        text: G30[1246]
+        text: G30[1246]|G703
       # A skill name repeated across table rows is test data, not a constant.
       - path: _test\.go$
         linters: [goconst]
