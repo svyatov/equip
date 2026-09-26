@@ -65,19 +65,17 @@ type model struct {
 	style      styles
 	s          *equip.Session
 	flash      string
-	query      string     // the search: the list keeps the rows whose names contain it
-	key        string     // of the highlighted row, which the highlight stays on while the list has it
-	pinned     string     // of a row the keys changed, which the list keeps until the highlight leaves it
-	orphans    []string   // the records of a moved repo the first open offers, while it asks to adopt one
-	before     equip.View // at the presets workspace's opening
-	cur        int        // the highlighted row
-	preset     int        // the highlighted preset in the workspace
-	facet      int        // the picked facet
-	server     int        // the highlighted MCP server among the highlighted plugin's contents
-	inContents bool       // the keys act on the highlighted MCP server, not the row
-	quitting   bool       // asking to quit with unsaved changes
-	searching  bool       // the keys type into the search
-	workspace  bool       // the presets workspace is open
+	query      string    // the search: the list keeps the rows whose names contain it
+	key        string    // of the highlighted row, which the highlight stays on while the list has it
+	pinned     string    // of a row the keys changed, which the list keeps until the highlight leaves it
+	orphans    []string  // the records of a moved repo the first open offers, while it asks to adopt one
+	ws         workspace // the presets workspace
+	cur        int       // the highlighted row
+	facet      int       // the picked facet
+	server     int       // the highlighted MCP server among the highlighted plugin's contents
+	inContents bool      // the keys act on the highlighted MCP server, not the row
+	quitting   bool      // asking to quit with unsaved changes
+	searching  bool      // the keys type into the search
 }
 
 // digitKeys is the count of the digit keys 1 to 9, which pick a record in
@@ -88,6 +86,12 @@ const digitKeys = 9
 // escKey is the key that backs out: of the search, or of the presets
 // workspace.
 const escKey = "esc"
+
+// enterKey ends typing: of the search, or of a preset's name.
+const enterKey = "enter"
+
+// spaceKey toggles what the keys are on.
+const spaceKey = "space"
 
 // step is the move of key, reporting whether it is an arrow key or its vi
 // key.
@@ -104,7 +108,7 @@ func newTUI(session *equip.Session) *model {
 	tui := &model{
 		s: session, style: newStyles(), cur: 0, facet: 0, server: 0, inContents: false, quitting: false,
 		searching: false, flash: "", query: "", key: "", pinned: "", orphans: orphans[:min(len(orphans), digitKeys)],
-		workspace: false, preset: 0, before: view,
+		ws: newWorkspace(view),
 	}
 	tui.clamp()
 
@@ -147,7 +151,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) View() tea.View {
-	if m.workspace {
+	if m.ws.open {
 		view := tea.NewView(m.workspaceView())
 		view.AltScreen = true
 
@@ -182,7 +186,7 @@ func (m *model) View() tea.View {
 	}
 
 	view := tea.NewView(strings.Join(top, "  ") + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, panes...) + "\n" +
-		m.footer(session.Unsaved))
+		m.footer())
 	view.AltScreen = true
 
 	return view
@@ -198,8 +202,8 @@ func (m *model) dispatch(keyMsg tea.KeyPressMsg) tea.Cmd {
 		return m.quit()
 	case len(m.orphans) > 0:
 		m.adopt(key)
-	case m.workspace:
-		m.inWorkspace(key)
+	case m.ws.open:
+		m.inWorkspace(keyMsg)
 	case m.searching:
 		m.search(keyMsg)
 	case !m.narrow(key):
@@ -232,9 +236,9 @@ func (m *model) adopt(key string) {
 	m.orphans = nil
 }
 
-// footer is the bottom line, with unsaved changes pending: the quit guard,
-// the adopt prompt, the flash, or the keys.
-func (m *model) footer(unsaved int) string {
+// footer is the bottom line: the quit guard, the adopt prompt, the flash, or
+// the keys.
+func (m *model) footer() string {
 	switch {
 	case len(m.orphans) > 0:
 		lines := []string{m.style.warn.Render("Adopt this repo's record from a path that is gone?")}
@@ -244,7 +248,7 @@ func (m *model) footer(unsaved int) string {
 
 		return strings.Join(append(lines, m.style.dim.Render("its number adopts it  n start fresh")), "\n")
 	case m.quitting:
-		return m.style.warn.Render(fmt.Sprintf("%d unsaved changes. Quit without saving? y/n", unsaved))
+		return m.style.warn.Render(fmt.Sprintf("%d unsaved changes. Quit without saving? y/n", m.unsaved()))
 	case m.flash != "":
 		return m.flash
 	case m.searching:
@@ -304,16 +308,13 @@ func (m *model) list(rows []equip.Row) string {
 // and esc clears it too. A key that types nothing does nothing.
 func (m *model) search(keyMsg tea.KeyPressMsg) {
 	switch keyMsg.String() {
-	case "enter":
+	case enterKey:
 		m.searching = false
 	case escKey:
 		m.searching, m.query = false, ""
-	case "backspace":
-		query := []rune(m.query)
-		m.query = string(query[:max(len(query)-1, 0)])
 	default:
+		m.query = typeInto(m.query, keyMsg)
 		if keyMsg.Text != "" {
-			m.query += keyMsg.Text
 			m.first()
 		}
 	}
@@ -514,13 +515,24 @@ func (m *model) setState(key string, i int) {
 
 // quit quits, or first asks to confirm with unsaved changes.
 func (m *model) quit() tea.Cmd {
-	if m.s.View().Unsaved > 0 {
+	if m.unsaved() > 0 {
 		m.quitting = true
 
 		return nil
 	}
 
 	return tea.Quit
+}
+
+// unsaved counts the changes quitting drops: the pending ones, and a preset
+// with unwritten edits.
+func (m *model) unsaved() int {
+	count := m.s.View().Unsaved
+	if m.s.Unwritten() {
+		count++
+	}
+
+	return count
 }
 
 // detail is the detail pane of row: what it is, which agents have it, its
