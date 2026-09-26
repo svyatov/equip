@@ -53,6 +53,8 @@ type Member struct {
 
 // member is the member with key, as a preset file names it.
 func member(key string) Member {
+	// A named Row: go fix flattens a nested Row literal into promoted
+	// fields, and exhaustruct v5.0.3 panics on those.
 	row := Row{
 		Key: key, Name: keyName(key), Kind: keyKind(key), Cost: 0, State: On, Fallback: On, CostUnknown: false,
 		Override: false, Unsaved: false, ChangedOutside: false,
