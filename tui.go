@@ -42,11 +42,14 @@ func glyph(st equip.State) string {
 // cost shows an estimate of tokens.
 func cost(tokens int) string { return fmt.Sprintf("~%d", tokens) }
 
-// costOf shows a cost of tokens, or that it is unknown, as an MCP server's is
-// until it is measured.
+// costOf shows a cost of tokens, or that it is unknown in whole or in part,
+// as an MCP server's is until it is measured.
 func costOf(unknown bool, tokens int) string {
-	if unknown {
+	switch {
+	case unknown && tokens == 0:
 		return "unknown"
+	case unknown:
+		return cost(tokens) + " + unknown"
 	}
 
 	return cost(tokens)
@@ -110,7 +113,7 @@ func (m *model) View() tea.View {
 
 	top := []string{m.style.top.Render("equip  " + session.Project.Path)}
 	for _, agent := range equip.Agents() {
-		top = append(top, agent.String()+" "+cost(session.Totals[agent]))
+		top = append(top, agent.String()+" "+costOf(session.Unknown[agent], session.Totals[agent]))
 	}
 
 	if session.Unsaved > 0 {

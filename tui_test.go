@@ -533,8 +533,8 @@ func TestMeasureKeyMeasuresTheHighlightedMCPServerInTheBackground(t *testing.T) 
 	tui.Update(cmd())
 
 	// "Use fake." and mcp__github__a: 23 bytes.
-	if got := line(tui, "github"); !strings.Contains(got, "~8") {
-		t.Errorf("row line %q, want the measured cost ~8", got)
+	if got := line(tui, "github"); !strings.Contains(got, "~8") || line(tui, "measuring") != "" {
+		t.Errorf("view:\n%s\nwant the measured cost ~8, done measuring", tui.View().Content)
 	}
 }
 
@@ -548,6 +548,23 @@ func TestMeasureKeyShowsWhyAProbeFailed(t *testing.T) {
 
 	if line(tui, equip.ErrCannotProbe.Error()) == "" {
 		t.Errorf("view does not say why:\n%s", tui.View().Content)
+	}
+}
+
+func TestTopLineAndPluginRowMarkAServerNotMeasuredYet(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	dir := machine.Plugin("github@official", "user", "")
+	machine.Skill(filepath.Join(dir, "skills"), "review") // "github:review" and "The review skill.": 10
+	machine.WriteFile(filepath.Join(dir, ".mcp.json"), `{"mcpServers": {"search": {"command": "search"}}}`)
+	tui := newModel(t, machine)
+
+	if got := line(tui, "equip"); !strings.Contains(got, "Claude Code ~10 + unknown") {
+		t.Errorf("top line %q does not mark the total partial", got)
+	}
+
+	if got := line(tui, "github@official"); !strings.Contains(got, "~10 + unknown") {
+		t.Errorf("row line %q does not mark the plugin's cost partial", got)
 	}
 }
 

@@ -1,7 +1,6 @@
 package equip
 
 import (
-	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -59,12 +58,16 @@ type Session struct {
 	project   Project
 	exts      []Extension
 	mu        sync.Mutex
+	approvals bool // Claude Code takes the .mcp.json approvals in settings.local.json
 }
 
 // View is what the user sees of a Session.
 type View struct {
 	Project Project
 	Totals  map[Agent]int // the estimated tokens of a session in each agent
+	// Unknown marks each agent whose total leaves out an MCP server that is
+	// on but not measured yet.
+	Unknown map[Agent]bool
 	Rows    []Row
 	Unsaved int // pending changes a save would write
 }
@@ -134,6 +137,7 @@ func Open(machine Machine, dir string) (*Session, error) {
 		disk:      map[Agent]map[string]State{},
 		outside:   map[string]Agent{},
 		measured:  map[string]measurement{},
+		approvals: approvalsCount(machine, project),
 		mu:        sync.Mutex{},
 	}
 
@@ -192,8 +196,6 @@ func (s *Session) SetState(key string, st State) {
 // View returns the current view.
 func (s *Session) View() View {
 	rows := make([]Row, 0, len(s.exts))
-	totals := map[Agent]int{}
-	codexPlugins := false
 
 	for _, ext := range s.exts {
 		// A plugin's MCP server shows among the plugin's contents.
@@ -205,11 +207,8 @@ func (s *Session) View() View {
 		cost := 0
 
 		for _, agent := range Agents() {
-			totals[agent] += s.costIn(agent, ext)
 			cost = max(cost, s.costIn(agent, ext))
 		}
-
-		codexPlugins = codexPlugins || ext.Kind == Plugin && ext.has(Codex) && s.stateIn(Codex, ext) == On
 
 		_, changed := s.outside[ext.Key]
 		rows = append(rows, Row{
@@ -226,17 +225,25 @@ func (s *Session) View() View {
 		})
 	}
 
-	for agent, total := range totals {
-		if total > 0 {
-			totals[agent] += agent.listing().introTokens
-		}
+	totals, unknown := s.totals()
+
+	return View{Project: s.project, Rows: rows, Unsaved: s.unsavedCount(), Totals: totals, Unknown: unknown}
+}
+
+// fixedCost is the tokens of the blocks agent puts into a session once: the
+// skills intro when it lists skills, and Codex's plugins block when a plugin
+// is on.
+func fixedCost(agent Agent, listed, plugins bool) int {
+	cost := 0
+	if listed {
+		cost += agent.listing().introTokens
 	}
 
-	if codexPlugins {
-		totals[Codex] += tokens(Codex, codexPluginsBlockBytes)
+	if plugins && agent == Codex {
+		cost += tokens(Codex, codexPluginsBlockBytes)
 	}
 
-	return View{Project: s.project, Rows: rows, Unsaved: s.unsavedCount(), Totals: totals}
+	return cost
 }
 
 // Detail is what the detail pane shows of one extension.
@@ -316,12 +323,13 @@ func (s *Session) ProbeCost(key string) func() error {
 
 	for _, agent := range Agents() {
 		cfg, ok := s.probeConfig(agent, ext)
-		if !ok || !s.enabled(agent, ext) {
+		if !ok || !s.onAndTrusted(agent, ext) {
 			continue
 		}
 
 		return func() error {
-			measured, err := probe(context.Background(), s.machine.Env, cfg)
+			// An agent starts a server in the checkout the session runs in.
+			measured, err := probe(context.Background(), s.machine.Env, s.project.checkout, cfg)
 			if err != nil {
 				return err
 			}
@@ -375,6 +383,40 @@ func (s *Session) Save() error {
 	return nil
 }
 
+// totals are the estimated tokens of a session in each agent, and whether
+// each leaves out an MCP server that is on but not measured yet.
+func (s *Session) totals() (map[Agent]int, map[Agent]bool) {
+	totals, unknown := map[Agent]int{}, map[Agent]bool{}
+
+	for _, agent := range Agents() {
+		totals[agent], unknown[agent] = s.total(agent)
+	}
+
+	return totals, unknown
+}
+
+// total is the estimated tokens of a session in agent, and whether it leaves
+// out an MCP server that is on but not measured yet.
+func (s *Session) total(agent Agent) (int, bool) {
+	total, unknown := 0, false
+	listed, plugins := false, false // a skill or plugin is on, so agent lists skills; a plugin is on
+
+	for _, ext := range s.exts {
+		// A plugin's MCP server counts in its plugin's cost.
+		if ext.plugin != "" {
+			continue
+		}
+
+		cost := s.costIn(agent, ext)
+		total += cost
+		listed = listed || ext.Kind != MCPServer && cost > 0
+		plugins = plugins || ext.Kind == Plugin && ext.has(agent) && s.stateIn(agent, ext) == On
+		unknown = unknown || s.unknownIn(agent, ext)
+	}
+
+	return total + fixedCost(agent, listed, plugins), unknown
+}
+
 // readMeasurements takes the cached measurement of each MCP server, from its
 // config in the first agent that has one cached.
 func (s *Session) readMeasurements() {
@@ -401,21 +443,42 @@ func (s *Session) probeConfig(agent Agent, ext Extension) (serverConfig, bool) {
 	var cfg serverConfig
 
 	err := json.Unmarshal(ext.config[agent], &cfg)
-	if cfg.Command != "" {
-		cfg.Dir = cmp.Or(cfg.Dir, s.project.checkout)
+	if agent == ClaudeCode {
+		// A plugin's MCP server has its plugin's dir as its one Location.
+		pluginRoot := ""
+		if ext.plugin != "" {
+			pluginRoot = ext.Locations[0].Path
+		}
+
+		cfg = expandVars(cfg, s.machine.Env, pluginRoot)
 	}
+
+	// Codex keeps a remote server's headers and token apart.
+	headers := maps.Clone(cfg.Headers)
+	if headers == nil {
+		headers = map[string]string{}
+	}
+
+	maps.Copy(headers, cfg.HTTPHeaders)
+
+	if cfg.BearerToken != "" {
+		headers["Authorization"] = "Bearer " + getenv(s.machine.Env, cfg.BearerToken)
+	}
+
+	cfg.Headers, cfg.HTTPHeaders = headers, nil
 
 	return cfg, err == nil && cfg.Type != "sse" && (cfg.Command != "" || cfg.URL != "")
 }
 
-// enabled reports whether agent has ext on and trusts it, as its config on
-// disk says, so pending changes do not count.
-func (s *Session) enabled(agent Agent, ext Extension) bool {
+// onAndTrusted reports whether agent has ext on and trusts it, as its config
+// on disk says, so pending changes do not count.
+func (s *Session) onAndTrusted(agent Agent, ext Extension) bool {
 	state, onDisk := s.disk[agent][ext.Key]
-	// Claude Code trusts a .mcp.json server only once the user approves it.
-	// ponytail: approval by enableAllProjectMcpServers does not count; read
-	// it if users approve that way.
-	if !onDisk && agent == ClaudeCode && ext.lists.settings {
+	// Claude Code trusts a .mcp.json server only once the user approves it,
+	// in a folder they trust. ponytail: approval by
+	// enableAllProjectMcpServers does not count; read it if users approve
+	// that way.
+	if agent == ClaudeCode && ext.lists.settings && (!onDisk || !s.approvals) {
 		return false
 	}
 
@@ -425,15 +488,47 @@ func (s *Session) enabled(agent Agent, ext Extension) bool {
 	// A plugin's MCP server loads only while its plugin is on.
 	plugin, inPlugin := s.ext(ext.plugin)
 
-	return state == On && (!inPlugin || s.enabled(agent, plugin))
+	return state == On && (!inPlugin || s.onAndTrusted(agent, plugin))
 }
 
-// unknown reports whether the cost of ext is unknown: an MCP server's, until
-// it is measured.
+// approvalsCount reports whether Claude Code takes the approvals of .mcp.json
+// servers in the Project's settings.local.json: only in a folder the user
+// trusts, and only when git does not track the file, as a cloned repo cannot
+// approve its own servers.
+func approvalsCount(machine Machine, project Project) bool {
+	var trusted bool
+
+	config, _ := readJSONObject(claudeJSONPath(machine))
+	_ = json.Unmarshal(config.object("projects").object(project.Path)["hasTrustDialogAccepted"], &trusted)
+
+	return trusted && !tracked(machine, project, settingsRel)
+}
+
+// unknown reports whether the cost of ext is unknown, in part for a plugin:
+// an MCP server's, until it is measured.
 func (s *Session) unknown(ext Extension) bool {
 	_, measured := s.measurement(ext.Key)
 
-	return ext.Kind == MCPServer && !measured
+	return ext.Kind == MCPServer && !measured ||
+		slices.ContainsFunc(Agents(), func(agent Agent) bool { return s.unknownIn(agent, ext) })
+}
+
+// unknownIn reports whether agent's cost of ext leaves out an MCP server
+// that is on in agent but not measured yet: ext, or one in plugin ext.
+func (s *Session) unknownIn(agent Agent, ext Extension) bool {
+	if !ext.has(agent) || s.stateIn(agent, ext) != On {
+		return false
+	}
+
+	if ext.Kind == MCPServer {
+		_, measured := s.measurement(ext.Key)
+
+		return !measured
+	}
+
+	return slices.ContainsFunc(s.exts, func(server Extension) bool {
+		return server.plugin == ext.Key && s.unknownIn(agent, server)
+	})
 }
 
 // measurement returns the measurement of the MCP server with key, reporting
@@ -546,7 +641,11 @@ func (s *Session) costIn(agent Agent, ext Extension) int {
 	if ext.Kind == MCPServer {
 		var cfg serverConfig
 
-		measured, _ := s.measurement(ext.Key)
+		measured, ok := s.measurement(ext.Key)
+		if !ok {
+			return 0
+		}
+
 		_ = json.Unmarshal(ext.config[ClaudeCode], &cfg)
 
 		return measured.cost(agent, ext.name(), cfg.AlwaysLoad || !claudeToolSearch(s.machine))

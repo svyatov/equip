@@ -60,7 +60,8 @@ var (
 type mcpConn interface {
 	// call sends the request method with params and decodes its result into
 	// result. It skips every other message the server sends.
-	call(ctx context.Context, method string, params, result any) error
+	// version is the protocol version it speaks.
+	call(ctx context.Context, version, method string, params, result any) error
 	// notify sends the notification method.
 	notify(ctx context.Context, method string) error
 	// close ends the connection, and the server with it when equip started
@@ -73,11 +74,16 @@ type mcpConn interface {
 type serverConfig struct {
 	Env     map[string]string `json:"env,omitempty"`
 	Headers map[string]string `json:"headers,omitempty"` // a remote server's, in Claude Code
-	Command string            `json:"command,omitempty"`
-	Dir     string            `json:"cwd,omitempty"`
-	URL     string            `json:"url,omitempty"`  // a remote server's
-	Type    string            `json:"type,omitempty"` // Claude Code's transport: stdio, http or sse
-	Args    []string          `json:"args,omitempty"`
+	//nolint:tagliatelle // Codex's own key
+	HTTPHeaders map[string]string `json:"http_headers,omitempty"` // a remote server's, in Codex
+	// BearerToken names the variable that holds a Codex remote server's
+	// token.
+	BearerToken string   `json:"bearer_token_env_var,omitempty"` //nolint:tagliatelle // Codex's own key
+	Command     string   `json:"command,omitempty"`
+	Dir         string   `json:"cwd,omitempty"`
+	URL         string   `json:"url,omitempty"`  // a remote server's
+	Type        string   `json:"type,omitempty"` // Claude Code's transport: stdio, http or sse
+	Args        []string `json:"args,omitempty"`
 	// AlwaysLoad exempts the server's tools from Claude Code's tool search.
 	AlwaysLoad bool `json:"alwaysLoad,omitempty"`
 }
@@ -126,6 +132,49 @@ func claudeToolSearch(machine Machine) bool {
 	return !slices.Contains(machine.Env, "ENABLE_TOOL_SEARCH=false")
 }
 
+// expandVars expands ${VAR} and ${VAR:-default} in cfg from env, as Claude
+// Code does, with ${CLAUDE_PLUGIN_ROOT} as pluginRoot when that is not empty.
+// ponytail: os.Expand takes a bare $VAR too; Claude Code may leave it be.
+func expandVars(cfg serverConfig, env []string, pluginRoot string) serverConfig {
+	expand := func(s string) string {
+		return os.Expand(s, func(name string) string {
+			name, fallback, _ := strings.Cut(name, ":-")
+			if name == "CLAUDE_PLUGIN_ROOT" && pluginRoot != "" {
+				return pluginRoot
+			}
+
+			return cmp.Or(getenv(env, name), fallback)
+		})
+	}
+
+	cfg.Command, cfg.URL = expand(cfg.Command), expand(cfg.URL)
+
+	for i, arg := range cfg.Args {
+		cfg.Args[i] = expand(arg)
+	}
+	// Each probeConfig decodes its own maps, so changing them is safe.
+	for _, values := range []map[string]string{cfg.Env, cfg.Headers} {
+		for key, value := range values {
+			values[key] = expand(value)
+		}
+	}
+
+	return cfg
+}
+
+// getenv is the value of the variable name in env, as os.Environ gives it.
+func getenv(env []string, name string) string {
+	value := ""
+
+	for _, kv := range env {
+		if v, ok := strings.CutPrefix(kv, name+"="); ok {
+			value = v
+		}
+	}
+
+	return value
+}
+
 // truncate is s cut to its first n characters.
 func truncate(s string, n int) string {
 	runes := []rune(s)
@@ -133,10 +182,10 @@ func truncate(s string, n int) string {
 	return string(runes[:min(len(runes), n)])
 }
 
-// probe starts the MCP server cfg with env and reads its instructions and
-// tools. It tries the modern server/discover first and falls back to the
-// legacy initialize handshake.
-func probe(ctx context.Context, env []string, cfg serverConfig) (measurement, error) {
+// probe starts the MCP server cfg with env, in dir unless cfg names its own,
+// and reads its instructions and tools. It tries the modern server/discover
+// first and falls back to the legacy initialize handshake.
+func probe(ctx context.Context, env []string, dir string, cfg serverConfig) (measurement, error) {
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 
@@ -144,6 +193,8 @@ func probe(ctx context.Context, env []string, cfg serverConfig) (measurement, er
 
 	var conn mcpConn = &httpConn{cfg: cfg, session: "", id: 0}
 	if cfg.URL == "" {
+		cfg.Dir = cmp.Or(cfg.Dir, dir)
+
 		stdio, err := dialStdio(ctx, env, cfg)
 		if err != nil {
 			return none, err
@@ -153,80 +204,86 @@ func probe(ctx context.Context, env []string, cfg serverConfig) (measurement, er
 	}
 	defer conn.close()
 
-	measured, meta, err := handshake(ctx, conn)
+	measured, version, err := handshake(ctx, conn)
 	if err != nil {
 		return none, err
 	}
 
-	return listTools(ctx, conn, measured, meta)
+	return listTools(ctx, conn, measured, version)
 }
 
 // listTools adds the tools the server on conn lists, on every page, to
-// measured. meta is the _meta of a modern server's requests, or nil.
-func listTools(ctx context.Context, conn mcpConn, measured measurement, meta map[string]any) (measurement, error) {
+// measured, speaking the protocol version.
+func listTools(ctx context.Context, conn mcpConn, measured measurement, version string) (measurement, error) {
 	var none measurement
 
-	params := map[string]any{}
-	if meta != nil {
-		params["_meta"] = meta
-	}
+	page := params(version)
 
 	for {
-		var page struct {
+		var result struct {
 			TTLMs      *int64    `json:"ttlMs"`
 			NextCursor string    `json:"nextCursor"`
 			Tools      []mcpTool `json:"tools"`
 		}
 
-		err := conn.call(ctx, "tools/list", params, &page)
+		err := conn.call(ctx, version, "tools/list", page, &result)
 		if err != nil {
 			return none, err
 		}
 
-		measured.Tools = append(measured.Tools, page.Tools...)
-		if measured.TTLMs == nil || page.TTLMs != nil && *page.TTLMs < *measured.TTLMs {
-			measured.TTLMs = page.TTLMs
+		measured.Tools = append(measured.Tools, result.Tools...)
+		if measured.TTLMs == nil || result.TTLMs != nil && *result.TTLMs < *measured.TTLMs {
+			measured.TTLMs = result.TTLMs
 		}
 
-		if page.NextCursor == "" {
+		if result.NextCursor == "" {
 			return measured, nil
 		}
 
-		params["cursor"] = page.NextCursor
+		page["cursor"] = result.NextCursor
 	}
 }
 
 // handshake opens the session with the server on conn and reads its
-// instructions. It returns the _meta of a modern server's requests, or none
-// for a legacy server.
-func handshake(ctx context.Context, conn mcpConn) (measurement, map[string]any, error) {
+// instructions. It returns the protocol version the server speaks.
+func handshake(ctx context.Context, conn mcpConn) (measurement, string, error) {
 	var info struct {
 		TTLMs        *int64 `json:"ttlMs"`
 		Instructions string `json:"instructions"`
 	}
 
-	meta := map[string]any{
-		"io.modelcontextprotocol/protocolVersion":    modernVersion,
-		"io.modelcontextprotocol/clientInfo":         clientInfo(),
-		"io.modelcontextprotocol/clientCapabilities": map[string]any{},
-	}
-
 	discoverCtx, cancel := context.WithTimeout(ctx, discoverTimeout)
 	defer cancel()
 
-	err := conn.call(discoverCtx, "server/discover", map[string]any{"_meta": meta}, &info)
-	if err != nil {
-		meta = nil
+	version := modernVersion
 
-		err = conn.call(ctx, "initialize", map[string]any{
-			"protocolVersion": legacyVersion, "capabilities": map[string]any{}, "clientInfo": clientInfo(),
+	err := conn.call(discoverCtx, version, "server/discover", params(version), &info)
+	if err != nil {
+		version = legacyVersion
+
+		err = conn.call(ctx, version, "initialize", map[string]any{
+			"protocolVersion": version, "capabilities": map[string]any{}, "clientInfo": clientInfo(),
 		}, &info)
 		if err == nil {
 			err = conn.notify(ctx, "notifications/initialized")
 		}
 	}
 
-	return measurement{TTLMs: info.TTLMs, Instructions: info.Instructions, Tools: nil}, meta, err
+	return measurement{TTLMs: info.TTLMs, Instructions: info.Instructions, Tools: nil}, version, err
+}
+
+// params are the params of a request in version with no arguments: a modern
+// one names its version, and equip, in its _meta.
+func params(version string) map[string]any {
+	if version != modernVersion {
+		return map[string]any{}
+	}
+
+	return map[string]any{"_meta": map[string]any{
+		"io.modelcontextprotocol/protocolVersion":    modernVersion,
+		"io.modelcontextprotocol/clientInfo":         clientInfo(),
+		"io.modelcontextprotocol/clientCapabilities": map[string]any{},
+	}}
 }
 
 // cacheEntry is a measurement as equip caches it.
@@ -238,7 +295,8 @@ type cacheEntry struct {
 // cachePath is the file that caches the measurement of the MCP server cfg,
 // named by a hash of cfg, so a server whose config changes is measured again.
 func cachePath(machine Machine, cfg serverConfig) string {
-	data, _ := json.Marshal(cfg) //nolint:errchkjson // strings always encode
+	// Only hashed, so a token in the headers never reaches the disk.
+	data, _ := json.Marshal(cfg) //nolint:errchkjson,gosec // strings always encode
 	sum := sha256.Sum256(data)
 
 	return filepath.Join(machine.CacheHome, "equip", "mcp-"+hex.EncodeToString(sum[:])+".json")
@@ -270,14 +328,14 @@ func readCache(machine Machine, cfg serverConfig) (measurement, bool) {
 	return entry.Measured, fresh
 }
 
-// message is the notification method.
-func message(method string) map[string]any {
+// notification is the notification method.
+func notification(method string) map[string]any {
 	return map[string]any{"jsonrpc": jsonRPC, "method": method}
 }
 
 // request is the request method with params, numbered id.
 func request(id int, method string, params any) map[string]any {
-	msg := message(method)
+	msg := notification(method)
 	msg["id"], msg["params"] = id, params
 
 	return msg
@@ -362,9 +420,12 @@ func (c *stdioConn) send(msg map[string]any) error {
 	return nil
 }
 
-func (c *stdioConn) notify(_ context.Context, method string) error { return c.send(message(method)) }
+func (c *stdioConn) notify(_ context.Context, method string) error {
+	return c.send(notification(method))
+}
 
-func (c *stdioConn) call(ctx context.Context, method string, params, result any) error {
+// call takes the version from params, as stdio has no headers.
+func (c *stdioConn) call(ctx context.Context, _, method string, params, result any) error {
 	c.id++
 
 	err := c.send(request(c.id, method, params))
@@ -409,7 +470,7 @@ type httpConn struct {
 func (*httpConn) close() {}
 
 func (c *httpConn) notify(ctx context.Context, method string) error {
-	resp, err := c.post(ctx, method, message(method), legacyVersion)
+	resp, err := c.post(ctx, method, notification(method), legacyVersion)
 	if err != nil {
 		return err
 	}
@@ -419,13 +480,8 @@ func (c *httpConn) notify(ctx context.Context, method string) error {
 	return nil
 }
 
-func (c *httpConn) call(ctx context.Context, method string, params, result any) error {
+func (c *httpConn) call(ctx context.Context, version, method string, params, result any) error {
 	c.id++
-	// A modern request names its version in its _meta, and in a header.
-	version := legacyVersion
-	if p, ok := params.(map[string]any); ok && p["_meta"] != nil {
-		version = modernVersion
-	}
 
 	resp, err := c.post(ctx, method, request(c.id, method, params), version)
 	if err != nil {
@@ -436,17 +492,21 @@ func (c *httpConn) call(ctx context.Context, method string, params, result any) 
 	// The answer is one JSON message, or an event stream whose data lines
 	// hold messages. ponytail: takes an event's data from one line; join
 	// multi-line data if a server splits it.
+	if !strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		body, err := io.ReadAll(resp.Body)
+		if answered, decodeErr := decodeResponse(body, c.id, method, result); err == nil && answered {
+			return decodeErr
+		}
+
+		return fmt.Errorf("%s: %w", method, errServerClosed)
+	}
+
 	reader := bufio.NewReader(resp.Body)
-	stream := strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream")
 
 	for {
 		line, readErr := reader.ReadBytes('\n')
 
 		data, isData := bytes.CutPrefix(line, []byte("data:"))
-		if !stream {
-			data, isData = line, true
-		}
-
 		if answered, err := decodeResponse(data, c.id, method, result); isData && answered {
 			return err
 		}
