@@ -625,6 +625,25 @@ func TestWriteSkipsAProjectWhosePresetChangedOutsideSinceItsSave(t *testing.T) {
 	unchanged(t, files)
 }
 
+func TestWriteSkipsAProjectWithAMissingPreset(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	other := machine.Repo("other")
+	machine.Preset("Empty", `id = "e1"`)
+	using(t, machine, other, "r1", "e1")
+	// Its hash still matches the record's, but a missing preset hides hand
+	// edits there.
+	removePreset(t, machine, "Empty")
+	session := newSession(t, machine, machine.Repo("app"))
+
+	add(t, session, "r1", "review")
+
+	others := session.PreviewWrite().Others
+	if got, want := affected(others), []string{other + ": skipped: changed outside equip"}; !slices.Equal(got, want) {
+		t.Errorf("affected = %q, want %q", got, want)
+	}
+}
+
 func TestDeleteRemovesThePresetFromEveryProject(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)
@@ -776,11 +795,7 @@ func TestDeleteSkipsAProjectEquipCannotRead(t *testing.T) {
 	machine := equiptest.WithPresets(t)
 	other := machine.Repo("other")
 	using(t, machine, other, "r1")
-
-	rec := recordOf(t, machine, other)
-	data, _ := os.ReadFile(rec)
-	broken := strings.Replace(string(data), "[overrides.skills]", "[overrides.skills]\ndocs = 'bogus'", 1)
-	writeFile(t, rec, broken)
+	rec, broken := unreadableRecord(t, machine, other)
 
 	err := newSession(t, machine, machine.Repo("app")).DeletePreset("r1")
 	if err != nil {
@@ -788,6 +803,19 @@ func TestDeleteSkipsAProjectEquipCannotRead(t *testing.T) {
 	}
 
 	unchanged(t, map[string]string{rec: broken})
+}
+
+// unreadableRecord rewrites the record of the project at path, which has Ruby
+// active, with a state no extension offers, so equip cannot read it. It
+// returns the record's file and content.
+func unreadableRecord(t *testing.T, machine *equiptest.Machine, path string) (string, string) {
+	t.Helper()
+
+	rec := recordOf(t, machine, path)
+	broken := "path = '" + path + "'\npresets = [{id = 'r1', hash = ''}]\n\n[overrides.skills]\ndocs = 'bogus'\n"
+	writeFile(t, rec, broken)
+
+	return rec, broken
 }
 
 // failedWrite is a machine with Ruby saved active in the projects app and
@@ -896,11 +924,7 @@ func TestWriteSkipsAProjectEquipCannotRead(t *testing.T) {
 	machine := equiptest.WithPresets(t)
 	other := machine.Repo("other")
 	using(t, machine, other, "r1")
-
-	rec := recordOf(t, machine, other)
-	data, _ := os.ReadFile(rec)
-	broken := strings.Replace(string(data), "[overrides.skills]", "[overrides.skills]\ndocs = 'bogus'", 1)
-	writeFile(t, rec, broken)
+	rec, broken := unreadableRecord(t, machine, other)
 
 	session := newSession(t, machine, machine.Repo("app"))
 	add(t, session, "r1", "review")

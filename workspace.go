@@ -129,21 +129,22 @@ func (m *model) moveInPanes(key string, delta int, presets []equip.Preset) {
 	}
 }
 
-// onPreset acts on key on the highlighted preset cur.
+// onPreset acts on key on the highlighted preset cur. A missing preset can
+// only be made active here or no longer active.
 func (m *model) onPreset(key string, cur equip.Preset) {
+	if cur.Missing && key != spaceKey {
+		m.flash = m.style.warn.Render("preset " + cur.Name + " missing: sync its file and reopen equip")
+
+		return
+	}
+
 	switch key {
 	case "r":
 		m.ws.naming, m.ws.name = nameRename, cur.Name
 	case "a":
 		m.ws.adding, m.ws.members, m.ws.searching, m.ws.query, m.ws.member = true, true, false, "", 0
 	case "d":
-		// A preset not written yet goes at once, as nothing uses it.
-		if cur.New {
-			m.s.DiscardPreset()
-		} else {
-			m.ws.asking = askDelete
-			m.ws.preview = m.s.PreviewDelete(cur.ID)
-		}
+		m.confirmDelete(cur)
 	case "w":
 		m.ws.leave = ""
 		if cur.Unwritten {
@@ -157,6 +158,17 @@ func (m *model) onPreset(key string, cur equip.Preset) {
 		} else {
 			m.toggleActive(cur)
 		}
+	}
+}
+
+// confirmDelete asks to delete preset. A preset not written yet goes at once,
+// as nothing uses it.
+func (m *model) confirmDelete(preset equip.Preset) {
+	if preset.New {
+		m.s.DiscardPreset()
+	} else {
+		m.ws.asking = askDelete
+		m.ws.preview = m.s.PreviewDelete(preset.ID)
 	}
 }
 
@@ -522,7 +534,13 @@ func (m *model) library(presets []equip.Preset) string {
 		}
 
 		members := len(slices.DeleteFunc(slices.Clone(preset.Members), func(m equip.Member) bool { return m.Removed }))
-		lines = append(lines, fmt.Sprintf("%s%s %-15s %3d %4d", mark, check, name, members, len(preset.Projects)))
+		line := fmt.Sprintf("%s %-15s %3d %4d", check, name, members, len(preset.Projects))
+
+		if preset.Missing {
+			line = m.style.dim.Render(line + "  missing")
+		}
+
+		lines = append(lines, mark+line)
 	}
 
 	return strings.Join(lines, "\n")
