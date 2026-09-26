@@ -63,6 +63,9 @@ type Session struct {
 	project   Project
 	orphans   []string // the paths of the records the Project can adopt
 	exts      []Extension
+	library   []Preset       // by name
+	active    []string       // the ids of the active presets, pending, sorted
+	recorded  []recordPreset // the active presets at the last save
 	mu        sync.Mutex
 	approvals bool // Claude Code takes the .mcp.json approvals in settings.local.json
 }
@@ -79,7 +82,8 @@ type View struct {
 	// Orphans are the paths of the records the Project can adopt on its first
 	// open: of a repo with its root commit whose path no longer exists.
 	Orphans []string
-	Unsaved int // pending changes a save would write
+	Presets []string // the names of the active presets, pending
+	Unsaved int      // pending changes a save would write
 }
 
 // Facet is a way to narrow the list.
@@ -159,7 +163,12 @@ func Open(machine Machine, dir string) (*Session, error) {
 		disk[agent], _ = agent.config().read(machine, project, applied[agent])
 	}
 
-	saved, err := readRecord(recordPath(machine, project.Path), firstStates(disk))
+	saved, presets, err := readRecord(recordPath(machine, project.Path), firstStates(disk))
+	if err != nil {
+		return nil, err
+	}
+
+	library, err := readPresets(machine)
 	if err != nil {
 		return nil, err
 	}
@@ -168,6 +177,9 @@ func Open(machine Machine, dir string) (*Session, error) {
 		machine:   machine,
 		project:   project,
 		exts:      exts,
+		library:   library,
+		active:    nil,
+		recorded:  nil,
 		applied:   applied,
 		codex:     codex,
 		overrides: nil,
@@ -179,7 +191,7 @@ func Open(machine Machine, dir string) (*Session, error) {
 		orphans:   orphans(machine, project),
 		mu:        sync.Mutex{},
 	}
-	session.start(saved, disk)
+	session.start(saved, presets, disk)
 	session.readMeasurements()
 
 	return session, nil
@@ -271,7 +283,7 @@ func (s *Session) View() View {
 			CostUnknown:    s.unknown(ext),
 			State:          state,
 			Override:       override,
-			Fallback:       ext.fallback[ext.primary()],
+			Fallback:       s.base(ext.primary(), ext, s.active),
 			Unsaved:        s.inRow(ext, s.unsaved),
 			ChangedOutside: changed,
 		})
@@ -279,9 +291,17 @@ func (s *Session) View() View {
 
 	totals, unknown := s.totals()
 
+	var presets []string
+
+	for _, preset := range s.library {
+		if slices.Contains(s.active, preset.ID) {
+			presets = append(presets, preset.Name)
+		}
+	}
+
 	return View{
 		Project: s.project, Rows: rows, Facets: s.facets(rows), Unsaved: s.unsavedCount(), Totals: totals, Unknown: unknown,
-		Orphans: s.orphans,
+		Orphans: s.orphans, Presets: presets,
 	}
 }
 
@@ -410,12 +430,12 @@ func (s *Session) Adopt(path string) error {
 
 	old, disk := recordPath(s.machine, path), s.disk
 
-	saved, err := readRecord(old, firstStates(disk))
+	saved, presets, err := readRecord(old, firstStates(disk))
 	if err != nil {
 		return err
 	}
 
-	err = writeRecord(s.machine, s.project, saved)
+	err = writeRecord(s.machine, s.project, saved, presets)
 	if err != nil {
 		return err
 	}
@@ -425,7 +445,7 @@ func (s *Session) Adopt(path string) error {
 		return fmt.Errorf("remove the adopted record: %w", err)
 	}
 
-	s.start(saved, disk)
+	s.start(saved, presets, disk)
 	s.orphans = nil
 
 	return nil
@@ -462,22 +482,25 @@ func (s *Session) Save() error {
 		}
 	}
 
-	err = writeRecord(s.machine, s.project, s.overrides)
+	presets := s.recordPresets()
+
+	err = writeRecord(s.machine, s.project, s.overrides, presets)
 	if err != nil {
 		return err
 	}
 
-	s.saved = maps.Clone(s.overrides)
+	s.saved, s.recorded = maps.Clone(s.overrides), presets
 	s.orphans = nil
 	clear(s.outside)
 
 	return nil
 }
 
-// start takes saved, the Overrides of the record, and disk, each agent's
-// entries, as an open does.
-func (s *Session) start(saved map[string]State, disk map[Agent]map[string]State) {
+// start takes saved and presets, the Overrides and active presets of the
+// record, and disk, each agent's entries, as an open does.
+func (s *Session) start(saved map[string]State, presets []recordPreset, disk map[Agent]map[string]State) {
 	s.saved, s.overrides = saved, maps.Clone(saved)
+	s.recorded, s.active = presets, ids(presets)
 	s.disk, s.outside = map[Agent]map[string]State{}, map[string]Agent{}
 
 	for _, agent := range Agents() {
@@ -744,7 +767,7 @@ func (s *Session) changedOutside() (bool, error) {
 // writeAgents writes the pending Overrides into each agent's config.
 func (s *Session) writeAgents() error {
 	for _, agent := range Agents() {
-		err := agent.config().write(s.machine, s.project, s.applied[agent], s.overrides)
+		err := agent.config().write(s.machine, s.project, s.applied[agent], s.pending(agent))
 		if err != nil {
 			// A file written before the failure holds equip's own entries,
 			// which the next save must not read as changed outside.
@@ -760,7 +783,7 @@ func (s *Session) writeAgents() error {
 	}
 
 	for _, agent := range Agents() {
-		s.disk[agent] = s.entries(agent)
+		s.disk[agent] = s.pending(agent)
 	}
 	// The write removed the dead Codex entries.
 	s.codex = readCodexConfig(s.machine, s.project)
@@ -798,14 +821,19 @@ func (s *Session) costIn(agent Agent, ext Extension) int {
 	return cost
 }
 
-// stateIn is the state ext has in agent's sessions: its Override where equip
-// writes it for agent, else agent's own default. So Codex keeps a skill on.
+// stateIn is the state ext has in agent's sessions: its Override or the
+// presets' state where equip writes it for agent, else agent's own default.
+// So Codex keeps a skill on.
 func (s *Session) stateIn(agent Agent, ext Extension) State {
-	if st, ok := s.overrides[ext.Key]; ok && s.applies(agent, ext) {
+	if !s.applies(agent, ext) {
+		return ext.fallback[agent]
+	}
+
+	if st, ok := s.overrides[ext.Key]; ok {
 		return st
 	}
 
-	return ext.fallback[agent]
+	return s.base(agent, ext, s.active)
 }
 
 // applies reports whether equip writes the state of ext for agent.
@@ -836,8 +864,7 @@ func (s *Session) state(ext Extension) (State, bool) {
 	}
 
 	if !override {
-		// With no presets, an extension falls back to the agent's default.
-		state = ext.fallback[ext.primary()]
+		state = s.base(ext.primary(), ext, s.active)
 	}
 
 	return state, override
@@ -848,6 +875,7 @@ func (s *Session) state(ext Extension) (State, bool) {
 // Override. It reports whether any entry changed.
 func (s *Session) take(agent Agent, now map[string]State) bool {
 	changed := false
+	recorded := s.entries(agent, s.saved, ids(s.recorded))
 
 	for _, e := range s.applied[agent] {
 		key := e.Key
@@ -857,7 +885,7 @@ func (s *Session) take(agent Agent, now map[string]State) bool {
 
 		changed = true
 		state, set := now[key]
-		imported := set && differ(now, s.saved, key)
+		imported := set && differ(now, recorded, key)
 		// A pending toggle the change replaces was changed outside too.
 		if _, was := s.outside[key]; imported || differ(s.overrides, s.saved, key) && !was {
 			s.outside[key] = agent
@@ -887,11 +915,15 @@ func (s *Session) unsavedCount() int {
 	keys := maps.Clone(s.saved)
 	maps.Copy(keys, s.overrides)
 
-	for _, disk := range s.disk {
-		maps.Copy(keys, disk)
+	for _, agent := range Agents() {
+		maps.Copy(keys, s.disk[agent])
+		maps.Copy(keys, s.pending(agent))
 	}
-	// A save removes each dead Codex entry.
+	// A save removes each dead Codex entry, and records a change of presets.
 	count := len(s.codex.dead())
+	if !slices.Equal(s.active, ids(s.recorded)) {
+		count++
+	}
 
 	for key := range keys {
 		if s.unsaved(key) {
@@ -921,18 +953,29 @@ func (s *Session) overridden(key string) bool {
 // entry on disk in an agent.
 func (s *Session) unsaved(key string) bool {
 	return differ(s.overrides, s.saved, key) || slices.ContainsFunc(Agents(), func(agent Agent) bool {
-		return differ(s.entries(agent), s.disk[agent], key)
+		return differ(s.pending(agent), s.disk[agent], key)
 	})
 }
 
-// entries are the entries a save leaves in agent's config for the pending
-// Overrides.
-func (s *Session) entries(agent Agent) map[string]State {
+// pending are the entries a save leaves in agent's config.
+func (s *Session) pending(agent Agent) map[string]State {
+	return s.entries(agent, s.overrides, s.active)
+}
+
+// entries are the entries a save of overrides and the active presets with
+// ids leaves in agent's config. With active presets, every extension equip
+// writes for agent gets one.
+func (s *Session) entries(agent Agent, overrides map[string]State, active []string) map[string]State {
 	entries := map[string]State{}
 
-	for _, e := range s.applied[agent] {
-		if st, ok := s.overrides[e.Key]; ok && e.entry(agent, st) {
-			entries[e.Key] = st
+	for _, ext := range s.applied[agent] {
+		state, ok := overrides[ext.Key]
+		if !ok && len(active) > 0 {
+			state, ok = s.base(agent, ext, active), true
+		}
+
+		if ok && ext.entry(agent, state) {
+			entries[ext.Key] = state
 		}
 	}
 

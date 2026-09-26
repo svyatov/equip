@@ -52,7 +52,7 @@ A state the user set by hand for one extension in one project, which wins over t
 _Avoid_: Exception, pin
 
 **Record**:
-What equip keeps of a Project on one machine: its path, its root commit, and its Overrides.
+What equip keeps of a Project on one machine: its path, its root commit, its active Presets, and its Overrides.
 _Avoid_: Profile, state file
 
 **Orphan**:

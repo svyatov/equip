@@ -212,6 +212,29 @@ func (m *Machine) WriteFile(path, content string) {
 	}
 }
 
+// Preset writes the preset named name, a TOML body, into the presets dir.
+func (m *Machine) Preset(name, body string) {
+	m.t.Helper()
+	m.WriteFile(filepath.Join(m.ConfigHome, "equip", "presets", name+".toml"), body)
+}
+
+// WithPresets builds a machine with the Claude Code skills docs, lint and
+// review, and the presets Ruby (id r1, with lint and the skill rspec, not
+// installed) and Writing (id w1, with docs).
+func WithPresets(tb testing.TB) *Machine {
+	tb.Helper()
+
+	machine := New(tb)
+	for _, name := range []string{"docs", "lint", "review"} {
+		machine.Skill(machine.ClaudeSkills(), name)
+	}
+
+	machine.Preset("Ruby", "id = \"r1\"\nskills = [\"lint\", \"rspec\"]\n")
+	machine.Preset("Writing", "id = \"w1\"\nskills = [\"docs\"]\n")
+
+	return machine
+}
+
 // CodexConfig is the Codex user config.
 func (m *Machine) CodexConfig() string { return filepath.Join(m.CodexHome, "config.toml") }
 

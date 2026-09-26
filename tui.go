@@ -65,16 +65,19 @@ type model struct {
 	style      styles
 	s          *equip.Session
 	flash      string
-	query      string   // the search: the list keeps the rows whose names contain it
-	key        string   // of the highlighted row, which the highlight stays on while the list has it
-	pinned     string   // of a row the keys changed, which the list keeps until the highlight leaves it
-	orphans    []string // the records of a moved repo the first open offers, while it asks to adopt one
-	cur        int      // the highlighted row
-	facet      int      // the picked facet
-	server     int      // the highlighted MCP server among the highlighted plugin's contents
-	inContents bool     // the keys act on the highlighted MCP server, not the row
-	quitting   bool     // asking to quit with unsaved changes
-	searching  bool     // the keys type into the search
+	query      string     // the search: the list keeps the rows whose names contain it
+	key        string     // of the highlighted row, which the highlight stays on while the list has it
+	pinned     string     // of a row the keys changed, which the list keeps until the highlight leaves it
+	orphans    []string   // the records of a moved repo the first open offers, while it asks to adopt one
+	before     equip.View // at the presets workspace's opening
+	cur        int        // the highlighted row
+	preset     int        // the highlighted preset in the workspace
+	facet      int        // the picked facet
+	server     int        // the highlighted MCP server among the highlighted plugin's contents
+	inContents bool       // the keys act on the highlighted MCP server, not the row
+	quitting   bool       // asking to quit with unsaved changes
+	searching  bool       // the keys type into the search
+	workspace  bool       // the presets workspace is open
 }
 
 // digitKeys is the count of the digit keys 1 to 9, which pick a record in
@@ -82,12 +85,26 @@ type model struct {
 // one repo ever leaves that many behind.
 const digitKeys = 9
 
+// escKey is the key that backs out: of the search, or of the presets
+// workspace.
+const escKey = "esc"
+
+// step is the move of key, reporting whether it is an arrow key or its vi
+// key.
+func step(key string) (int, bool) {
+	delta, ok := map[string]int{"up": -1, "k": -1, "down": 1, "j": 1}[key]
+
+	return delta, ok
+}
+
 // newTUI is the model of a fresh TUI over session.
 func newTUI(session *equip.Session) *model {
-	orphans := session.View().Orphans
+	view := session.View()
+	orphans := view.Orphans
 	tui := &model{
 		s: session, style: newStyles(), cur: 0, facet: 0, server: 0, inContents: false, quitting: false,
 		searching: false, flash: "", query: "", key: "", pinned: "", orphans: orphans[:min(len(orphans), digitKeys)],
+		workspace: false, preset: 0, before: view,
 	}
 	tui.clamp()
 
@@ -123,28 +140,27 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	var cmd tea.Cmd
-
-	switch {
-	case key == "ctrl+c":
-		cmd = m.quit()
-	case len(m.orphans) > 0:
-		m.adopt(key)
-	case m.searching:
-		m.search(keyMsg)
-	case !m.narrow(key):
-		cmd = m.press(key)
-	}
-
+	cmd := m.dispatch(keyMsg)
 	m.clamp()
 
 	return m, cmd
 }
 
 func (m *model) View() tea.View {
+	if m.workspace {
+		view := tea.NewView(m.workspaceView())
+		view.AltScreen = true
+
+		return view
+	}
+
 	session := m.s.View()
 
 	top := []string{m.style.top.Render("equip  " + session.Project.Path)}
+	if len(session.Presets) > 0 {
+		top = append(top, "presets "+strings.Join(session.Presets, " + "))
+	}
+
 	for _, agent := range equip.Agents() {
 		top = append(top, agent.String()+" "+costOf(session.Unknown[agent], session.Totals[agent]))
 	}
@@ -170,6 +186,27 @@ func (m *model) View() tea.View {
 	view.AltScreen = true
 
 	return view
+}
+
+// dispatch acts on keyMsg where the keys go: the adopt prompt, the presets
+// workspace, the search, or the main screen. ctrl+c quits from any of them.
+func (m *model) dispatch(keyMsg tea.KeyPressMsg) tea.Cmd {
+	key := keyMsg.String()
+
+	switch {
+	case key == "ctrl+c":
+		return m.quit()
+	case len(m.orphans) > 0:
+		m.adopt(key)
+	case m.workspace:
+		m.inWorkspace(key)
+	case m.searching:
+		m.search(keyMsg)
+	case !m.narrow(key):
+		return m.press(key)
+	}
+
+	return nil
 }
 
 // adopt acts on key while asking to adopt the record of a moved repo: a
@@ -217,7 +254,7 @@ func (m *model) footer(unsaved int) string {
 	}
 
 	return m.style.dim.Render(
-		"↑↓ move  [ ] facet  / search  1-3 set state  x drop override  m measure  tab MCP servers  s save  q quit")
+		"↑↓ move  [ ] facet  / search  1-3 set state  x drop override  m measure  tab MCP servers  p presets  s save  q quit")
 }
 
 // sidebar is the facet sidebar, with the picked one of facets highlighted.
@@ -269,7 +306,7 @@ func (m *model) search(keyMsg tea.KeyPressMsg) {
 	switch keyMsg.String() {
 	case "enter":
 		m.searching = false
-	case "esc":
+	case escKey:
 		m.searching, m.query = false, ""
 	case "backspace":
 		query := []rune(m.query)
@@ -353,16 +390,18 @@ func (m *model) press(key string) tea.Cmd {
 	rows := m.rows(m.s.View())
 	servers := m.servers(rows)
 
+	if delta, ok := step(key); ok {
+		m.move(delta)
+
+		return nil
+	}
+
 	switch key {
 	case "q":
 		return m.quit()
 	case "tab":
 		m.inContents = !m.inContents && len(servers) > 0
 		m.server = 0
-	case "up", "k":
-		m.move(-1)
-	case "down", "j":
-		m.move(1)
 	case "1", "2", "3", "x", "m":
 		if target, ok := m.target(rows, servers); ok {
 			// The list keeps the row even when the key takes it out of the
@@ -371,6 +410,8 @@ func (m *model) press(key string) tea.Cmd {
 
 			return m.act(key, target)
 		}
+	case "p":
+		m.openWorkspace()
 	case "s":
 		err := m.s.Save()
 		if err != nil {
@@ -390,7 +431,7 @@ func (m *model) narrow(key string) bool {
 	switch key {
 	case "/":
 		m.searching = true
-	case "esc":
+	case escKey:
 		m.query = ""
 	case "[", "]":
 		m.facet = (m.facet + map[string]int{"[": -1, "]": 1}[key] + facets) % facets
@@ -511,12 +552,17 @@ func (m *model) detail(row equip.Row, ext equip.Detail, server string) string {
 
 	lines = append(lines, costLine(row.CostUnknown, ext))
 
+	origin := "default"
+	if len(m.s.View().Presets) > 0 {
+		origin = "presets"
+	}
+
 	if row.Override {
 		lines = append(lines,
 			"Origin  "+m.style.warn.Render("override")+", set by hand here",
-			m.style.dim.Render("        without it: "+row.Fallback.String()+" (default)"))
+			m.style.dim.Render("        without it: "+row.Fallback.String()+" ("+origin+")"))
 	} else {
-		lines = append(lines, "Origin  default")
+		lines = append(lines, "Origin  "+origin)
 	}
 
 	if row.ChangedOutside {
