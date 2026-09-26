@@ -314,7 +314,8 @@ func TestPreviewShowsWhatTheWriteChangesInTheSavedStatesAndWritesNothing(t *test
 	session.SetPresets(nil)
 	add(t, session, "r1", "review")
 
-	before, after, _ := session.PreviewWrite()
+	preview := session.PreviewWrite()
+	before, after := preview.Before, preview.After
 
 	if was, got := row(t, before, "review"), row(t, after, "review"); was.State != equip.Off || got.State != equip.On {
 		t.Errorf("review = %s, then %s after the write; want off, then on", was.State, got.State)
@@ -340,7 +341,8 @@ func TestPreviewOfAPresetOnlyPendingActiveChangesNothingHere(t *testing.T) {
 	session.SetPresets([]string{"r1"})
 	add(t, session, "r1", "review")
 
-	before, after, _ := session.PreviewWrite()
+	preview := session.PreviewWrite()
+	before, after := preview.Before, preview.After
 
 	if turned := after.TurnedSince(before); len(turned) != 0 {
 		t.Errorf("turned = %+v, want none", turned)
@@ -466,6 +468,24 @@ func TestWriteRewritesTheOtherProjectsThatUseThePreset(t *testing.T) {
 	}
 }
 
+func TestWriteKeepsTheOtherPresetsAsTheOtherProjectsSavedThem(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	other := machine.Repo("other")
+	session := newSession(t, machine, machine.Repo("app"))
+	// Writing gains review after this session read it, and other saves that.
+	machine.Preset("Writing", "id = \"w1\"\nskills = [\"docs\", \"review\"]\n")
+	using(t, machine, other, "r1", "w1")
+
+	remove(t, session, "r1", "lint")
+	write(t, session)
+
+	view := newSession(t, machine, other).View()
+	if review := row(t, view, "review"); review.State != equip.On || view.Unsaved != 0 {
+		t.Errorf("review there = %s with %d unsaved, want on with none", review.State, view.Unsaved)
+	}
+}
+
 // handEdited is a machine with Ruby saved active in the projects app and
 // other, and a hand edit that turns docs on in other. It returns the path of
 // each and the files of other, its settings and its record, as they are.
@@ -479,7 +499,7 @@ func handEdited(t *testing.T) (*equiptest.Machine, string, string, map[string]st
 
 	files := map[string]string{}
 
-	for _, path := range []string{settingsLocal(other), otherRecord(t, machine, other)} {
+	for _, path := range []string{settingsLocal(other), recordOf(t, machine, other)} {
 		data, _ := os.ReadFile(path)
 		files[path] = string(data)
 	}
@@ -487,8 +507,8 @@ func handEdited(t *testing.T) (*equiptest.Machine, string, string, map[string]st
 	return machine, app, other, files
 }
 
-// otherRecord is the record of the project at path on machine.
-func otherRecord(t *testing.T, machine *equiptest.Machine, path string) string {
+// recordOf is the record of the project at path on machine.
+func recordOf(t *testing.T, machine *equiptest.Machine, path string) string {
 	t.Helper()
 
 	files, _ := filepath.Glob(filepath.Join(machine.StateHome, "equip", filepath.Base(path)+"-*.toml"))
@@ -545,7 +565,7 @@ func TestPreviewListsWhatTurnsInEachOtherProjectAndWritesNothing(t *testing.T) {
 	add(t, session, "w1", "review")
 	remove(t, session, "w1", "docs")
 
-	_, _, others := session.PreviewWrite()
+	others := session.PreviewWrite().Others
 
 	if got, want := affected(others), []string{other + ": docs off, review on"}; !slices.Equal(got, want) {
 		t.Errorf("affected = %q, want %q", got, want)
@@ -561,7 +581,7 @@ func TestWriteSkipsAProjectWithHandEdits(t *testing.T) {
 
 	add(t, session, "r1", "review")
 
-	_, _, others := session.PreviewWrite()
+	others := session.PreviewWrite().Others
 	if got, want := affected(others), []string{other + ": skipped: changed outside equip"}; !slices.Equal(got, want) {
 		t.Errorf("affected = %q, want %q", got, want)
 	}
@@ -595,7 +615,7 @@ func TestWriteSkipsAProjectWhosePresetChangedOutsideSinceItsSave(t *testing.T) {
 	session := newSession(t, machine, app)
 	remove(t, session, "r1", "review")
 
-	_, _, others := session.PreviewWrite()
+	others := session.PreviewWrite().Others
 	if got, want := affected(others), []string{other + ": skipped: changed outside equip"}; !slices.Equal(got, want) {
 		t.Errorf("affected = %q, want %q", got, want)
 	}
@@ -648,7 +668,7 @@ func TestDeleteRemovesThePresetFromEveryProject(t *testing.T) {
 		}
 	}
 
-	if data, _ := os.ReadFile(otherRecord(t, machine, gone)); strings.Contains(string(data), "r1") {
+	if data, _ := os.ReadFile(recordOf(t, machine, gone)); strings.Contains(string(data), "r1") {
 		t.Errorf("the record of the gone project keeps Ruby:\n%s", data)
 	}
 }
@@ -727,12 +747,12 @@ func TestDeleteOfNoSuchPresetFails(t *testing.T) {
 	}
 }
 
-func TestDeleteSkipsAProjectWithHandEditsButForgetsThePresetThere(t *testing.T) {
+func TestDeleteSkipsAProjectWithHandEditsAndShowsItThereAsUnsavedStates(t *testing.T) {
 	t.Parallel()
 	machine, app, other, files := handEdited(t)
 	session := newSession(t, machine, app)
 
-	_, _, others := session.PreviewDelete("r1")
+	others := session.PreviewDelete("r1").Others
 	if got, want := affected(others), []string{other + ": skipped: changed outside equip"}; !slices.Equal(got, want) {
 		t.Errorf("affected = %q, want %q", got, want)
 	}
@@ -742,10 +762,117 @@ func TestDeleteSkipsAProjectWithHandEditsButForgetsThePresetThere(t *testing.T) 
 		t.Fatal(err)
 	}
 
-	unchanged(t, map[string]string{settingsLocal(other): files[settingsLocal(other)]})
+	unchanged(t, files)
+	// Ruby is missing there, so it turns lint off instead of keeping it on as
+	// an Override.
+	lint := row(t, newSession(t, machine, other).View(), "lint")
+	if lint.State != equip.Off || !lint.Unsaved || lint.Override {
+		t.Errorf("lint there = %+v, want off and unsaved, not an override", lint)
+	}
+}
 
-	if data, _ := os.ReadFile(otherRecord(t, machine, other)); strings.Contains(string(data), "r1") {
-		t.Errorf("the record there keeps Ruby:\n%s", data)
+func TestDeleteSkipsAProjectEquipCannotRead(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	other := machine.Repo("other")
+	using(t, machine, other, "r1")
+
+	rec := recordOf(t, machine, other)
+	data, _ := os.ReadFile(rec)
+	broken := strings.Replace(string(data), "[overrides.skills]", "[overrides.skills]\ndocs = 'bogus'", 1)
+	writeFile(t, rec, broken)
+
+	err := newSession(t, machine, machine.Repo("app")).DeletePreset("r1")
+	if err != nil {
+		t.Errorf("DeletePreset = %v, want nil with other skipped", err)
+	}
+
+	unchanged(t, map[string]string{rec: broken})
+}
+
+// failedWrite is a machine with Ruby saved active in the projects app and
+// other, and a session in app whose write of review into Ruby failed on
+// app's agent config, once Ruby's file was written. It returns the machine,
+// the session and the path of other.
+func failedWrite(t *testing.T) (*equiptest.Machine, *equip.Session, string) {
+	t.Helper()
+	machine := equiptest.WithPresets(t)
+	app, other := machine.Repo("app"), machine.Repo("other")
+	using(t, machine, app, "r1")
+	using(t, machine, other, "r1")
+	session := newSession(t, machine, app)
+	add(t, session, "r1", "review")
+
+	claude := filepath.Dir(settingsLocal(app))
+	chmod(t, claude, 0o500)
+
+	err := session.WritePreset()
+	if err == nil {
+		t.Fatal("WritePreset = nil with app's agent config unwritable, want an error")
+	}
+
+	chmod(t, claude, 0o750)
+
+	return machine, session, other
+}
+
+// review is the state of review in the Claude Code settings of project.
+func review(t *testing.T, project string) any {
+	t.Helper()
+
+	overrides, _ := readJSON(t, settingsLocal(project))["skillOverrides"].(map[string]any)
+
+	return overrides["review"]
+}
+
+func TestARetriedWriteRewritesTheOtherProjects(t *testing.T) {
+	t.Parallel()
+	_, session, other := failedWrite(t)
+
+	write(t, session)
+
+	if got := review(t, other); got != "on" {
+		t.Errorf("review there = %v, want on", got)
+	}
+}
+
+func TestWriteSkipsAProjectHandEditedSinceItWasOpened(t *testing.T) {
+	t.Parallel()
+	_, session, other := failedWrite(t)
+	edited := `{"skillOverrides": {"docs": "on", "lint": "on", "review": "off"}}`
+	writeFile(t, settingsLocal(other), edited)
+
+	write(t, session)
+
+	unchanged(t, map[string]string{settingsLocal(other): edited})
+}
+
+func TestDroppingTheEditsOfAFailedWriteLeavesTheNextWriteItsOwnProjects(t *testing.T) {
+	t.Parallel()
+
+	for name, drop := range map[string]func(*equip.Session) error{
+		"discard": func(s *equip.Session) error {
+			s.DiscardPreset()
+
+			return nil
+		},
+		"delete": func(s *equip.Session) error { return s.DeletePreset("r1") },
+	} {
+		machine, session, _ := failedWrite(t)
+		writing := machine.Repo("writing")
+		using(t, machine, writing, "w1")
+
+		err := drop(session)
+		if err != nil {
+			t.Fatal(err)
+		}
+
+		add(t, session, "w1", "review")
+		write(t, session)
+
+		if got := review(t, writing); got != "on" {
+			t.Errorf("%s: review in writing = %v, want on", name, got)
+		}
 	}
 }
 
@@ -770,7 +897,7 @@ func TestWriteSkipsAProjectEquipCannotRead(t *testing.T) {
 	other := machine.Repo("other")
 	using(t, machine, other, "r1")
 
-	rec := otherRecord(t, machine, other)
+	rec := recordOf(t, machine, other)
 	data, _ := os.ReadFile(rec)
 	broken := strings.Replace(string(data), "[overrides.skills]", "[overrides.skills]\ndocs = 'bogus'", 1)
 	writeFile(t, rec, broken)
@@ -778,7 +905,7 @@ func TestWriteSkipsAProjectEquipCannotRead(t *testing.T) {
 	session := newSession(t, machine, machine.Repo("app"))
 	add(t, session, "r1", "review")
 
-	_, _, others := session.PreviewWrite()
+	others := session.PreviewWrite().Others
 	if got := affected(others); len(got) != 1 || !strings.Contains(got[0], ": skipped: read "+rec) {
 		t.Errorf("affected = %q, want other skipped with the read error", got)
 	}
@@ -800,12 +927,12 @@ func TestWriteSkipsAProjectWhosePathIsGone(t *testing.T) {
 	}
 
 	files := map[string]string{}
-	data, _ := os.ReadFile(otherRecord(t, machine, gone))
-	files[otherRecord(t, machine, gone)] = string(data)
+	data, _ := os.ReadFile(recordOf(t, machine, gone))
+	files[recordOf(t, machine, gone)] = string(data)
 	session := newSession(t, machine, machine.Repo("app"))
 	add(t, session, "r1", "review")
 
-	_, _, others := session.PreviewWrite()
+	others := session.PreviewWrite().Others
 	if got, want := affected(others), []string{gone + ": skipped: path no longer exists"}; !slices.Equal(got, want) {
 		t.Errorf("affected = %q, want %q", got, want)
 	}

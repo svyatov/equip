@@ -20,14 +20,6 @@ const (
 	askDelete   = "delete"   // delete the highlighted preset
 )
 
-// preview is what a write or delete of a preset changes, as its confirm
-// shows it: this Project's saved states before and after, and each other
-// Project that uses the preset.
-type preview struct {
-	others        []equip.Affected
-	before, after equip.View
-}
-
 // What the name typed is for.
 const (
 	nameNew    = "new"    // a new preset
@@ -36,16 +28,18 @@ const (
 
 // workspace is the state of the presets workspace.
 type workspace struct {
-	name      string     // typed while naming
-	naming    string     // what the name typed is for, nameNew or nameRename; empty when not naming
-	asking    string     // the question the right pane asks; empty with none
-	leave     string     // the key that moved off the preset with unwritten edits, done once they are written or discarded
-	created   string     // the id of the preset the last write created
-	query     string     // the add list's search
-	before    equip.View // at the workspace's opening
-	preview   preview    // of the write or delete the right pane asks for
-	preset    int        // the highlighted preset
-	member    int        // the highlighted member, or extension in the add list
+	name   string // typed while naming
+	naming string // what the name typed is for, nameNew or nameRename; empty when not naming
+	asking string // the question the right pane asks; empty with none
+	// leave is the key that moved off the preset with unwritten edits, done
+	// once they are written or discarded.
+	leave     string
+	created   string        // the id of the preset the last write created
+	query     string        // the add list's search
+	before    equip.View    // at the workspace's opening
+	preview   equip.Preview // of the write or delete the right pane asks for
+	preset    int           // the highlighted preset
+	member    int           // the highlighted member, or extension in the add list
 	open      bool
 	members   bool // the keys act on the members pane
 	adding    bool // the members pane lists the extensions to add
@@ -57,7 +51,7 @@ func newWorkspace(before equip.View) workspace {
 	return workspace{
 		before: before, open: false, name: "", naming: "", asking: "", leave: "", created: "", query: "", preset: 0,
 		member: 0, members: false, adding: false, searching: false,
-		preview: preview{before: before, after: before, others: nil},
+		preview: equip.Preview{Before: before, After: before, Others: nil},
 	}
 }
 
@@ -148,7 +142,7 @@ func (m *model) onPreset(key string, cur equip.Preset) {
 			m.s.DiscardPreset()
 		} else {
 			m.ws.asking = askDelete
-			m.ws.preview.before, m.ws.preview.after, m.ws.preview.others = m.s.PreviewDelete(cur.ID)
+			m.ws.preview = m.s.PreviewDelete(cur.ID)
 		}
 	case "w":
 		m.ws.leave = ""
@@ -170,7 +164,7 @@ func (m *model) onPreset(key string, cur equip.Preset) {
 // write once here, as the preview opens each other Project that uses it.
 func (m *model) confirmWrite() {
 	m.ws.asking = askWrite
-	m.ws.preview.before, m.ws.preview.after, m.ws.preview.others = m.s.PreviewWrite()
+	m.ws.preview = m.s.PreviewWrite()
 }
 
 // guard reports whether a preset has unwritten edits, and then asks to
@@ -705,10 +699,10 @@ func (m *model) confirm(preset equip.Preset) string {
 		verb = "Create"
 	}
 
-	before, after := m.ws.preview.before, m.ws.preview.after
+	before, after := m.ws.preview.Before, m.ws.preview.After
 	changes := after.TurnedSince(before)
 	lines := []string{m.style.warn.Render(verb + " preset " + preset.Name + "?"), ""}
-	lines = append(lines, m.others(m.ws.preview.others)...)
+	lines = append(lines, m.others(m.ws.preview.Others)...)
 	lines = append(lines, "", "This project")
 
 	if len(changes) == 0 {
