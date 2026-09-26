@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -63,15 +64,26 @@ type model struct {
 	style      styles
 	s          *equip.Session
 	flash      string
-	cur        int  // the highlighted row
-	server     int  // the highlighted MCP server among the highlighted plugin's contents
-	inContents bool // the keys act on the highlighted MCP server, not the row
-	quitting   bool // asking to quit with unsaved changes
+	query      string // the search: the list keeps the rows whose names contain it
+	key        string // of the highlighted row, which the highlight stays on while the list has it
+	pinned     string // of a row the keys changed, which the list keeps until the highlight leaves it
+	cur        int    // the highlighted row
+	facet      int    // the picked facet
+	server     int    // the highlighted MCP server among the highlighted plugin's contents
+	inContents bool   // the keys act on the highlighted MCP server, not the row
+	quitting   bool   // asking to quit with unsaved changes
+	searching  bool   // the keys type into the search
 }
 
 // newTUI is the model of a fresh TUI over s.
 func newTUI(s *equip.Session) *model {
-	return &model{s: s, style: newStyles(), cur: 0, server: 0, inContents: false, quitting: false, flash: ""}
+	tui := &model{
+		s: s, style: newStyles(), cur: 0, facet: 0, server: 0, inContents: false, quitting: false, searching: false,
+		flash: "", query: "", key: "", pinned: "",
+	}
+	tui.clamp()
+
+	return tui
 }
 
 func (m *model) Init() tea.Cmd { return nil }
@@ -103,7 +115,16 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 
-	cmd := m.press(key)
+	var cmd tea.Cmd
+
+	switch {
+	case m.searching:
+		cmd = m.search(keyMsg)
+	case !m.narrow(key):
+		cmd = m.press(key)
+	}
+
+	m.clamp()
 
 	return m, cmd
 }
@@ -120,25 +141,13 @@ func (m *model) View() tea.View {
 		top = append(top, m.style.warn.Render(fmt.Sprintf("%d unsaved", session.Unsaved)))
 	}
 
-	list := make([]string, 0, len(session.Rows))
-	for i, row := range session.Rows {
-		mark, name := "  ", row.Name
-		if i == m.cur {
-			mark, name = m.style.cur.Render("▸ "), m.style.cur.Render(name)
-		}
+	rows := m.rows(session)
 
-		if row.Unsaved {
-			name += m.style.warn.Render("*")
-		}
-
-		list = append(list, mark+glyph(row.State)+" "+name+" "+m.style.dim.Render(costOf(row.CostUnknown, row.Cost)))
-	}
-
-	panes := []string{m.style.pane.Render(strings.Join(list, "\n"))}
-	if m.cur < len(session.Rows) {
-		row, server := session.Rows[m.cur], ""
+	panes := []string{m.style.pane.Render(m.sidebar(session.Facets)), m.style.pane.Render(m.list(rows))}
+	if m.cur < len(rows) {
+		row, server := rows[m.cur], ""
 		if m.inContents {
-			server, _ = m.target(session.Rows, m.servers(session.Rows))
+			server, _ = m.target(rows, m.servers(rows))
 		}
 
 		panes = append(panes, m.style.pane.Render(m.detail(row, m.s.Detail(row.Key), server)))
@@ -159,16 +168,151 @@ func (m *model) footer(unsaved int) string {
 		return m.style.warn.Render(fmt.Sprintf("%d unsaved changes. Quit without saving? y/n", unsaved))
 	case m.flash != "":
 		return m.flash
+	case m.searching:
+		return m.style.dim.Render("type to search  enter done  esc clear")
 	case m.inContents:
 		return m.style.dim.Render("↑↓ MCP server  1-2 set state  x drop override  m measure  tab list  s save  q quit")
 	}
 
-	return m.style.dim.Render("↑↓ move  1-3 set state  x drop override  m measure  tab MCP servers  s save  q quit")
+	return m.style.dim.Render(
+		"↑↓ move  [ ] facet  / search  1-3 set state  x drop override  m measure  tab MCP servers  s save  q quit")
+}
+
+// sidebar is the facet sidebar, with the picked one of facets highlighted.
+func (m *model) sidebar(facets []equip.Facet) string {
+	lines := make([]string, 0, len(facets))
+
+	for index, facet := range facets {
+		if facet.NewGroup {
+			lines = append(lines, "")
+		}
+
+		label := fmt.Sprintf("%-16s %3d", facet.Name, facet.Count())
+		if index == m.facet {
+			lines = append(lines, m.style.cur.Render("▸ "+label))
+		} else {
+			lines = append(lines, "  "+label)
+		}
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// list is the list of rows, under the search when there is one.
+func (m *model) list(rows []equip.Row) string {
+	lines := make([]string, 0, len(rows)+1)
+	if m.searching || m.query != "" {
+		lines = append(lines, m.style.cur.Render("/"+m.query))
+	}
+
+	for i, row := range rows {
+		mark, name := "  ", row.Name
+		if i == m.cur {
+			mark, name = m.style.cur.Render("▸ "), m.style.cur.Render(name)
+		}
+
+		if row.Unsaved {
+			name += m.style.warn.Render("*")
+		}
+
+		lines = append(lines, mark+glyph(row.State)+" "+name+" "+m.style.dim.Render(costOf(row.CostUnknown, row.Cost)))
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// search acts on keyMsg while the keys type into the search: enter ends it,
+// esc clears it too, and ctrl+c quits. A key that types nothing does nothing.
+func (m *model) search(keyMsg tea.KeyPressMsg) tea.Cmd {
+	switch keyMsg.String() {
+	case "ctrl+c":
+		return m.quit()
+	case "enter":
+		m.searching = false
+	case "esc":
+		m.searching, m.query = false, ""
+	case "backspace":
+		query := []rune(m.query)
+		m.query = string(query[:max(len(query)-1, 0)])
+	default:
+		if keyMsg.Text != "" {
+			m.query += keyMsg.Text
+			m.first()
+		}
+	}
+
+	return nil
+}
+
+// first highlights the first row of a list narrowed anew.
+func (m *model) first() { m.cur, m.key, m.pinned = 0, "", "" }
+
+// clamp keeps the highlight on its row while the list has it, else at its
+// place in the list. The list drops a pinned row once the highlight leaves
+// it, and the keys leave the contents of a row the highlight leaves or that
+// has no MCP server left to highlight.
+func (m *model) clamp() {
+	rows := m.rows(m.s.View())
+	if i := index(rows, m.key); i >= 0 {
+		m.cur = i
+	}
+
+	m.cur = max(min(m.cur, len(rows)-1), 0)
+
+	key := ""
+	if m.cur < len(rows) {
+		key = rows[m.cur].Key
+	}
+
+	if key != m.pinned {
+		m.pinned = ""
+		rows = m.rows(m.s.View())
+		m.cur = max(index(rows, key), 0)
+	}
+
+	if key != m.key {
+		m.inContents, m.server = false, 0
+	}
+
+	m.key = key
+	servers := m.servers(rows)
+	m.server = max(min(m.server, len(servers)-1), 0)
+	m.inContents = m.inContents && len(servers) > 0
+}
+
+// index is the index of the row with key among rows, or -1.
+func index(rows []equip.Row, key string) int {
+	return slices.IndexFunc(rows, func(row equip.Row) bool { return row.Key == key })
+}
+
+// rows are the rows of session the picked facet and the search keep, and the
+// pinned row.
+func (m *model) rows(session equip.View) []equip.Row {
+	facet, query := session.Facets[m.facet], strings.ToLower(m.query)
+
+	var rows []equip.Row
+
+	for _, row := range session.Rows {
+		if row.Key == m.pinned || facet.Has(row) && m.matches(row, query) {
+			rows = append(rows, row)
+		}
+	}
+
+	return rows
+}
+
+// matches reports whether the name of row, or of one of its MCP servers,
+// contains query, in lower case.
+func (m *model) matches(row equip.Row, query string) bool {
+	return strings.Contains(strings.ToLower(row.Name), query) ||
+		slices.ContainsFunc(m.s.Detail(row.Key).Contents, func(content equip.Content) bool {
+			return content.Kind == equip.MCPServer && strings.Contains(strings.ToLower(content.Name), query)
+		})
 }
 
 // press acts on key on the main screen.
 func (m *model) press(key string) tea.Cmd {
-	rows := m.s.View().Rows
+	rows := m.rows(m.s.View())
 	servers := m.servers(rows)
 
 	switch key {
@@ -178,11 +322,15 @@ func (m *model) press(key string) tea.Cmd {
 		m.inContents = !m.inContents && len(servers) > 0
 		m.server = 0
 	case "up", "k":
-		m.move(-1, len(rows), len(servers))
+		m.move(-1)
 	case "down", "j":
-		m.move(1, len(rows), len(servers))
+		m.move(1)
 	case "1", "2", "3", "x", "m":
 		if target, ok := m.target(rows, servers); ok {
+			// The list keeps the row even when the key takes it out of the
+			// facet, so a second press does not act on the next row.
+			m.pinned = m.key
+
 			return m.act(key, target)
 		}
 	case "s":
@@ -195,13 +343,34 @@ func (m *model) press(key string) tea.Cmd {
 	return nil
 }
 
+// narrow acts on key if it narrows the list: / starts the search, esc clears
+// it, and [ and ] pick the previous and next facet. It reports whether it
+// did.
+func (m *model) narrow(key string) bool {
+	facets := len(m.s.View().Facets)
+
+	switch key {
+	case "/":
+		m.searching = true
+	case "esc":
+		m.query = ""
+	case "[", "]":
+		m.facet = (m.facet + map[string]int{"[": -1, "]": 1}[key] + facets) % facets
+		m.first()
+	default:
+		return false
+	}
+
+	return true
+}
+
 // move moves the highlight by delta among the MCP servers in the contents,
-// else among the rows; servers and rows count them.
-func (m *model) move(delta, rows, servers int) {
+// else among the rows. clamp keeps it on them.
+func (m *model) move(delta int) {
 	if m.inContents {
-		m.server = max(min(m.server+delta, servers-1), 0)
+		m.server += delta
 	} else {
-		m.cur = max(min(m.cur+delta, rows-1), 0)
+		m.cur, m.key = m.cur+delta, ""
 	}
 }
 
