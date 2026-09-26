@@ -69,7 +69,43 @@ type View struct {
 	// on but not measured yet.
 	Unknown map[Agent]bool
 	Rows    []Row
-	Unsaved int // pending changes a save would write
+	Facets  []Facet // the ways to narrow Rows, in the order the sidebar shows them
+	Unsaved int     // pending changes a save would write
+}
+
+// Facet is a way to narrow the list.
+type Facet struct {
+	keys map[string]bool // of the rows it keeps
+	Name string
+}
+
+// Has reports whether the facet keeps row.
+func (f Facet) Has(row Row) bool { return f.keys[row.Key] }
+
+// Count is the number of rows the facet keeps.
+func (f Facet) Count() int { return len(f.keys) }
+
+// facet is the name of a Facet and the test of the rows it keeps.
+type facet struct {
+	has  func(ext Extension, row Row) bool
+	name string
+}
+
+// kind is the facet of the rows of kind k.
+func kind(name string, k Kind) facet {
+	return facet{name: name, has: func(_ Extension, row Row) bool { return row.Kind == k }}
+}
+
+// only is the facet of the rows only agent has.
+func only(agent Agent) facet {
+	return facet{name: agent.String() + " only", has: func(ext Extension, _ Row) bool {
+		return !slices.ContainsFunc(Agents(), func(other Agent) bool { return other != agent && ext.has(other) })
+	}}
+}
+
+// state is the facet of the rows in state st.
+func state(name string, st State) facet {
+	return facet{name: name, has: func(_ Extension, row Row) bool { return row.State == st }}
 }
 
 // Row is one extension in the list.
@@ -227,7 +263,9 @@ func (s *Session) View() View {
 
 	totals, unknown := s.totals()
 
-	return View{Project: s.project, Rows: rows, Unsaved: s.unsavedCount(), Totals: totals, Unknown: unknown}
+	return View{
+		Project: s.project, Rows: rows, Facets: s.facets(rows), Unsaved: s.unsavedCount(), Totals: totals, Unknown: unknown,
+	}
 }
 
 // fixedCost is the tokens of the blocks agent puts into a session once: the
@@ -381,6 +419,40 @@ func (s *Session) Save() error {
 	clear(s.outside)
 
 	return nil
+}
+
+// facets are the facets of rows, in the order the sidebar shows them.
+func (s *Session) facets(rows []Row) []Facet {
+	all := []facet{
+		{name: "All", has: func(Extension, Row) bool { return true }},
+		kind("Skills", Skill), kind("Plugins", Plugin), kind("MCP servers", MCPServer),
+		only(ClaudeCode), only(Codex),
+		state("On", On), state("Manual-only", ManualOnly), state("Off", Off),
+		// A plugin's row has an Override of its own or one of its MCP servers'.
+		{name: "Overrides", has: func(ext Extension, row Row) bool {
+			return row.Override || slices.ContainsFunc(s.exts, func(e Extension) bool {
+				_, override := s.overrides[e.Key]
+
+				return e.plugin == ext.Key && override
+			})
+		}},
+		{name: "Unsaved changes", has: func(_ Extension, row Row) bool { return row.Unsaved }},
+	}
+	out := make([]Facet, 0, len(all))
+
+	for _, def := range all {
+		keys := map[string]bool{}
+
+		for _, row := range rows {
+			if ext, _ := s.ext(row.Key); def.has(ext, row) {
+				keys[row.Key] = true
+			}
+		}
+
+		out = append(out, Facet{Name: def.name, keys: keys})
+	}
+
+	return out
 }
 
 // totals are the estimated tokens of a session in each agent, and whether

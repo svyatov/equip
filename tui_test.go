@@ -7,6 +7,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -599,5 +600,233 @@ func TestDetailPaneSaysABuiltInServerIsBuiltIntoClaudeCode(t *testing.T) {
 
 	if line(newModel(t, machine), "built into Claude Code") == "" {
 		t.Error("detail pane does not say the server is built into Claude Code")
+	}
+}
+
+func TestSidebarCountsTheRowsOfEachFacet(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "review")
+	machine.Skill(machine.ClaudeSkills(), "lint")
+	machine.Plugin("github@official", "user", "")
+	tui := newModel(t, machine)
+
+	for _, want := range []string{`All +3\b`, `Skills +2\b`, `Plugins +1\b`, `MCP servers +0\b`, `Unsaved changes +0\b`} {
+		if !regexp.MustCompile(want).MatchString(tui.View().Content) {
+			t.Errorf("sidebar does not show %q:\n%s", want, tui.View().Content)
+		}
+	}
+}
+
+func TestPickingAFacetNarrowsTheList(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "review")
+	machine.Plugin("github@official", "user", "")
+	tui := newModel(t, machine)
+
+	press(tui, key(']'), key(']'))
+
+	if view := tui.View().Content; strings.Contains(view, "review") || !strings.Contains(view, "github@official") {
+		t.Errorf("Plugins facet does not show the plugin alone:\n%s", view)
+	}
+
+	if got := line(tui, "Plugins"); !strings.Contains(got, "▸") {
+		t.Errorf("sidebar line %q does not mark the picked facet", got)
+	}
+}
+
+func TestPreviousFacetKeyWrapsToTheLastFacet(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "review")
+	machine.Skill(machine.ClaudeSkills(), "lint")
+	tui := newModel(t, machine)
+
+	press(tui, down(), key('3'), key('['))
+
+	if view := tui.View().Content; strings.Contains(view, "lint") || !strings.Contains(view, "review") {
+		t.Errorf("Unsaved changes facet does not show review alone:\n%s", view)
+	}
+}
+
+func TestPickingAFacetHighlightsTheFirstRow(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "alpha")
+	machine.Skill(machine.ClaudeSkills(), "beta")
+	tui := newModel(t, machine)
+
+	press(tui, down(), key(']'))
+
+	if got := line(tui, "alpha"); !strings.Contains(got, "▸") {
+		t.Errorf("row line %q is not highlighted:\n%s", got, tui.View().Content)
+	}
+}
+
+func TestPickingAFacetLeavesThePluginsContents(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	dir := machine.Plugin("github@official", "user", "")
+	machine.WriteFile(filepath.Join(dir, ".mcp.json"), `{"mcpServers": {"search": {"command": "search"}}}`)
+	tui := newModel(t, machine)
+	tab := tea.KeyPressMsg{Code: tea.KeyTab}
+
+	// search off, then the Unsaved changes facet, which keeps the plugin.
+	press(tui, tab, key('2'), key('['))
+
+	if tui.inContents {
+		t.Error("keys still act on the MCP server after picking a facet")
+	}
+}
+
+func TestKeysStayOnTheListAfterTheHighlightedPluginLeavesTheFacet(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	dir := machine.Plugin("github@official", "user", "")
+	machine.WriteFile(filepath.Join(dir, ".mcp.json"), `{"mcpServers": {"search": {"command": "search"}}}`)
+	tui := newModel(t, machine)
+
+	// Off by hand, then its Override dropped from the Overrides facet.
+	tab := tea.KeyPressMsg{Code: tea.KeyTab}
+	press(tui, tab, key('2'), key('['), key('['), tab, key('x'))
+
+	if tui.inContents {
+		t.Fatalf("keys still act on the MCP server of a plugin that left the facet:\n%s", tui.View().Content)
+	}
+
+	press(tui, key('2'))
+}
+
+func TestSlashSearchesTheListByName(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "Review")
+	machine.Skill(machine.ClaudeSkills(), "lint")
+	tui := newModel(t, machine)
+
+	press(tui, key('/'), key('r'), key('E'), key('v'))
+
+	if view := tui.View().Content; strings.Contains(view, "lint") || !strings.Contains(view, "Review") {
+		t.Errorf("search /rEv does not show Review alone:\n%s", view)
+	}
+}
+
+func TestEnterEndsTheSearchAndKeepsItsRows(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "lint")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	tui := newModel(t, machine)
+
+	press(tui, key('/'), key('i'), key('e'), key('w'), tea.KeyPressMsg{Code: tea.KeyEnter}, key('3'))
+
+	if r := tui.s.View().Rows[1]; r.State != equip.Off {
+		t.Errorf("review = %+v, want off", r)
+	}
+
+	if line(tui, "/iew") == "" {
+		t.Errorf("list does not show the search:\n%s", tui.View().Content)
+	}
+}
+
+func TestEscClearsTheSearch(t *testing.T) {
+	t.Parallel()
+
+	esc, enter := tea.KeyPressMsg{Code: tea.KeyEscape}, tea.KeyPressMsg{Code: tea.KeyEnter}
+
+	for name, keys := range map[string][]tea.KeyPressMsg{
+		"while typing": {key('/'), key('i'), esc},
+		"after enter":  {key('/'), key('i'), enter, esc},
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			machine := equiptest.New(t)
+			machine.Skill(machine.ClaudeSkills(), "lint")
+			machine.Skill(machine.ClaudeSkills(), "review")
+			tui := newModel(t, machine)
+
+			press(tui, append(keys, key('3'))...)
+
+			if view := tui.View().Content; !strings.Contains(view, "lint") || strings.Contains(view, "/i") {
+				t.Errorf("search stays after esc:\n%s", view)
+			}
+
+			if r := tui.s.View().Rows[0]; r.State != equip.Off {
+				t.Errorf("lint = %+v, want off: the keys act on the list again", r)
+			}
+		})
+	}
+}
+
+func TestBackspaceDeletesTheLastLetterOfTheSearch(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "lint")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	tui := newModel(t, machine)
+
+	press(tui, key('/'), key('é'), key('x'), backspace(), backspace(), backspace(), key('i'), key('e'), backspace())
+
+	if line(tui, "/i") == "" || !strings.Contains(tui.View().Content, "lint") {
+		t.Errorf("search is not /i:\n%s", tui.View().Content)
+	}
+}
+
+func backspace() tea.KeyPressMsg { return tea.KeyPressMsg{Code: tea.KeyBackspace} }
+
+func TestTypingHighlightsTheFirstMatch(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+
+	for _, name := range []string{"lint", "rename", "review"} {
+		machine.Skill(machine.ClaudeSkills(), name)
+	}
+
+	tui := newModel(t, machine)
+
+	press(tui, down(), down(), key('/'), key('e'))
+
+	if got := line(tui, "rename"); !strings.Contains(got, "▸") {
+		t.Errorf("row line %q is not highlighted:\n%s", got, tui.View().Content)
+	}
+}
+
+func TestHighlightStaysOnAnMCPServerOfThePluginThatTakesTheRow(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	alpha := machine.Plugin("alpha@official", "user", "")
+	machine.WriteFile(filepath.Join(alpha, ".mcp.json"),
+		`{"mcpServers": {"one": {"command": "one"}, "two": {"command": "two"}}}`)
+	beta := machine.Plugin("beta@official", "user", "")
+	machine.WriteFile(filepath.Join(beta, ".mcp.json"), `{"mcpServers": {"three": {"command": "three"}}}`)
+	tui := newModel(t, machine)
+	tab, up := tea.KeyPressMsg{Code: tea.KeyTab}, tea.KeyPressMsg{Code: tea.KeyUp}
+
+	// beta off and alpha's two off, then two's Override dropped from the
+	// Overrides facet, so beta takes alpha's row.
+	press(tui, down(), key('2'), up, tab, down(), key('2'), key('['), key('['), tab, down(), key('x'))
+
+	if tui.server != 0 {
+		t.Fatalf("highlighted MCP server %d, want 0, the only one of beta", tui.server)
+	}
+
+	if got := line(tui, "three"); !strings.Contains(got, "▸") {
+		t.Errorf("contents line %q is not highlighted:\n%s", got, tui.View().Content)
+	}
+}
+
+func TestHighlightMovesUpWhenTheLastRowLeavesTheFacet(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "alpha")
+	machine.Skill(machine.ClaudeSkills(), "beta")
+	tui := newModel(t, machine)
+
+	// The On facet, then beta off.
+	press(tui, key(']'), key(']'), key(']'), key(']'), key(']'), key(']'), down(), key('3'))
+
+	if got := line(tui, "alpha"); !strings.Contains(got, "▸") {
+		t.Errorf("row line %q is not highlighted:\n%s", got, tui.View().Content)
 	}
 }
