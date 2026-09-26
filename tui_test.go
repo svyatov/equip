@@ -53,18 +53,22 @@ func quits(cmd tea.Cmd) bool {
 	return ok
 }
 
-// line returns the first line of the view that contains s. A line holds the
-// sidebar, the list and the detail pane side by side, so s can match in any of
-// them; for the highlighted row, use highlighted.
+// line returns the first line of the view whose text, styles left out,
+// contains s. The line it returns keeps its styles. A line holds the sidebar,
+// the list and the detail pane side by side, so s can match in any of them;
+// for the highlighted row, use highlighted.
 func line(tui *model, s string) string {
 	for l := range strings.Lines(tui.View().Content) {
-		if strings.Contains(l, s) {
+		if strings.Contains(styleCodes.ReplaceAllString(l, ""), s) {
 			return l
 		}
 	}
 
 	return ""
 }
+
+// styleCodes matches the escape codes that style the view's text.
+var styleCodes = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
 // highlighted returns the name of the highlighted row in the list tui shows.
 func highlighted(tui *model) string {

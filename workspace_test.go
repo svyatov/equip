@@ -299,7 +299,7 @@ func TestMembersPaneMarksEditsAndOverrides(t *testing.T) {
 	}
 
 	// lint has an Override, and is removed: marked and struck through.
-	if lint := line(tui, "ovr"); !strings.Contains(lint, "- ") || !strings.Contains(lint, "\x1b[9m") {
+	if lint := line(tui, "- lint ~0 ovr"); !strings.Contains(lint, "\x1b[9m") {
 		t.Errorf("members pane does not strike lint through:\n%s", tui.View().Content)
 	}
 }
@@ -308,7 +308,7 @@ func TestRightPaneShowsTheUsersOrTheHighlightedExtensionsPresets(t *testing.T) {
 	t.Parallel()
 	tui, machine := ruby(t)
 
-	if line(tui, "Used by 1 projects") == "" || !strings.Contains(line(tui, machine.Root), "(here)") {
+	if line(tui, "Used by 1 projects") == "" || line(tui, machine.Root+" (here)") == "" {
 		t.Errorf("right pane does not show the project using Ruby:\n%s", tui.View().Content)
 	}
 
