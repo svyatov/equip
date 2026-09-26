@@ -27,19 +27,9 @@ func (m *model) inWorkspace(key string) {
 
 	switch key {
 	case "space":
-		if m.preset >= len(presets) {
-			return
+		if m.preset < len(presets) {
+			m.s.TogglePreset(presets[m.preset].ID)
 		}
-
-		var active []string
-
-		for _, preset := range presets {
-			if preset.Active != (preset.ID == presets[m.preset].ID) {
-				active = append(active, preset.ID)
-			}
-		}
-
-		m.s.SetPresets(active)
 	case escKey:
 		m.workspace = false
 	}

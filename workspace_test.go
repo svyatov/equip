@@ -1,11 +1,14 @@
 package main
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
 
+	"github.com/svyatov/equip/internal/equip"
 	"github.com/svyatov/equip/internal/equiptest"
 )
 
@@ -100,6 +103,57 @@ func TestWorkspaceComparesWithTheViewAtItsOpening(t *testing.T) {
 
 	if top := topLine(tui); strings.Contains(top, "→") {
 		t.Errorf("top line %q shows a change since opening", top)
+	}
+}
+
+func TestSpaceKeepsAnActivePresetWhoseFileIsMissing(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	old := filepath.Join(machine.ConfigHome, "equip", "presets", "Old.toml")
+	machine.WriteFile(old, `id = "o1"`)
+
+	session, err := equip.Open(machine.Machine, machine.Root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session.SetPresets([]string{"o1"})
+
+	err = session.Save()
+	if err == nil {
+		err = os.Remove(old)
+	}
+
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	tui := newModel(t, machine)
+	press(tui, key('p'), key(' '))
+
+	err = tui.s.Save()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	files, _ := filepath.Glob(filepath.Join(machine.StateHome, "equip", "*.toml"))
+	data, _ := os.ReadFile(files[0])
+
+	for _, want := range []string{`'o1'`, `'r1'`} {
+		if !strings.Contains(string(data), want) {
+			t.Errorf("record does not keep %s active:\n%s", want, data)
+		}
+	}
+}
+
+func TestSpaceRemovesOnlyTheHighlightedPreset(t *testing.T) {
+	t.Parallel()
+	tui := presetModel(t)
+
+	press(tui, key('p'), key(' '), down(), key(' '), key('k'), key(' '))
+
+	if line(tui, "[ ] Ruby") == "" || line(tui, "[x] Writing") == "" {
+		t.Errorf("want only Writing active:\n%s", tui.View().Content)
 	}
 }
 

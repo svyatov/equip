@@ -66,6 +66,24 @@ func TestLibraryShowsWhereEachPresetIsActive(t *testing.T) {
 	}
 }
 
+func TestLibraryDoesNotCountAProjectWhosePathIsGone(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	repo := machine.Repo("app")
+	app := newSession(t, machine, repo)
+	app.SetPresets([]string{"r1"})
+	save(t, app)
+
+	err := os.RemoveAll(repo)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := newSession(t, machine, machine.Repo("other")).Presets()[0].Projects; got != 0 {
+		t.Errorf("Ruby's projects = %d, want 0", got)
+	}
+}
+
 func TestLibraryKeepsAndMarksMembersNotInstalled(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)
@@ -135,6 +153,30 @@ func TestPresetWithoutAnIDFailsToOpen(t *testing.T) {
 	_, err := equip.Open(machine.Machine, machine.Root)
 	if err == nil || !strings.Contains(err.Error(), "Ruby.toml") {
 		t.Errorf("Open = %v, want an error naming Ruby.toml", err)
+	}
+}
+
+func TestTwoPresetsWithOneIDFailToOpen(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	machine.Preset("Ruby copy", `id = "r1"
+skills = ["review"]`)
+
+	_, err := equip.Open(machine.Machine, machine.Root)
+	if err == nil || !strings.Contains(err.Error(), "Ruby copy.toml") || !strings.Contains(err.Error(), "Ruby.toml") {
+		t.Errorf("Open = %v, want an error naming Ruby.toml and Ruby copy.toml", err)
+	}
+}
+
+func TestPresetWithAnUnknownKeyFailsToOpen(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Preset("Data", `id = "data"
+mcp = ["github"]`)
+
+	_, err := equip.Open(machine.Machine, machine.Root)
+	if err == nil || !strings.Contains(err.Error(), "Data.toml") {
+		t.Errorf("Open = %v, want an error naming Data.toml", err)
 	}
 }
 
@@ -279,6 +321,26 @@ mcp_servers = ["db"]`)
 
 	if got := settings["disabledMcpjsonServers"]; got != nil {
 		t.Errorf("disabledMcpjsonServers = %v, want none", got)
+	}
+}
+
+func TestHandEditUnderAnActivePresetIsImportedAsAnOverride(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	repo := machine.Repo("app")
+	session := newSession(t, machine, repo)
+	session.SetPresets([]string{"r1"})
+	save(t, session)
+	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"docs": "off", "lint": "on", "review": "on"}}`)
+
+	view := newSession(t, machine, repo).View()
+
+	if got := row(t, view, "review"); got.State != equip.On || !got.Override || !got.ChangedOutside {
+		t.Errorf("review = %+v, want an Override on, changed outside", got)
+	}
+
+	if got := row(t, view, "docs"); got.Override || got.ChangedOutside || got.State != equip.Off {
+		t.Errorf("docs = %+v, want off from the preset", got)
 	}
 }
 

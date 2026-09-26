@@ -1,10 +1,12 @@
 package equip
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -43,6 +45,10 @@ type presetFile struct {
 // keep active.
 var errNoID = errors.New("preset has no id")
 
+// errTakenID is the error of a preset file whose id another preset file
+// has, as a copied file does.
+var errTakenID = errors.New("shares the id")
+
 // presetsDir is the dir of the presets, one file each, named after the preset.
 func presetsDir(machine Machine) string { return filepath.Join(machine.ConfigHome, "equip", "presets") }
 
@@ -51,6 +57,7 @@ func readPresets(machine Machine) ([]Preset, error) {
 	// Glob sorts by file name, which is the preset's name.
 	files, _ := filepath.Glob(filepath.Join(presetsDir(machine), "*.toml"))
 	presets := make([]Preset, 0, len(files))
+	byID := map[string]string{} // the file of each id
 
 	for _, file := range files {
 		data, err := os.ReadFile(file) //nolint:gosec // equip builds the path
@@ -60,14 +67,23 @@ func readPresets(machine Machine) ([]Preset, error) {
 
 		var preset presetFile
 
-		err = toml.Unmarshal(data, &preset)
-		if err == nil && preset.ID == "" {
+		// Strict, so a misspelled kind fails here and does not turn its
+		// members off.
+		err = toml.NewDecoder(bytes.NewReader(data)).DisallowUnknownFields().Decode(&preset)
+
+		switch {
+		case err != nil:
+		case preset.ID == "":
 			err = errNoID
+		case byID[preset.ID] != "":
+			err = fmt.Errorf("%w %q with %s", errTakenID, preset.ID, byID[preset.ID])
 		}
 
 		if err != nil {
 			return nil, fmt.Errorf("read %s: %w", file, err)
 		}
+
+		byID[preset.ID] = file
 
 		var members []Member
 
@@ -90,7 +106,12 @@ func readPresets(machine Machine) ([]Preset, error) {
 func (s *Session) Presets() []Preset {
 	// ponytail: reads every record on each call; keep the counts if a
 	// machine ever holds enough records to notice.
-	recs := records(s.machine)
+	// An Orphan's project is gone, so it uses no preset.
+	recs := slices.DeleteFunc(records(s.machine), func(rec record) bool {
+		_, err := os.Stat(rec.Path)
+
+		return errors.Is(err, fs.ErrNotExist)
+	})
 	out := make([]Preset, 0, len(s.library))
 
 	for _, preset := range s.library {
@@ -118,6 +139,17 @@ func (s *Session) Presets() []Preset {
 func (s *Session) SetPresets(active []string) {
 	// Sorted, so the same presets in another order are no change.
 	s.active = slices.Compact(slices.Sorted(slices.Values(active)))
+}
+
+// TogglePreset makes the preset with id active in the Project, or no longer
+// active. The other active presets stay, a missing one too.
+func (s *Session) TogglePreset(id string) {
+	active := slices.Clone(s.active)
+	if i := slices.Index(active, id); i >= 0 {
+		s.SetPresets(slices.Delete(active, i, i+1))
+	} else {
+		s.SetPresets(append(active, id))
+	}
 }
 
 // TurnedSince counts the rows that turned into each state since the view
