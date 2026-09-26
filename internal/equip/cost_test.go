@@ -258,3 +258,85 @@ func TestSkillThatDisablesModelInvocationKeepsItsCostInCodex(t *testing.T) {
 		t.Errorf("Cost = %d, want 8", got)
 	}
 }
+
+func TestCodexListingPastTheBudgetIsOverBudgetAndKeepsEverySkill(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.SkillsAtCodexBudget(machine.CodexSkills())
+	writeSkill(t, machine.CodexSkills(), "x", "") // 3 + 1 = 4 bytes: 1
+
+	got := open(t, machine, machine.Root)
+	if !got.OverBudget[equip.Codex] || got.Totals[equip.Codex] != 6141 {
+		t.Errorf("Codex over = %v, total = %d, want true and 6141", got.OverBudget[equip.Codex], got.Totals[equip.Codex])
+	}
+}
+
+func TestCodexListingAtTheBudgetIsNotOverBudget(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.SkillsAtCodexBudget(machine.CodexSkills())
+
+	// The skills intro puts the total past the budget; it is not in the listing.
+	got := open(t, machine, machine.Root)
+	if got.OverBudget[equip.Codex] || got.Totals[equip.Codex] != 6140 {
+		t.Errorf("Codex over = %v, total = %d, want false and 6140", got.OverBudget[equip.Codex], got.Totals[equip.Codex])
+	}
+}
+
+func TestPluginSkillsCountTowardTheListingBudget(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.SkillsAtCodexBudget(machine.CodexSkills())
+	machine.Skill(filepath.Join(codexPlugin(t, machine, "github@official"), "skills"), "review")
+
+	if got := open(t, machine, machine.Root).OverBudget; !got[equip.Codex] {
+		t.Errorf("OverBudget = %v, want Codex over budget", got)
+	}
+}
+
+func TestMCPServersDoNotCountTowardTheListingBudget(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.SkillsAtCodexBudget(machine.CodexSkills())
+	fakeCodexServer(t, machine) // 4 tokens
+	probedRow(t, machine, repo)
+
+	got := open(t, machine, repo)
+	if got.OverBudget[equip.Codex] || got.Totals[equip.Codex] != 6144 {
+		t.Errorf("Codex over = %v, total = %d, want false and 6144", got.OverBudget[equip.Codex], got.Totals[equip.Codex])
+	}
+}
+
+func TestPluginMCPServersDoNotCountTowardTheListingBudget(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.SkillsAtCodexBudget(machine.CodexSkills())
+	writeJSON(t, filepath.Join(codexPlugin(t, machine, "github@official"), ".mcp.json"), map[string]any{
+		"mcpServers": map[string]any{"fake": fakeConfig(t, "modern", "")},
+	})
+
+	session := newSession(t, machine, repo)
+
+	err := session.ProbeCost("mcp:github@official:fake")()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// The skills, the skills intro, the plugins block and the server's 4.
+	if got := session.View(); got.OverBudget[equip.Codex] || got.Totals[equip.Codex] != 6394 {
+		t.Errorf("Codex over = %v, total = %d, want false and 6394", got.OverBudget[equip.Codex], got.Totals[equip.Codex])
+	}
+}
+
+func TestClaudeCodeTotalIsNeverOverBudget(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.SkillsAtCodexBudget(machine.ClaudeSkills())
+	writeSkill(t, machine.ClaudeSkills(), "x", "")
+
+	if got := open(t, machine, machine.Root).OverBudget; got[equip.ClaudeCode] {
+		t.Errorf("OverBudget = %v, want Claude Code not over budget", got)
+	}
+}

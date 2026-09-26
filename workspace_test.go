@@ -27,6 +27,59 @@ func topLine(tui *model) string {
 	return top
 }
 
+// writeCodexOverBudget adds Codex skills at the listing budget to machine, and
+// the Codex plugin github@official, whose skill puts them past it, on in the
+// trusted machine.Root.
+func writeCodexOverBudget(machine *equiptest.Machine) {
+	machine.SkillsAtCodexBudget(machine.CodexSkills())
+	machine.Skill(filepath.Join(machine.CodexPlugin("github@official"), "skills"), "review")
+	machine.WriteFile(machine.CodexConfig(),
+		"[plugins.\"github@official\"]\nenabled = true\n[projects.\""+machine.Root+"\"]\ntrust_level = \"trusted\"\n")
+}
+
+func TestWorkspaceTopLineMarksTheSideOverBudget(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	writeCodexOverBudget(machine)
+	tui := newModel(t, machine)
+
+	// Ruby turns the plugin off: its skill, 8, and the plugins block, 250.
+	press(tui, key('p'), key(' '))
+
+	if top := topLine(tui); !strings.Contains(top, "Codex ~6398 over budget → ~6140") {
+		t.Errorf("top line %q does not mark the total before over budget", top)
+	}
+
+	press(tui, esc(), key('s'), key('p'), key(' '))
+
+	if top := topLine(tui); !strings.Contains(top, "Codex ~6140 → ~6398 over budget") {
+		t.Errorf("top line %q does not mark the total after over budget", top)
+	}
+}
+
+func TestWriteConfirmMarksTheSideOverBudget(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	writeCodexOverBudget(machine)
+	using(t, machine, machine.Root, "r1")
+	tui := newModel(t, machine)
+
+	press(tui, key('p'), key('a'), key('/'))
+	press(tui, typed("github")...)
+	press(tui, enter(), key(' '), esc(), key('w'))
+
+	if line(tui, "Codex ~6140 → ~6398 over budget") == "" {
+		t.Errorf("confirm does not mark the total after over budget:\n%s", tui.View().Content)
+	}
+
+	// The members pane keeps lint highlighted; the plugin is two rows down.
+	press(tui, key('y'), down(), down(), key(' '), key('w'))
+
+	if line(tui, "Codex ~6398 over budget → ~6140") == "" {
+		t.Errorf("confirm does not mark the total before over budget:\n%s", tui.View().Content)
+	}
+}
+
 func TestPresetsKeyOpensTheLibrary(t *testing.T) {
 	t.Parallel()
 	tui := presetModel(t)

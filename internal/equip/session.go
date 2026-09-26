@@ -82,8 +82,11 @@ type View struct {
 	// Unknown marks each agent whose total leaves out an MCP server that is
 	// on but not measured yet.
 	Unknown map[Agent]bool
-	Rows    []Row
-	Facets  []Facet // the ways to narrow Rows, in the order the sidebar shows them
+	// OverBudget marks each agent whose skill listing passes its listing
+	// budget, so the agent shortens or drops what it lists.
+	OverBudget map[Agent]bool
+	Rows       []Row
+	Facets     []Facet // the ways to narrow Rows, in the order the sidebar shows them
 	// Orphans are the paths of the records the Project can adopt on its first
 	// open: of a repo with its root commit whose path no longer exists.
 	Orphans []string
@@ -275,7 +278,7 @@ func (s *Session) View() View {
 		}
 	}
 
-	totals, unknown := s.totals()
+	totals, unknown, over := s.totals()
 
 	var presets []string
 
@@ -289,7 +292,7 @@ func (s *Session) View() View {
 
 	return View{
 		Project: s.project, Rows: rows, Facets: s.facets(rows), Unsaved: s.unsavedCount(), Totals: totals, Unknown: unknown,
-		Orphans: s.orphans, Presets: presets,
+		OverBudget: over, Orphans: s.orphans, Presets: presets,
 	}
 }
 
@@ -566,22 +569,24 @@ func (s *Session) facets(rows []Row) []Facet {
 	return out
 }
 
-// totals are the estimated tokens of a session in each agent, and whether
-// each leaves out an MCP server that is on but not measured yet.
-func (s *Session) totals() (map[Agent]int, map[Agent]bool) {
-	totals, unknown := map[Agent]int{}, map[Agent]bool{}
+// totals are the estimated tokens of a session in each agent, whether each
+// leaves out an MCP server that is on but not measured yet, and whether each
+// agent's skill listing passes its listing budget.
+func (s *Session) totals() (map[Agent]int, map[Agent]bool, map[Agent]bool) {
+	totals, unknown, over := map[Agent]int{}, map[Agent]bool{}, map[Agent]bool{}
 
 	for _, agent := range Agents() {
-		totals[agent], unknown[agent] = s.total(agent)
+		totals[agent], unknown[agent], over[agent] = s.total(agent)
 	}
 
-	return totals, unknown
+	return totals, unknown, over
 }
 
-// total is the estimated tokens of a session in agent, and whether it leaves
-// out an MCP server that is on but not measured yet.
-func (s *Session) total(agent Agent) (int, bool) {
-	total, unknown := 0, false
+// total is the estimated tokens of a session in agent, whether it leaves out
+// an MCP server that is on but not measured yet, and whether its skill listing
+// passes agent's listing budget.
+func (s *Session) total(agent Agent) (int, bool, bool) {
+	total, listingTokens, unknown := 0, 0, false
 	listed, plugins := false, false // a skill or plugin is on, so agent lists skills; a plugin is on
 
 	for _, ext := range s.exts {
@@ -592,12 +597,19 @@ func (s *Session) total(agent Agent) (int, bool) {
 
 		cost := s.costIn(agent, ext)
 		total += cost
-		listed = listed || ext.Kind != MCPServer && cost > 0
+
+		if ext.Kind != MCPServer && cost > 0 {
+			listingTokens += ext.cost[agent] // of its skills alone, without a plugin's MCP servers
+			listed = true
+		}
+
 		plugins = plugins || ext.Kind == Plugin && ext.has(agent) && s.stateIn(agent, ext) == On
 		unknown = unknown || s.unknownIn(agent, ext)
 	}
 
-	return total + fixedCost(agent, listed, plugins), unknown
+	budget := agent.listing().budget
+
+	return total + fixedCost(agent, listed, plugins), unknown, budget > 0 && listingTokens > budget
 }
 
 // readMeasurements takes the cached measurement of each MCP server, from its
