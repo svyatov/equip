@@ -1,6 +1,10 @@
 package main
 
 import (
+	"encoding/json"
+	"fmt"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -483,6 +487,84 @@ func TestMCPServerRowAndDetailPaneShowTheCostAsUnknown(t *testing.T) {
 
 	if got := line(tui, "Cost  "); !strings.Contains(got, "Claude Code unknown") {
 		t.Errorf("cost line %q does not show the cost as unknown", got)
+	}
+}
+
+// serveMCP answers MCP requests as a modern server with the instructions
+// "Use fake." and the tool a.
+func serveMCP(writer http.ResponseWriter, httpReq *http.Request) {
+	var req struct {
+		Method string          `json:"method"`
+		ID     json.RawMessage `json:"id"`
+	}
+
+	_ = json.NewDecoder(httpReq.Body).Decode(&req)
+
+	if httpReq.Header.Get("Mcp-Protocol-Version") != "2026-07-28" {
+		writer.WriteHeader(http.StatusBadRequest)
+
+		return
+	}
+
+	result := `{"instructions":"Use fake."}`
+	if req.Method == "tools/list" {
+		result = `{"tools":[{"name":"a"}]}`
+	}
+
+	writer.Header().Set("Content-Type", "application/json")
+	_, _ = fmt.Fprintf(writer, `{"jsonrpc":"2.0","id":%s,"result":%s}`, req.ID, result)
+}
+
+func TestMeasureKeyMeasuresTheHighlightedMCPServerInTheBackground(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(serveMCP))
+	t.Cleanup(server.Close)
+	machine := equiptest.New(t)
+	machine.WriteFile(filepath.Join(machine.Home, ".claude.json"),
+		`{"mcpServers": {"github": {"type": "http", "url": "`+server.URL+`"}}}`)
+	tui := newModel(t, machine)
+
+	cmd := press(tui, key('m'))
+	if cmd == nil || !strings.Contains(line(tui, "github"), "unknown") || line(tui, "measuring") == "" {
+		t.Fatalf("view after m:\n%s\nwant the cost unknown while measuring, with a command", tui.View().Content)
+	}
+
+	tui.Update(cmd())
+
+	// "Use fake." and mcp__github__a: 23 bytes.
+	if got := line(tui, "github"); !strings.Contains(got, "~8") || line(tui, "measuring") != "" {
+		t.Errorf("view:\n%s\nwant the measured cost ~8, done measuring", tui.View().Content)
+	}
+}
+
+func TestMeasureKeyShowsWhyAProbeFailed(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "review")
+	tui := newModel(t, machine)
+
+	tui.Update(press(tui, key('m'))())
+
+	if line(tui, equip.ErrCannotProbe.Error()) == "" {
+		t.Errorf("view does not say why:\n%s", tui.View().Content)
+	}
+}
+
+func TestTopLineAndPluginRowMarkAServerNotMeasuredYet(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	dir := machine.Plugin("github@official", "user", "")
+	machine.Skill(filepath.Join(dir, "skills"), "review") // "github:review" and "The review skill.": 10
+	machine.WriteFile(filepath.Join(dir, ".mcp.json"), `{"mcpServers": {"search": {"command": "search"}}}`)
+	tui := newModel(t, machine)
+
+	if got := line(tui, "equip"); !strings.Contains(got, "Claude Code ~10 + unknown") {
+		t.Errorf("top line %q does not mark the total partial", got)
+	}
+
+	if got := line(tui, "github@official"); !strings.Contains(got, "~10 + unknown") {
+		t.Errorf("row line %q does not mark the plugin's cost partial", got)
 	}
 }
 

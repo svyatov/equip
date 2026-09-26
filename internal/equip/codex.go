@@ -2,6 +2,7 @@ package equip
 
 import (
 	"cmp"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -287,12 +288,18 @@ func addCodexServers(byKey map[string]*Extension, layer codexLayer, dead []strin
 		if byKey[key] == nil {
 			byKey[key] = &Extension{
 				Kind: MCPServer, Key: key, Description: "", cost: map[Agent]int{}, fallback: map[Agent]State{},
-				Locations: nil, contents: nil, hooks: false, lists: mcpLists{on: "", off: "", settings: false},
-				builtIn: false, plugin: "", server: "", listed: "",
+				config: map[Agent]json.RawMessage{}, Locations: nil, contents: nil, hooks: false,
+				lists: mcpLists{on: "", off: "", settings: false}, builtIn: false, plugin: "", server: "", listed: "",
 			}
 		}
 
 		byKey[key].Locations = append(byKey[key].Locations, Location{Path: layer.path, Agent: Codex})
+		// Codex merges the server's table key by key.
+		config := map[string]any{}
+		_ = json.Unmarshal(byKey[key].config[Codex], &config)
+		maps.Copy(config, table(table(layer.data, codexServers), name))
+
+		byKey[key].config[Codex], _ = json.Marshal(config) //nolint:errchkjson // TOML values always encode
 	}
 }
 
@@ -349,6 +356,7 @@ func merge(exts, more []Extension) []Extension {
 		exts[same].Description = cmp.Or(exts[same].Description, ext.Description)
 		maps.Copy(exts[same].cost, ext.cost)
 		maps.Copy(exts[same].fallback, ext.fallback)
+		maps.Copy(exts[same].config, ext.config)
 	}
 
 	return exts
@@ -376,7 +384,7 @@ func readCodexPlugin(key, dir string) []Extension {
 	contents := pluginSkills(Codex, dir, man.Name)
 
 	plugin := Extension{
-		Kind: Plugin, Key: key, Description: man.Description, fallback: map[Agent]State{},
+		Kind: Plugin, Key: key, Description: man.Description, fallback: map[Agent]State{}, config: nil,
 		cost:      map[Agent]int{Codex: contentsCost(contents)},
 		Locations: []Location{{Path: dir, Agent: Codex}}, contents: contents, hooks: false,
 		lists: mcpLists{on: "", off: "", settings: false}, builtIn: false, plugin: "", server: "",

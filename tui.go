@@ -42,15 +42,21 @@ func glyph(st equip.State) string {
 // cost shows an estimate of tokens.
 func cost(tokens int) string { return fmt.Sprintf("~%d", tokens) }
 
-// costOf shows the cost of an extension of kind. An MCP server's is unknown
-// until it is measured.
-func costOf(kind equip.Kind, tokens int) string {
-	if kind == equip.MCPServer {
+// costOf shows a cost of tokens, or that it is unknown in whole or in part,
+// as an MCP server's is until it is measured.
+func costOf(unknown bool, tokens int) string {
+	switch {
+	case unknown && tokens == 0:
 		return "unknown"
+	case unknown:
+		return cost(tokens) + " + unknown"
 	}
 
 	return cost(tokens)
 }
+
+// probedMsg reports that a probe of an MCP server ended, with its error.
+type probedMsg struct{ err error }
 
 // model is the Bubble Tea root model over a Session.
 type model struct {
@@ -71,6 +77,15 @@ func newTUI(s *equip.Session) *model {
 func (m *model) Init() tea.Cmd { return nil }
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if probed, ok := msg.(probedMsg); ok {
+		m.flash = ""
+		if probed.err != nil {
+			m.flash = m.style.warn.Render("measure failed: " + probed.err.Error())
+		}
+
+		return m, nil
+	}
+
 	keyMsg, ok := msg.(tea.KeyPressMsg)
 	if !ok {
 		return m, nil
@@ -98,7 +113,7 @@ func (m *model) View() tea.View {
 
 	top := []string{m.style.top.Render("equip  " + session.Project.Path)}
 	for _, agent := range equip.Agents() {
-		top = append(top, agent.String()+" "+cost(session.Totals[agent]))
+		top = append(top, agent.String()+" "+costOf(session.Unknown[agent], session.Totals[agent]))
 	}
 
 	if session.Unsaved > 0 {
@@ -116,7 +131,7 @@ func (m *model) View() tea.View {
 			name += m.style.warn.Render("*")
 		}
 
-		list = append(list, mark+glyph(row.State)+" "+name+" "+m.style.dim.Render(costOf(row.Kind, row.Cost)))
+		list = append(list, mark+glyph(row.State)+" "+name+" "+m.style.dim.Render(costOf(row.CostUnknown, row.Cost)))
 	}
 
 	panes := []string{m.style.pane.Render(strings.Join(list, "\n"))}
@@ -145,10 +160,10 @@ func (m *model) footer(unsaved int) string {
 	case m.flash != "":
 		return m.flash
 	case m.inContents:
-		return m.style.dim.Render("↑↓ MCP server  1-2 set state  x drop override  tab list  s save  q quit")
+		return m.style.dim.Render("↑↓ MCP server  1-2 set state  x drop override  m measure  tab list  s save  q quit")
 	}
 
-	return m.style.dim.Render("↑↓ move  1-3 set state  x drop override  tab MCP servers  s save  q quit")
+	return m.style.dim.Render("↑↓ move  1-3 set state  x drop override  m measure  tab MCP servers  s save  q quit")
 }
 
 // press acts on key on the main screen.
@@ -166,9 +181,9 @@ func (m *model) press(key string) tea.Cmd {
 		m.move(-1, len(rows), len(servers))
 	case "down", "j":
 		m.move(1, len(rows), len(servers))
-	case "1", "2", "3", "x":
+	case "1", "2", "3", "x", "m":
 		if target, ok := m.target(rows, servers); ok {
-			m.act(key, target)
+			return m.act(key, target)
 		}
 	case "s":
 		err := m.s.Save()
@@ -222,14 +237,23 @@ func (m *model) target(rows []equip.Row, servers []string) (string, bool) {
 	return "", false
 }
 
-// act drops the Override of the extension with target on x, else sets the
-// state the number key picks.
-func (m *model) act(key, target string) {
-	if key == "x" {
+// act acts on the extension with target: x drops its Override, m measures
+// its cost, and a number key sets the state it picks.
+func (m *model) act(key, target string) tea.Cmd {
+	switch key {
+	case "x":
 		m.s.DropOverride(target)
-	} else {
+	case "m":
+		// The probe runs as a command, so the TUI stays live meanwhile.
+		probe := m.s.ProbeCost(target)
+		m.flash = m.style.dim.Render("measuring " + target + "…")
+
+		return func() tea.Msg { return probedMsg{err: probe()} }
+	default:
 		m.setState(target, int(key[0]-'1'))
 	}
+
+	return nil
 }
 
 // setState sets the extension with key to the state the key numbered i picks
@@ -278,7 +302,7 @@ func (m *model) detail(row equip.Row, ext equip.Detail, server string) string {
 		}
 	}
 
-	lines = append(lines, costLine(row.Kind, ext))
+	lines = append(lines, costLine(row.CostUnknown, ext))
 
 	if row.Override {
 		lines = append(lines,
@@ -323,11 +347,12 @@ func (m *model) locations(ext equip.Detail) []string {
 	return lines
 }
 
-// costLine is the detail pane line of the cost in each agent of ext, of kind.
-func costLine(kind equip.Kind, ext equip.Detail) string {
+// costLine is the detail pane line of the cost in each agent of ext, which
+// may be unknown.
+func costLine(unknown bool, ext equip.Detail) string {
 	costs := make([]string, 0, len(ext.Agents))
 	for _, agent := range ext.Agents {
-		costs = append(costs, agent.String()+" "+costOf(kind, ext.Costs[agent]))
+		costs = append(costs, agent.String()+" "+costOf(unknown, ext.Costs[agent]))
 	}
 
 	line := "Cost    " + strings.Join(costs, ", ")
@@ -362,7 +387,7 @@ func (m *model) contents(contents []equip.Content, key string) []string {
 		}
 
 		lines = append(lines, fmt.Sprintf("%s%s %s %s %s%s %s", mark, glyph(content.State), content.Kind, name,
-			costOf(content.Kind, content.Cost), ovr,
+			costOf(content.CostUnknown, content.Cost), ovr,
 			m.style.dim.MaxWidth(shortDescriptionWidth).MaxHeight(1).Render(content.Description)))
 
 		if content.ChangedOutside {

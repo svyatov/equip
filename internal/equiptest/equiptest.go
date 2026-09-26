@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -21,7 +22,7 @@ const (
 )
 
 // Machine is an equip.Machine on a temp dir, with helpers to build fixtures.
-type Machine struct {
+type Machine struct { //nolint:govet // fieldalignment wants the embedded Machine last, embeddedstructfieldcheck first
 	equip.Machine
 
 	t    testing.TB
@@ -58,6 +59,8 @@ func New(tb testing.TB) *Machine {
 		CodexHome:   filepath.Join(home, ".codex"),
 		CodexSystem: filepath.Join(root, "etc", "codex"),
 		WorkDir:     root,
+		// Clipped, so a test that appends to it cannot write into git's.
+		Env: slices.Clip(env),
 		// None, so a test sees only the extensions it installs. A test of the
 		// built-ins sets them.
 		ClaudeBuiltins: nil,

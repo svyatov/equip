@@ -230,7 +230,7 @@ func discoverServers(machine Machine, project Project) ([]Extension, error) {
 	for name, fallback := range machine.ClaudeBuiltins {
 		byName[name] = &Extension{
 			Kind: MCPServer, Key: mcpPrefix + name, Description: "", cost: map[Agent]int{},
-			fallback:  map[Agent]State{ClaudeCode: fallback},
+			fallback: map[Agent]State{ClaudeCode: fallback}, config: map[Agent]json.RawMessage{},
 			Locations: nil, contents: nil, hooks: false, lists: claudeJSONLists(fallback), builtIn: true,
 			plugin: "", server: "", listed: "",
 		}
@@ -273,7 +273,7 @@ func addServers(byName map[string]*Extension, servers jsonObject, path string, l
 		if ext == nil {
 			ext = &Extension{
 				Kind: MCPServer, Key: mcpPrefix + name, Description: "", cost: map[Agent]int{},
-				fallback:  map[Agent]State{},
+				fallback: map[Agent]State{}, config: map[Agent]json.RawMessage{},
 				Locations: nil, contents: nil, hooks: false, lists: lists, builtIn: false, plugin: "", server: "",
 				listed: "",
 			}
@@ -281,6 +281,7 @@ func addServers(byName map[string]*Extension, servers jsonObject, path string, l
 		}
 
 		ext.lists = lists
+		ext.config[ClaudeCode] = servers[name]
 
 		loc := Location{Path: path, Agent: ClaudeCode}
 		if !slices.Contains(ext.Locations, loc) {
