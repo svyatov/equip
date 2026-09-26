@@ -69,8 +69,8 @@ func (e Extension) has(agent Agent) bool {
 }
 
 // discover finds the extensions installed for a session started in dir,
-// sorted by key, without running anything.
-func discover(machine Machine, project Project, dir string) ([]Extension, error) {
+// sorted by key, without running anything. Codex has the config codex.
+func discover(machine Machine, project Project, dir string, codex codexConfig) ([]Extension, error) {
 	personal := filepath.Join(machine.Home, ".claude", "skills")
 	inv := inventory{byKey: map[string]*Extension{}, seen: map[Location]bool{}, err: nil, required: personal}
 	inv.add(ClaudeCode, personal)
@@ -116,6 +116,8 @@ func discover(machine Machine, project Project, dir string) ([]Extension, error)
 	for _, ext := range inv.byKey {
 		exts = append(exts, *ext)
 	}
+
+	exts = merge(exts, discoverCodex(machine, codex))
 
 	slices.SortFunc(exts, func(a, b Extension) int {
 		return cmp.Or(cmp.Compare(a.name(), b.name()), cmp.Compare(a.Kind, b.Kind))

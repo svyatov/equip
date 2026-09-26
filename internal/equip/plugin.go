@@ -134,7 +134,7 @@ func readPlugin(key, dir string, setting json.RawMessage) Extension {
 		}
 	}
 
-	contents := pluginSkills(dir, man.Name)
+	contents := pluginSkills(ClaudeCode, dir, man.Name)
 	cost := listingCost(dir, man.Name)
 
 	for _, content := range contents {
@@ -152,8 +152,9 @@ func readPlugin(key, dir string, setting json.RawMessage) Extension {
 	}
 }
 
-// pluginSkills reads the skills of the plugin named name in dir.
-func pluginSkills(dir, name string) []Content {
+// pluginSkills reads the skills of the plugin named name in dir, with their
+// costs in agent.
+func pluginSkills(agent Agent, dir, name string) []Content {
 	var contents []Content
 
 	skills := filepath.Join(dir, "skills")
@@ -167,8 +168,8 @@ func pluginSkills(dir, name string) []Content {
 
 		contents = append(contents, Content{
 			Name: entry.Name(), Description: field(data, "description"), Kind: Skill, State: On,
-			// Claude Code lists it under the plugin's name.
-			Cost: skillCost(ClaudeCode, name+":"+entry.Name(), data),
+			// Both agents list it under the plugin's name.
+			Cost: skillCost(agent, name+":"+entry.Name(), data),
 		})
 	}
 

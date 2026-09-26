@@ -118,10 +118,11 @@ func mcpJSONLists() mcpLists {
 	return mcpLists{on: "enabledMcpjsonServers", off: "disabledMcpjsonServers", settings: true}
 }
 
-// entry reports whether Claude Code's config holds an entry for the extension
-// once equip writes st. An MCP server's lists hold none for its default.
-func (e Extension) entry(st State) bool {
-	return e.Kind != MCPServer || st == On && e.lists.on != "" || st == Off && e.lists.off != ""
+// entry reports whether agent's config holds an entry for the extension once
+// equip writes st. Claude Code's lists of an MCP server hold none for its
+// default.
+func (e Extension) entry(agent Agent, st State) bool {
+	return agent == Codex || e.Kind != MCPServer || st == On && e.lists.on != "" || st == Off && e.lists.off != ""
 }
 
 // state reads name's entry in the lists of obj, reporting whether it has one.

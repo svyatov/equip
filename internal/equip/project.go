@@ -41,6 +41,18 @@ func locate(machine Machine, dir string) Project {
 	return Project{Path: root, RootCommit: commit, gitDir: common, checkout: checkout}
 }
 
+// tracked reports whether git tracks rel, a path in the Project. Outside git
+// nothing is tracked.
+func tracked(machine Machine, project Project, rel string) bool {
+	if project.gitDir == "" {
+		return false
+	}
+
+	_, err := machine.Git(project.Path, "ls-files", "--error-unmatch", "--", rel)
+
+	return err == nil
+}
+
 // exclude adds rel, a path in the Project, to the main checkout's
 // .git/info/exclude unless git already ignores it. Outside git it does
 // nothing.

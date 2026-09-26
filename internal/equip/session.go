@@ -40,14 +40,15 @@ func (s State) String() string {
 
 // Session is one open Project.
 type Session struct {
-	overrides  map[string]State // pending, by extension key
-	saved      map[string]State // the overrides at the last save
-	disk       map[string]State // Claude Code's entries for claudeExts, as last read or written
-	outside    map[string]bool  // changed outside equip since the last save
-	machine    Machine
-	project    Project
-	exts       []Extension
-	claudeExts []Extension // the exts Claude Code has
+	overrides map[string]State           // pending, by extension key
+	saved     map[string]State           // the overrides at the last save
+	disk      map[Agent]map[string]State // each agent's entries for its applied exts, as last read or written
+	outside   map[string]Agent           // changed outside equip since the last save, in that agent
+	applied   map[Agent][]Extension      // the exts whose states equip writes for each agent
+	codex     codexConfig
+	machine   Machine
+	project   Project
+	exts      []Extension
 }
 
 // View is what the user sees of a Session.
@@ -83,33 +84,84 @@ func Open(machine Machine, dir string) (*Session, error) {
 
 	project := locate(machine, dir)
 
-	exts, err := discover(machine, project, dir)
+	codex, err := readCodexConfig(machine, project)
 	if err != nil {
 		return nil, err
 	}
 
-	claudeExts := slices.DeleteFunc(slices.Clone(exts), func(e Extension) bool { return !e.has(ClaudeCode) })
-	// ponytail: broken settings read as no entries here; Save reports them.
-	disk, _ := readClaude(machine, project, claudeExts)
+	exts, err := discover(machine, project, dir, codex)
+	if err != nil {
+		return nil, err
+	}
 
-	saved, err := readRecord(machine, project, disk)
+	applied := appliedExts(exts, codex)
+	disk := map[Agent]map[string]State{}
+	all := map[string]State{}
+
+	for _, agent := range Agents() {
+		// ponytail: broken config reads as no entries here; Save reports it.
+		disk[agent], _ = agent.read(machine, project, applied[agent])
+		maps.Copy(all, disk[agent])
+	}
+
+	saved, err := readRecord(machine, project, all)
 	if err != nil {
 		return nil, err
 	}
 
 	session := &Session{
-		machine:    machine,
-		project:    project,
-		exts:       exts,
-		claudeExts: claudeExts,
-		overrides:  maps.Clone(saved),
-		saved:      saved,
-		disk:       map[string]State{},
-		outside:    map[string]bool{},
+		machine:   machine,
+		project:   project,
+		exts:      exts,
+		applied:   applied,
+		codex:     codex,
+		overrides: maps.Clone(saved),
+		saved:     saved,
+		disk:      map[Agent]map[string]State{},
+		outside:   map[string]Agent{},
 	}
-	session.take(disk)
+
+	for _, agent := range Agents() {
+		session.take(agent, disk[agent])
+	}
 
 	return session, nil
+}
+
+// appliedExts are the exts whose states equip writes for each agent, with
+// Codex's config codex.
+func appliedExts(exts []Extension, codex codexConfig) map[Agent][]Extension {
+	applied := map[Agent][]Extension{}
+
+	for _, agent := range Agents() {
+		for _, ext := range exts {
+			// Codex has no per-project skill setting.
+			if ext.has(agent) && (agent == ClaudeCode || ext.Kind != Skill && codex.notApplied == "") {
+				applied[agent] = append(applied[agent], ext)
+			}
+		}
+	}
+
+	return applied
+}
+
+// read reads the states agent has for exts in the Project's config.
+func (a Agent) read(machine Machine, project Project, exts []Extension) (map[string]State, error) {
+	if a == Codex {
+		return readCodex(project, exts)
+	}
+
+	return readClaude(machine, project, exts)
+}
+
+// write writes the states of overrides for exts into agent's config for the
+// Project.
+func (a Agent) write(machine Machine, project Project, exts []Extension, overrides map[string]State) error {
+	if a == Codex {
+		return writeCodex(machine, project, exts, overrides)
+	}
+
+	return writeClaude(machine, project, exts, overrides)
 }
 
 // SetState makes st an Override for the extension with key, unless the
@@ -126,16 +178,20 @@ func (s *Session) SetState(key string, st State) {
 func (s *Session) View() View {
 	rows := make([]Row, 0, len(s.exts))
 	totals := map[Agent]int{}
+	codexPlugins := false
 
 	for _, ext := range s.exts {
 		state, override := s.state(ext)
 		cost := 0
 
 		for _, agent := range Agents() {
-			totals[agent] += ext.costIn(agent, state)
-			cost = max(cost, ext.costIn(agent, state))
+			totals[agent] += s.costIn(agent, ext, state)
+			cost = max(cost, s.costIn(agent, ext, state))
 		}
 
+		codexPlugins = codexPlugins || ext.Kind == Plugin && ext.has(Codex) && (state == On || !s.applies(Codex, ext))
+
+		_, changed := s.outside[ext.Key]
 		rows = append(rows, Row{
 			Key:            ext.Key,
 			Name:           ext.name(),
@@ -145,7 +201,7 @@ func (s *Session) View() View {
 			Override:       override,
 			Fallback:       ext.fallback,
 			Unsaved:        s.unsaved(ext.Key),
-			ChangedOutside: s.outside[ext.Key],
+			ChangedOutside: changed,
 		})
 	}
 
@@ -155,17 +211,11 @@ func (s *Session) View() View {
 		}
 	}
 
-	return View{Project: s.project, Rows: rows, Unsaved: s.unsavedCount(), Totals: totals}
-}
-
-// costIn estimates the tokens the extension puts into agent's sessions in st.
-// Codex cannot apply a skill's state, so there a skill keeps its full cost.
-func (e Extension) costIn(agent Agent, st State) int {
-	if agent == ClaudeCode && st != On {
-		return 0
+	if codexPlugins {
+		totals[Codex] += tokens(Codex, codexPluginsBlockBytes)
 	}
 
-	return e.cost[agent]
+	return View{Project: s.project, Rows: rows, Unsaved: s.unsavedCount(), Totals: totals}
 }
 
 // Detail is what the detail pane shows of one extension.
@@ -180,6 +230,9 @@ type Detail struct {
 	Contents    []Content // a plugin's skills
 	Hooks       bool      // a plugin has hooks, whose output adds an unknown cost
 	BuiltIn     bool      // built into Claude Code, so it has no Locations
+	// ChangedIn is the agent whose config changed outside equip, when the
+	// row is ChangedOutside.
+	ChangedIn Agent
 }
 
 // Content is one extension inside a plugin. It follows its plugin and is
@@ -189,7 +242,7 @@ type Content struct {
 	Description string
 	Kind        Kind
 	State       State
-	Cost        int // estimated tokens in Claude Code
+	Cost        int // estimated tokens in the agent the plugin was read for, Claude Code when both have it
 }
 
 // Detail returns the detail of the extension with key.
@@ -198,14 +251,14 @@ func (s *Session) Detail(key string) Detail {
 	if !ok {
 		return Detail{
 			Description: "", Marketplace: "", Agents: nil, Locations: nil, NotApplied: nil, Costs: nil, States: nil,
-			Contents: nil, Hooks: false, BuiltIn: false,
+			Contents: nil, Hooks: false, BuiltIn: false, ChangedIn: ClaudeCode,
 		}
 	}
 
 	detail := Detail{
 		Description: ext.Description, Marketplace: marketplaceOf(ext.Key), Agents: nil, Locations: ext.Locations,
 		NotApplied: map[Agent]string{}, Costs: map[Agent]int{}, States: ext.Kind.claude().states,
-		Contents: nil, Hooks: ext.hooks, BuiltIn: ext.builtIn,
+		Contents: nil, Hooks: ext.hooks, BuiltIn: ext.builtIn, ChangedIn: s.outside[key],
 	}
 	state, _ := s.state(ext)
 
@@ -221,12 +274,16 @@ func (s *Session) Detail(key string) Detail {
 	for _, agent := range Agents() {
 		if ext.has(agent) {
 			detail.Agents = append(detail.Agents, agent)
-			detail.Costs[agent] = ext.costIn(agent, state)
+			detail.Costs[agent] = s.costIn(agent, ext, state)
 		}
 	}
 
-	if ext.has(Codex) {
+	switch {
+	case !ext.has(Codex):
+	case ext.Kind == Skill:
 		detail.NotApplied[Codex] = "Codex has no per-project skill setting"
+	case s.codex.notApplied != "":
+		detail.NotApplied[Codex] = s.codex.notApplied
 	}
 
 	return detail
@@ -235,16 +292,16 @@ func (s *Session) Detail(key string) Detail {
 // DropOverride removes the Override for key, so the extension falls back.
 func (s *Session) DropOverride(key string) { delete(s.overrides, key) }
 
-// Save writes the pending Overrides into Claude Code's settings. If Claude
-// Code's entries changed since they were read, it writes nothing, imports the
+// Save writes the pending Overrides into each agent's config. If an agent's
+// entries changed since they were read, it writes nothing, imports the
 // changes and returns ErrChangedSinceOpen.
 func (s *Session) Save() error {
-	now, err := readClaude(s.machine, s.project, s.claudeExts)
+	changed, err := s.changedOutside()
 	if err != nil {
 		return err
 	}
 
-	if s.take(now) {
+	if changed {
 		return ErrChangedSinceOpen
 	}
 	// Nothing to write. With saved Overrides, a save still writes them, so
@@ -252,21 +309,12 @@ func (s *Session) Save() error {
 	if s.unsavedCount() == 0 && len(s.saved) == 0 {
 		return nil
 	}
-
-	err = writeClaude(s.machine, s.project, s.claudeExts, s.overrides)
+	// Written before the record, so a failed record write does not make
+	// equip's own entries look changed outside.
+	err = s.writeAgents()
 	if err != nil {
-		// A file written before the failure holds equip's own entries, which
-		// the next save must not read as changed outside.
-		landed, readErr := readClaude(s.machine, s.project, s.claudeExts)
-		if readErr == nil {
-			s.disk = landed
-		}
-
 		return err
 	}
-	// Set before the record write, so a failed one does not make equip's own
-	// entries look changed outside.
-	s.disk = s.entries()
 
 	err = writeRecord(s.machine, s.project, s.overrides)
 	if err != nil {
@@ -277,6 +325,68 @@ func (s *Session) Save() error {
 	clear(s.outside)
 
 	return nil
+}
+
+// changedOutside reads each agent's entries again and imports the ones that
+// changed since the last read, reporting whether any did.
+func (s *Session) changedOutside() (bool, error) {
+	now := map[Agent]map[string]State{}
+
+	for _, agent := range Agents() {
+		states, err := agent.read(s.machine, s.project, s.applied[agent])
+		if err != nil {
+			return false, err
+		}
+
+		now[agent] = states
+	}
+
+	changed := false
+	for _, agent := range Agents() {
+		changed = s.take(agent, now[agent]) || changed
+	}
+
+	return changed, nil
+}
+
+// writeAgents writes the pending Overrides into each agent's config.
+func (s *Session) writeAgents() error {
+	for _, agent := range Agents() {
+		err := agent.write(s.machine, s.project, s.applied[agent], s.overrides)
+		if err != nil {
+			// A file written before the failure holds equip's own entries,
+			// which the next save must not read as changed outside.
+			for _, agent := range Agents() {
+				landed, readErr := agent.read(s.machine, s.project, s.applied[agent])
+				if readErr == nil {
+					s.disk[agent] = landed
+				}
+			}
+
+			return err
+		}
+	}
+
+	for _, agent := range Agents() {
+		s.disk[agent] = s.entries(agent)
+	}
+
+	return nil
+}
+
+// costIn estimates the tokens ext puts into agent's sessions in st. An agent
+// that cannot apply the state, as Codex a skill's, keeps the full cost.
+func (s *Session) costIn(agent Agent, ext Extension, st State) int {
+	if s.applies(agent, ext) && st != On {
+		return 0
+	}
+
+	return ext.cost[agent]
+}
+
+// applies reports whether equip writes the state of ext for agent.
+func (s *Session) applies(agent Agent, ext Extension) bool {
+	return slices.ContainsFunc(s.applied[agent], func(e Extension) bool { return e.Key == ext.Key })
 }
 
 // ext returns the extension with key, reporting whether it is installed.
@@ -302,15 +412,15 @@ func (s *Session) state(ext Extension) (State, bool) {
 	return state, override
 }
 
-// take takes now, Claude Code's entries on disk, and imports each entry that
+// take takes now, agent's entries on disk, and imports each entry that
 // changed since the last read and differs from the record as an unsaved
 // Override. It reports whether any entry changed.
-func (s *Session) take(now map[string]State) bool {
+func (s *Session) take(agent Agent, now map[string]State) bool {
 	changed := false
 
-	for _, e := range s.claudeExts {
+	for _, e := range s.applied[agent] {
 		key := e.Key
-		if !differ(now, s.disk, key) {
+		if !differ(now, s.disk[agent], key) {
 			continue
 		}
 
@@ -318,7 +428,12 @@ func (s *Session) take(now map[string]State) bool {
 		state, set := now[key]
 		imported := set && differ(now, s.saved, key)
 		// A pending toggle the change replaces was changed outside too.
-		s.outside[key] = imported || differ(s.overrides, s.saved, key) && !s.outside[key]
+		if _, was := s.outside[key]; imported || differ(s.overrides, s.saved, key) && !was {
+			s.outside[key] = agent
+		} else {
+			delete(s.outside, key)
+		}
+
 		if !imported {
 			// Missing or as recorded: the row shows the record's state.
 			state, set = s.saved[key]
@@ -331,7 +446,7 @@ func (s *Session) take(now map[string]State) bool {
 		}
 	}
 
-	s.disk = now
+	s.disk[agent] = now
 
 	return changed
 }
@@ -340,7 +455,10 @@ func (s *Session) take(now map[string]State) bool {
 func (s *Session) unsavedCount() int {
 	keys := maps.Clone(s.saved)
 	maps.Copy(keys, s.overrides)
-	maps.Copy(keys, s.disk)
+
+	for _, disk := range s.disk {
+		maps.Copy(keys, disk)
+	}
 
 	count := 0
 
@@ -353,19 +471,21 @@ func (s *Session) unsavedCount() int {
 	return count
 }
 
-// unsaved reports whether a save would change the Override for key or, for
-// an extension Claude Code has, its entry on disk.
+// unsaved reports whether a save would change the Override for key or its
+// entry on disk in an agent.
 func (s *Session) unsaved(key string) bool {
-	return differ(s.overrides, s.saved, key) || differ(s.entries(), s.disk, key)
+	return differ(s.overrides, s.saved, key) || slices.ContainsFunc(Agents(), func(agent Agent) bool {
+		return differ(s.entries(agent), s.disk[agent], key)
+	})
 }
 
-// entries are the entries a save leaves in Claude Code's config for the
-// pending Overrides.
-func (s *Session) entries() map[string]State {
+// entries are the entries a save leaves in agent's config for the pending
+// Overrides.
+func (s *Session) entries(agent Agent) map[string]State {
 	entries := map[string]State{}
 
-	for _, e := range s.claudeExts {
-		if st, ok := s.overrides[e.Key]; ok && e.entry(st) {
+	for _, e := range s.applied[agent] {
+		if st, ok := s.overrides[e.Key]; ok && e.entry(agent, st) {
 			entries[e.Key] = st
 		}
 	}

@@ -223,7 +223,7 @@ func (m *model) detail(row equip.Row, ext equip.Detail) string {
 	}
 
 	if row.ChangedOutside {
-		lines = append(lines, "        "+m.style.warn.Render("changed outside equip in Claude Code"))
+		lines = append(lines, "        "+m.style.warn.Render("changed outside equip in "+ext.ChangedIn.String()))
 	}
 
 	lines = append(lines, "", "State")
