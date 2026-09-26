@@ -136,6 +136,7 @@ func readPlugin(key, dir string, setting json.RawMessage) []Extension {
 
 	plugin := Extension{
 		Kind: Plugin, Key: key, Description: man.Description, fallback: map[Agent]State{ClaudeCode: fallback},
+		config:    nil,
 		cost:      map[Agent]int{ClaudeCode: contentsCost(contents) + listingCost(dir, man.Name)},
 		Locations: []Location{{Path: dir, Agent: ClaudeCode}}, contents: contents, hooks: err == nil || man.Hooks != nil,
 		lists: mcpLists{on: "", off: "", settings: false}, builtIn: false, plugin: "", server: "", listed: "",
@@ -173,7 +174,7 @@ func pluginSkills(agent Agent, dir, name string) []Content {
 
 		contents = append(contents, Content{
 			Key: "", Name: entry.Name(), Description: field(data, "description"), Kind: Skill, State: On, Override: false,
-			Unsaved: false, ChangedOutside: false, ChangedIn: ClaudeCode,
+			Unsaved: false, ChangedOutside: false, ChangedIn: ClaudeCode, CostUnknown: false,
 			// Both agents list it under the plugin's name.
 			Cost: skillCost(agent, name+":"+entry.Name(), data),
 		})
@@ -234,7 +235,8 @@ func pluginServers(agent Agent, key, dir string, man manifest) []Extension {
 	for name := range mcp.Servers {
 		exts = append(exts, Extension{
 			Kind: MCPServer, Key: mcpPrefix + key + ":" + name, Description: "", cost: map[Agent]int{},
-			fallback: map[Agent]State{}, Locations: []Location{{Path: dir, Agent: agent}}, contents: nil, hooks: false,
+			fallback: map[Agent]State{}, config: map[Agent]json.RawMessage{agent: mcp.Servers[name]},
+			Locations: []Location{{Path: dir, Agent: agent}}, contents: nil, hooks: false,
 			// Claude Code 2.1.283 names a plugin's server by the plugin's
 			// manifest name, which falls back to its marketplace entry name.
 			// ponytail: two plugins with the same manifest name share an entry,

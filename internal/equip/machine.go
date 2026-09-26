@@ -27,6 +27,9 @@ type Machine struct {
 	CodexHome   string // $CODEX_HOME
 	CodexSystem string // /etc/codex
 	WorkDir     string
+	// Env is the environment, as os.Environ gives it, that an MCP server
+	// equip probes starts with.
+	Env []string
 }
 
 // GitFunc runs git with args in dir and returns its standard output.
@@ -56,6 +59,7 @@ func MachineFromEnv() (Machine, error) {
 		CodexHome:   env("CODEX_HOME", ".codex"),
 		CodexSystem: "/etc/codex",
 		WorkDir:     workDir,
+		Env:         os.Environ(),
 		Git:         GitRunner(nil),
 		// As of Claude Code 2.1.282, computer-use is the one built-in that is
 		// off until enabled.

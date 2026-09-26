@@ -2,6 +2,7 @@ package equip
 
 import (
 	"cmp"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -50,9 +51,10 @@ func (k Kind) String() string {
 // Extension is one skill, plugin or MCP server, the same in every agent that
 // has it.
 type Extension struct {
-	cost        map[Agent]int   // estimated tokens when on
-	fallback    map[Agent]State // each agent's default, without an Override; a missing one is on
-	Key         string          // a skill's is its directory name; a plugin's is name@marketplace
+	cost        map[Agent]int             // estimated tokens when on
+	fallback    map[Agent]State           // each agent's default, without an Override; a missing one is on
+	config      map[Agent]json.RawMessage // an MCP server's, in each agent that has one
+	Key         string                    // a skill's is its directory name; a plugin's is name@marketplace
 	Description string
 	lists       mcpLists   // an MCP server's
 	plugin      string     // the key of the plugin an MCP server comes in; empty outside a plugin
@@ -180,7 +182,7 @@ func (inv *inventory) add(agent Agent, root string) int {
 		if ext == nil {
 			ext = &Extension{
 				Kind: Skill, Key: entry.Name(), Description: "", Locations: nil, cost: map[Agent]int{},
-				fallback: map[Agent]State{},
+				fallback: map[Agent]State{}, config: nil,
 				contents: nil, hooks: false, lists: mcpLists{on: "", off: "", settings: false}, builtIn: false,
 				plugin: "", server: "", listed: "",
 			}

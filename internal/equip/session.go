@@ -1,16 +1,24 @@
 package equip
 
 import (
+	"cmp"
+	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
 	"path/filepath"
 	"slices"
+	"sync"
 )
 
 // ErrChangedSinceOpen is the error of a save that found owned entries
 // changed after equip read them. The save wrote nothing.
 var ErrChangedSinceOpen = errors.New("changed outside equip since open")
+
+// ErrCannotProbe is the error of a probe of an extension equip does not
+// start: one that is not an MCP server an agent has on and trusted.
+var ErrCannotProbe = errors.New("equip measures only an MCP server an agent has on and trusted")
 
 // Project is the git repo equip runs in, taken at the main checkout's root,
 // or the directory itself outside git.
@@ -45,10 +53,12 @@ type Session struct {
 	disk      map[Agent]map[string]State // each agent's entries for its applied exts, as last read or written
 	outside   map[string]Agent           // changed outside equip since the last save, in that agent
 	applied   map[Agent][]Extension      // the exts whose states equip writes for each agent
+	measured  map[string]measurement     // the MCP servers measured, by key; guarded by mu
 	codex     codexConfig
 	machine   Machine
 	project   Project
 	exts      []Extension
+	mu        sync.Mutex
 }
 
 // View is what the user sees of a Session.
@@ -61,14 +71,15 @@ type View struct {
 
 // Row is one extension in the list.
 type Row struct {
-	Key      string // what SetState, Detail and DropOverride take
-	Name     string
-	Kind     Kind
-	Cost     int // estimated tokens: the higher of the agents' costs
-	State    State
-	Fallback State // the state without the Override
-	Override bool  // State was set by hand in this Project
-	Unsaved  bool
+	Key         string // what SetState, Detail and DropOverride take
+	Name        string
+	Kind        Kind
+	Cost        int // estimated tokens: the higher of the agents' costs
+	State       State
+	Fallback    State // the state without the Override
+	CostUnknown bool  // an MCP server not measured yet
+	Override    bool  // State was set by hand in this Project
+	Unsaved     bool
 	// ChangedOutside reports that the row changed through an edit outside
 	// equip in Claude Code.
 	ChangedOutside bool
@@ -122,11 +133,15 @@ func Open(machine Machine, dir string) (*Session, error) {
 		saved:     saved,
 		disk:      map[Agent]map[string]State{},
 		outside:   map[string]Agent{},
+		measured:  map[string]measurement{},
+		mu:        sync.Mutex{},
 	}
 
 	for _, agent := range Agents() {
 		session.take(agent, disk[agent])
 	}
+
+	session.readMeasurements()
 
 	return session, nil
 }
@@ -202,6 +217,7 @@ func (s *Session) View() View {
 			Name:           ext.name(),
 			Kind:           ext.Kind,
 			Cost:           cost,
+			CostUnknown:    s.unknown(ext),
 			State:          state,
 			Override:       override,
 			Fallback:       ext.fallback[ext.primary()],
@@ -249,6 +265,7 @@ type Content struct {
 	Kind        Kind
 	State       State
 	Cost        int  // estimated tokens in the agent the plugin was read for, Claude Code when both have it
+	CostUnknown bool // an MCP server not measured yet
 	Override    bool // an MCP server's State was set by hand in this Project
 	Unsaved     bool // a save would change an MCP server's Override or entries
 	// ChangedOutside reports that an MCP server changed through an edit
@@ -291,6 +308,35 @@ func (s *Session) Detail(key string) Detail {
 	return detail
 }
 
+// ProbeCost returns a probe that starts the MCP server with key and measures
+// its cost. The probe may run on another goroutine: it touches the Session
+// only to record the cost.
+func (s *Session) ProbeCost(key string) func() error {
+	ext, _ := s.ext(key)
+
+	for _, agent := range Agents() {
+		cfg, ok := s.probeConfig(agent, ext)
+		if !ok || !s.enabled(agent, ext) {
+			continue
+		}
+
+		return func() error {
+			measured, err := probe(context.Background(), s.machine.Env, cfg)
+			if err != nil {
+				return err
+			}
+
+			s.mu.Lock()
+			s.measured[key] = measured
+			s.mu.Unlock()
+
+			return writeCache(s.machine, cfg, measured)
+		}
+	}
+
+	return func() error { return ErrCannotProbe }
+}
+
 // DropOverride removes the Override for key, so the extension falls back.
 func (s *Session) DropOverride(key string) { delete(s.overrides, key) }
 
@@ -329,6 +375,78 @@ func (s *Session) Save() error {
 	return nil
 }
 
+// readMeasurements takes the cached measurement of each MCP server, from its
+// config in the first agent that has one cached.
+func (s *Session) readMeasurements() {
+	for _, ext := range s.exts {
+		for _, agent := range Agents() {
+			cfg, ok := s.probeConfig(agent, ext)
+			if !ok {
+				continue
+			}
+
+			if measured, cached := readCache(s.machine, cfg); cached {
+				s.measured[ext.Key] = measured
+
+				break
+			}
+		}
+	}
+}
+
+// probeConfig is how to reach the MCP server ext as agent does. It reports
+// whether agent has a config equip can probe: a command, or the URL of a
+// streamable HTTP server. ponytail: not the deprecated SSE transport.
+func (s *Session) probeConfig(agent Agent, ext Extension) (serverConfig, bool) {
+	var cfg serverConfig
+
+	err := json.Unmarshal(ext.config[agent], &cfg)
+	if cfg.Command != "" {
+		cfg.Dir = cmp.Or(cfg.Dir, s.project.checkout)
+	}
+
+	return cfg, err == nil && cfg.Type != "sse" && (cfg.Command != "" || cfg.URL != "")
+}
+
+// enabled reports whether agent has ext on and trusts it, as its config on
+// disk says, so pending changes do not count.
+func (s *Session) enabled(agent Agent, ext Extension) bool {
+	state, onDisk := s.disk[agent][ext.Key]
+	// Claude Code trusts a .mcp.json server only once the user approves it.
+	// ponytail: approval by enableAllProjectMcpServers does not count; read
+	// it if users approve that way.
+	if !onDisk && agent == ClaudeCode && ext.lists.settings {
+		return false
+	}
+
+	if !onDisk {
+		state = ext.fallback[agent]
+	}
+	// A plugin's MCP server loads only while its plugin is on.
+	plugin, inPlugin := s.ext(ext.plugin)
+
+	return state == On && (!inPlugin || s.enabled(agent, plugin))
+}
+
+// unknown reports whether the cost of ext is unknown: an MCP server's, until
+// it is measured.
+func (s *Session) unknown(ext Extension) bool {
+	_, measured := s.measurement(ext.Key)
+
+	return ext.Kind == MCPServer && !measured
+}
+
+// measurement returns the measurement of the MCP server with key, reporting
+// whether it has one.
+func (s *Session) measurement(key string) (measurement, bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	measured, ok := s.measured[key]
+
+	return measured, ok
+}
+
 // contents are the plugin's skills, which follow it, then its MCP servers,
 // which follow it unless they have an Override.
 func (s *Session) contents(plugin Extension) []Content {
@@ -346,15 +464,25 @@ func (s *Session) contents(plugin Extension) []Content {
 	}
 
 	for _, server := range s.exts {
-		if server.plugin == plugin.Key {
-			state, override := s.state(server)
-			changedIn, changed := s.outside[server.Key]
-			contents = append(contents, Content{
-				Key: server.Key, Name: server.name(), Description: "",
-				Kind: MCPServer, State: state, Cost: 0, Override: override,
-				Unsaved: s.unsaved(server.Key), ChangedOutside: changed, ChangedIn: changedIn,
-			})
+		if server.plugin != plugin.Key {
+			continue
 		}
+
+		state, override := s.state(server)
+		changedIn, changed := s.outside[server.Key]
+		cost := 0
+
+		for _, agent := range Agents() {
+			if state == On {
+				cost = max(cost, s.costIn(agent, server))
+			}
+		}
+
+		contents = append(contents, Content{
+			Key: server.Key, Name: server.name(), Description: "",
+			Kind: MCPServer, State: state, Cost: cost, CostUnknown: s.unknown(server), Override: override,
+			Unsaved: s.unsaved(server.Key), ChangedOutside: changed, ChangedIn: changedIn,
+		})
 	}
 
 	return contents
@@ -411,11 +539,28 @@ func (s *Session) writeAgents() error {
 
 // costIn estimates the tokens ext puts into agent's sessions.
 func (s *Session) costIn(agent Agent, ext Extension) int {
-	if s.stateIn(agent, ext) != On {
+	if !ext.has(agent) || s.stateIn(agent, ext) != On {
 		return 0
 	}
 
-	return ext.cost[agent]
+	if ext.Kind == MCPServer {
+		var cfg serverConfig
+
+		measured, _ := s.measurement(ext.Key)
+		_ = json.Unmarshal(ext.config[ClaudeCode], &cfg)
+
+		return measured.cost(agent, ext.name(), cfg.AlwaysLoad || !claudeToolSearch(s.machine))
+	}
+
+	cost := ext.cost[agent]
+	// A plugin costs its MCP servers too.
+	for _, server := range s.exts {
+		if server.plugin == ext.Key {
+			cost += s.costIn(agent, server)
+		}
+	}
+
+	return cost
 }
 
 // stateIn is the state ext has in agent's sessions: its Override where equip
