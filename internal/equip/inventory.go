@@ -232,6 +232,9 @@ type skillListing struct {
 	maxChars      int // the characters it keeps of a skill's text
 	bytesPerToken int // of its model's text
 	introTokens   int // of a fixed block, paid once when any skill is listed
+	// budget is the tokens of its listing budget, which leaves out the fixed
+	// block; zero with none known.
+	budget int
 }
 
 const (
@@ -240,13 +243,21 @@ const (
 	codexSkillChars         = 1024
 	codexBytesPerToken      = 4
 	codexSkillsIntroTokens  = 700
+	// ponytail: 2% of a 272,000-token window, which every Codex model is
+	// assumed to have (not checked for newer ones such as gpt-6-astra), and
+	// skills.max_context_tokens is ignored; read that key from config.toml if
+	// users set it.
+	codexListingBudget = 5440
 )
 
 // listing is how agent lists skills.
 func (a Agent) listing() skillListing {
 	return [...]skillListing{
-		ClaudeCode: {maxChars: claudeCodeSkillChars, bytesPerToken: claudeCodeBytesPerToken, introTokens: 0},
-		Codex:      {maxChars: codexSkillChars, bytesPerToken: codexBytesPerToken, introTokens: codexSkillsIntroTokens},
+		ClaudeCode: {maxChars: claudeCodeSkillChars, bytesPerToken: claudeCodeBytesPerToken, introTokens: 0, budget: 0},
+		Codex: {
+			maxChars: codexSkillChars, bytesPerToken: codexBytesPerToken, introTokens: codexSkillsIntroTokens,
+			budget: codexListingBudget,
+		},
 	}[a]
 }
 

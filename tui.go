@@ -57,6 +57,17 @@ func costOf(unknown bool, tokens int) string {
 	return cost(tokens)
 }
 
+// totalOf shows the total of a session in agent, marked when its skill
+// listing passes agent's listing budget.
+func totalOf(view equip.View, agent equip.Agent) string {
+	total := costOf(view.Unknown[agent], view.Totals[agent])
+	if view.OverBudget[agent] {
+		total += " over budget"
+	}
+
+	return total
+}
+
 // probedMsg reports that a probe of an MCP server ended, with its error.
 type probedMsg struct{ err error }
 
@@ -166,7 +177,7 @@ func (m *model) View() tea.View {
 	}
 
 	for _, agent := range equip.Agents() {
-		top = append(top, agent.String()+" "+costOf(session.Unknown[agent], session.Totals[agent]))
+		top = append(top, agent.String()+" "+totalOf(session, agent))
 	}
 
 	if session.Unsaved > 0 {

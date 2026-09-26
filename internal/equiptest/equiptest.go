@@ -5,6 +5,7 @@ package equiptest
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -149,6 +150,28 @@ func (m *Machine) Skill(skills, name string) string {
 	}
 
 	return dir
+}
+
+// The skills of SkillsAtCodexBudget.
+const (
+	fullSkills     = 21   // of 3 + 1,024 = 1,027 bytes, 257 tokens each
+	fullSkillChars = 1024 // what Codex keeps of a description
+	lastSkillChars = 169  // 3 + 169 = 172 bytes, 43 tokens
+)
+
+// SkillsAtCodexBudget writes skills into the skills dir whose Codex estimates
+// add up to 5,440 tokens, Codex's listing budget.
+func (m *Machine) SkillsAtCodexBudget(skills string) {
+	m.t.Helper()
+
+	for skill := range fullSkills + 1 {
+		text := strings.Repeat("x", fullSkillChars)
+		if skill == fullSkills {
+			text = strings.Repeat("x", lastSkillChars)
+		}
+
+		m.WriteFile(filepath.Join(skills, fmt.Sprintf("s%02d", skill), "SKILL.md"), "---\ndescription: "+text+"\n---\n")
+	}
 }
 
 // ClaudeSkills is the Claude Code user skills dir.

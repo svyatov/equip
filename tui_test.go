@@ -586,6 +586,29 @@ func TestTopLineAndPluginRowMarkAServerNotMeasuredYet(t *testing.T) {
 	}
 }
 
+func TestTopLineMarksACodexTotalOverBudget(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.SkillsAtCodexBudget(machine.CodexSkills())
+	machine.Skill(machine.CodexSkills(), "review") // 6, past the budget
+
+	if got := line(newModel(t, machine), "equip"); !strings.Contains(got, "Codex ~6146 over budget") {
+		t.Errorf("top line %q does not mark the Codex total over budget", got)
+	}
+}
+
+func TestTopLineMarksACodexTotalPartialAndOverBudget(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.SkillsAtCodexBudget(machine.CodexSkills())
+	machine.Skill(machine.CodexSkills(), "review")
+	machine.WriteFile(machine.CodexConfig(), "[mcp_servers.search]\ncommand = \"search\"\n")
+
+	if got := line(newModel(t, machine), "equip"); !strings.Contains(got, "Codex ~6146 + unknown over budget") {
+		t.Errorf("top line %q does not mark the Codex total partial and over budget", got)
+	}
+}
+
 func TestStateKeysSetTheHighlightedMCPServer(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
