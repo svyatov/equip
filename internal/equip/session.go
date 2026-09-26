@@ -100,7 +100,7 @@ func Open(machine Machine, dir string) (*Session, error) {
 
 	for _, agent := range Agents() {
 		// ponytail: broken config reads as no entries here; Save reports it.
-		disk[agent], _ = agent.read(machine, project, applied[agent])
+		disk[agent], _ = agent.config().read(machine, project, applied[agent])
 		maps.Copy(all, disk[agent])
 	}
 
@@ -145,23 +145,20 @@ func appliedExts(exts []Extension, codex codexConfig) map[Agent][]Extension {
 	return applied
 }
 
-// read reads the states agent has for exts in the Project's config.
-func (a Agent) read(machine Machine, project Project, exts []Extension) (map[string]State, error) {
-	if a == Codex {
-		return readCodex(project, exts)
-	}
-
-	return readClaude(machine, project, exts)
+// adapter is how equip reads and writes an agent's config for a Project.
+type adapter struct {
+	// read reads the states the agent has for exts.
+	read func(machine Machine, project Project, exts []Extension) (map[string]State, error)
+	// write writes the states of overrides for exts.
+	write func(machine Machine, project Project, exts []Extension, overrides map[string]State) error
 }
 
-// write writes the states of overrides for exts into agent's config for the
-// Project.
-func (a Agent) write(machine Machine, project Project, exts []Extension, overrides map[string]State) error {
-	if a == Codex {
-		return writeCodex(machine, project, exts, overrides)
-	}
-
-	return writeClaude(machine, project, exts, overrides)
+// config is agent's adapter.
+func (a Agent) config() adapter {
+	return [...]adapter{
+		ClaudeCode: {read: readClaude, write: writeClaude},
+		Codex:      {read: readCodex, write: writeCodex},
+	}[a]
 }
 
 // SetState makes st an Override for the extension with key, unless the
@@ -333,7 +330,7 @@ func (s *Session) changedOutside() (bool, error) {
 	now := map[Agent]map[string]State{}
 
 	for _, agent := range Agents() {
-		states, err := agent.read(s.machine, s.project, s.applied[agent])
+		states, err := agent.config().read(s.machine, s.project, s.applied[agent])
 		if err != nil {
 			return false, err
 		}
@@ -352,12 +349,12 @@ func (s *Session) changedOutside() (bool, error) {
 // writeAgents writes the pending Overrides into each agent's config.
 func (s *Session) writeAgents() error {
 	for _, agent := range Agents() {
-		err := agent.write(s.machine, s.project, s.applied[agent], s.overrides)
+		err := agent.config().write(s.machine, s.project, s.applied[agent], s.overrides)
 		if err != nil {
 			// A file written before the failure holds equip's own entries,
 			// which the next save must not read as changed outside.
 			for _, agent := range Agents() {
-				landed, readErr := agent.read(s.machine, s.project, s.applied[agent])
+				landed, readErr := agent.config().read(s.machine, s.project, s.applied[agent])
 				if readErr == nil {
 					s.disk[agent] = landed
 				}

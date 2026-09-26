@@ -119,12 +119,7 @@ type manifest struct {
 // readPlugin reads the plugin key from its dir in the plugin cache. setting is
 // its enabledPlugins entry in the settings equip does not write.
 func readPlugin(key, dir string, setting json.RawMessage) Extension {
-	var man manifest
-	// The manifest is optional; one Claude Code cannot read reads as none.
-	data, _ := os.ReadFile(filepath.Join(dir, ".claude-plugin", "plugin.json")) //nolint:gosec // equip builds the path
-	_ = json.Unmarshal(data, &man)
-	// With no manifest name, the marketplace entry name names the plugin.
-	man.Name = cmp.Or(man.Name, strings.TrimSuffix(key, "@"+marketplaceOf(key)))
+	man := readManifest(key, dir, ".claude-plugin")
 
 	fallback, set := pluginState(setting)
 	if !set {
@@ -135,21 +130,30 @@ func readPlugin(key, dir string, setting json.RawMessage) Extension {
 	}
 
 	contents := pluginSkills(ClaudeCode, dir, man.Name)
-	cost := listingCost(dir, man.Name)
-
-	for _, content := range contents {
-		cost += content.Cost
-	}
-
+	cost := contentsCost(contents)
 	contents = append(contents, pluginServers(dir, man)...)
 
 	_, err := os.Stat(filepath.Join(dir, "hooks", "hooks.json"))
 
 	return Extension{
-		Kind: Plugin, Key: key, Description: man.Description, cost: map[Agent]int{ClaudeCode: cost}, fallback: fallback,
+		Kind: Plugin, Key: key, Description: man.Description, fallback: fallback,
+		cost:      map[Agent]int{ClaudeCode: cost + listingCost(dir, man.Name)},
 		Locations: []Location{{Path: dir, Agent: ClaudeCode}}, contents: contents, hooks: err == nil || man.Hooks != nil,
 		lists: mcpLists{on: "", off: "", settings: false}, builtIn: false,
 	}
+}
+
+// readManifest reads the manifest of the plugin key in dir, in the sub dir
+// its agent reads.
+func readManifest(key, dir, sub string) manifest {
+	var man manifest
+	// The manifest is optional; one the agent cannot read reads as none.
+	data, _ := os.ReadFile(filepath.Join(dir, sub, "plugin.json")) //nolint:gosec // equip builds the path
+	_ = json.Unmarshal(data, &man)
+	// With no manifest name, the marketplace entry name names the plugin.
+	man.Name = cmp.Or(man.Name, strings.TrimSuffix(key, "@"+marketplaceOf(key)))
+
+	return man
 }
 
 // pluginSkills reads the skills of the plugin named name in dir, with their
@@ -174,6 +178,16 @@ func pluginSkills(agent Agent, dir, name string) []Content {
 	}
 
 	return contents
+}
+
+// contentsCost is the sum of the costs of contents.
+func contentsCost(contents []Content) int {
+	cost := 0
+	for _, content := range contents {
+		cost += content.Cost
+	}
+
+	return cost
 }
 
 // listingCost estimates the tokens of the commands and agents of the plugin

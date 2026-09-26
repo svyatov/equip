@@ -2,7 +2,6 @@ package equip
 
 import (
 	"cmp"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -37,8 +36,8 @@ const (
 )
 
 // readCodexConfig reads the Codex config of the Project. Codex reads the
-// Project's config only when the user's trusts the Project, and equip never
-// sets trust.
+// Project's config only when the user's config trusts the Project, and equip
+// never sets trust.
 func readCodexConfig(machine Machine, project Project) (codexConfig, error) {
 	userPath := filepath.Join(machine.CodexHome, "config.toml")
 
@@ -73,7 +72,7 @@ func readCodexConfig(machine Machine, project Project) (codexConfig, error) {
 
 // readCodex reads the states Codex has for exts in the Project's config. A
 // value equip does not know reads as no entry.
-func readCodex(project Project, exts []Extension) (map[string]State, error) {
+func readCodex(_ Machine, project Project, exts []Extension) (map[string]State, error) {
 	states := map[string]State{}
 	// No exts when equip does not write the file, so it is not read.
 	if len(exts) == 0 {
@@ -307,21 +306,12 @@ func codexPluginDir(machine Machine, key string) string {
 
 // readCodexPlugin reads the Codex plugin key from its dir in the plugin cache.
 func readCodexPlugin(key, dir string) Extension {
-	var man manifest
-	// The manifest is optional; one equip cannot read reads as none.
-	data, _ := os.ReadFile(filepath.Join(dir, ".codex-plugin", "plugin.json")) //nolint:gosec // equip builds the path
-	_ = json.Unmarshal(data, &man)
-	man.Name = cmp.Or(man.Name, strings.TrimSuffix(key, "@"+marketplaceOf(key)))
-
+	man := readManifest(key, dir, ".codex-plugin")
 	contents := pluginSkills(Codex, dir, man.Name)
-	cost := 0
-
-	for _, content := range contents {
-		cost += content.Cost
-	}
 
 	return Extension{
-		Kind: Plugin, Key: key, Description: man.Description, cost: map[Agent]int{Codex: cost}, fallback: On,
+		Kind: Plugin, Key: key, Description: man.Description, fallback: On,
+		cost:      map[Agent]int{Codex: contentsCost(contents)},
 		Locations: []Location{{Path: dir, Agent: Codex}}, contents: contents, hooks: false,
 		lists: mcpLists{on: "", off: "", settings: false}, builtIn: false,
 	}
