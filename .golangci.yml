@@ -49,6 +49,9 @@ linters:
         - diagnostic
         - style
         - opinionated
+      # nonamedreturns bans named results, so results stay unnamed.
+      disabled-checks:
+        - unnamedResult
 
     godox:
       keywords:
@@ -87,7 +90,6 @@ linters:
       rules:
         - name: blank-imports
         - name: bool-literal-in-expr
-        - name: confusing-results
         - name: constant-logical-expr
         - name: context-as-argument
         - name: context-keys-type
