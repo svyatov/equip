@@ -117,6 +117,48 @@ func TestAdoptingMovesTheRecordToTheProject(t *testing.T) {
 	}
 }
 
+func TestAdoptingInASecondSessionKeepsTheRecordTheFirstAdopted(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	old, moved := movedRepo(t, machine)
+	first, second := newSession(t, machine, moved), newSession(t, machine, moved)
+
+	err := first.Adopt(old)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = second.Adopt(old)
+
+	overrides, _ := readRecord(t, machine)["overrides"].(map[string]any)
+	if err == nil || !reflect.DeepEqual(overrides["mcp_servers"], map[string]any{"github": "off"}) {
+		t.Errorf("second Adopt = %v, record overrides %v, want an error and github off", err, overrides)
+	}
+}
+
+func TestSavingWithNothingToWriteEndsTheOffer(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	_, moved := movedRepo(t, machine)
+	// As in a fresh clone, which git leaves without it.
+	err := os.Remove(settingsLocal(moved))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	session := newSession(t, machine, moved)
+	save(t, session)
+
+	if got := open(t, machine, moved).Orphans; len(got) != 0 || len(session.View().Orphans) != 0 {
+		t.Errorf("Orphans = %q, want none, in this session too", got)
+	}
+
+	_, err = os.Stat(settingsLocal(moved))
+	if err == nil {
+		t.Error("save created settings.local.json with nothing to write")
+	}
+}
+
 func TestNoRecordIsOfferedOnceTheProjectHasItsOwn(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)

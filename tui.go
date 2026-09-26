@@ -77,11 +77,17 @@ type model struct {
 	searching  bool     // the keys type into the search
 }
 
-// newTUI is the model of a fresh TUI over s.
-func newTUI(s *equip.Session) *model {
+// digitKeys is the count of the digit keys 1 to 9, which pick a record in
+// the adopt prompt. ponytail: a tenth record is left out; page the prompt if
+// one repo ever leaves that many behind.
+const digitKeys = 9
+
+// newTUI is the model of a fresh TUI over session.
+func newTUI(session *equip.Session) *model {
+	orphans := session.View().Orphans
 	tui := &model{
-		s: s, style: newStyles(), cur: 0, facet: 0, server: 0, inContents: false, quitting: false, searching: false,
-		flash: "", query: "", key: "", pinned: "", orphans: s.View().Orphans,
+		s: session, style: newStyles(), cur: 0, facet: 0, server: 0, inContents: false, quitting: false,
+		searching: false, flash: "", query: "", key: "", pinned: "", orphans: orphans[:min(len(orphans), digitKeys)],
 	}
 	tui.clamp()
 
@@ -194,7 +200,7 @@ func (m *model) adopt(key string) {
 func (m *model) footer(unsaved int) string {
 	switch {
 	case len(m.orphans) > 0:
-		lines := []string{m.style.warn.Render("Adopt the record of this repo from before it moved?")}
+		lines := []string{m.style.warn.Render("Adopt this repo's record from a path that is gone?")}
 		for i, path := range m.orphans {
 			lines = append(lines, fmt.Sprintf("  %d %s", i+1, path))
 		}

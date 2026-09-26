@@ -403,7 +403,8 @@ func (s *Session) ProbeCost(key string) func() error {
 // Adopt moves the record of the moved repo at path, one of View's Orphans, to
 // the Project, in place of the states imported at open.
 func (s *Session) Adopt(path string) error {
-	if !slices.Contains(s.orphans, path) {
+	// Listed again, as another session may have adopted it since open.
+	if !slices.Contains(orphans(s.machine, s.project), path) {
 		return fmt.Errorf("%w: %s", ErrNotOrphan, path)
 	}
 
@@ -446,15 +447,19 @@ func (s *Session) Save() error {
 		return ErrChangedSinceOpen
 	}
 	// Nothing to write. With saved Overrides, a save still writes them, so
-	// the record of a first open's imports gets created.
-	if s.unsavedCount() == 0 && len(s.saved) == 0 {
+	// the record of a first open's imports gets created. With records on
+	// offer, it creates an empty record, so the next open offers them no more.
+	nothing := s.unsavedCount() == 0 && len(s.saved) == 0
+	if nothing && len(s.orphans) == 0 {
 		return nil
 	}
 	// Written before the record, so a failed record write does not make
 	// equip's own entries look changed outside.
-	err = s.writeAgents()
-	if err != nil {
-		return err
+	if !nothing {
+		err = s.writeAgents()
+		if err != nil {
+			return err
+		}
 	}
 
 	err = writeRecord(s.machine, s.project, s.overrides)
@@ -463,6 +468,7 @@ func (s *Session) Save() error {
 	}
 
 	s.saved = maps.Clone(s.overrides)
+	s.orphans = nil
 	clear(s.outside)
 
 	return nil

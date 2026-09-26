@@ -1034,6 +1034,40 @@ func TestAdoptPromptDeclinedKeepsTheImportAndIgnoresOtherKeys(t *testing.T) {
 	}
 }
 
+func TestAdoptPromptShowsAFailedAdoption(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	_, repo := movedAway(t, machine, equip.Off)
+	records, _ := filepath.Glob(filepath.Join(machine.StateHome, "equip", "*.toml"))
+	data, _ := os.ReadFile(records[0])
+	machine.WriteFile(records[0], strings.Replace(string(data), "'off'", "'bogus'", 1))
+	tui := newModelIn(t, machine, repo)
+
+	press(tui, key('1'))
+
+	if row := tui.s.View().Rows[0]; row.State != equip.On || row.Override || line(tui, "adopt failed") == "" {
+		t.Errorf("github = %+v, want on with no override and the error:\n%s", row, tui.View().Content)
+	}
+}
+
+func TestAdoptPromptListsNoMoreRecordsThanDigitKeys(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	_, repo := movedAway(t, machine, equip.Off)
+	root := machine.RunGit(repo, "rev-list", "--max-parents=0", "HEAD")
+
+	for i := range 9 {
+		machine.WriteFile(filepath.Join(machine.StateHome, "equip", fmt.Sprintf("gone%d.toml", i)),
+			fmt.Sprintf("path = '%s/gone%d'\nroot_commit = '%s'\n", machine.Root, i, root))
+	}
+
+	tui := newModelIn(t, machine, repo)
+
+	if line(tui, "  9 ") == "" || line(tui, "  10 ") != "" {
+		t.Errorf("prompt does not list exactly 9 records:\n%s", tui.View().Content)
+	}
+}
+
 func TestCtrlCQuitsWhileAskingToAdopt(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
