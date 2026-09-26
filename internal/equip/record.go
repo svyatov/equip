@@ -20,6 +20,14 @@ type record struct {
 	Overrides  map[string]map[string]string `toml:"overrides"`
 	Path       string                       `toml:"path"`
 	RootCommit string                       `toml:"root_commit"`
+	Presets    []recordPreset               `toml:"presets,omitempty"` // the active ones
+}
+
+// recordPreset is an active preset as a record keeps it: its id and a hash
+// of its members as last saved.
+type recordPreset struct {
+	ID   string `toml:"id"`
+	Hash string `toml:"hash"`
 }
 
 // recordTable is the record table that holds the Overrides of kind k.
@@ -48,13 +56,14 @@ func recordPath(machine Machine, path string) string {
 	return filepath.Join(machine.StateHome, "equip", name)
 }
 
-// readRecord reads the Overrides in the record at path. A kind the record
-// has no table for, with no record or one from before equip knew the kind,
-// takes its states set by hand from disk, so a save keeps them.
-func readRecord(path string, disk map[string]State) (map[string]State, error) {
+// readRecord reads the Overrides and the active presets in the record at
+// path. A kind the record has no table for, with no record or one from before
+// equip knew the kind, takes its states set by hand from disk, so a save keeps
+// them.
+func readRecord(path string, disk map[string]State) (map[string]State, []recordPreset, error) {
 	rec, err := decodeRecord(path)
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	overrides := map[string]State{}
@@ -69,14 +78,14 @@ func readRecord(path string, disk map[string]State) (map[string]State, error) {
 		for name, value := range rec.Overrides[kind.recordTable()] {
 			st, ok := parseState(value)
 			if !ok || !slices.Contains(kind.claude().states, st) {
-				return nil, fmt.Errorf("read %s: %s %q: %w %q", path, kind, name, errUnknownState, value)
+				return nil, nil, fmt.Errorf("read %s: %s %q: %w %q", path, kind, name, errUnknownState, value)
 			}
 
 			overrides[kind.keyOf(name)] = st
 		}
 	}
 
-	return overrides, nil
+	return overrides, rec.Presets, nil
 }
 
 // decodeRecord decodes the record at path. No record decodes as one with no
@@ -145,8 +154,9 @@ func parseState(name string) (State, bool) {
 	return 0, false
 }
 
-// writeRecord writes the record of project with overrides.
-func writeRecord(machine Machine, project Project, overrides map[string]State) error {
+// writeRecord writes the record of project with overrides and the active
+// presets.
+func writeRecord(machine Machine, project Project, overrides map[string]State, presets []recordPreset) error {
 	// Every kind gets its table, empty too, so a read knows the record knows it.
 	byKind := map[string]map[string]string{}
 	for _, kind := range kinds() {
@@ -157,7 +167,7 @@ func writeRecord(machine Machine, project Project, overrides map[string]State) e
 		byKind[keyKind(key).recordTable()][keyName(key)] = state.String()
 	}
 
-	rec := record{Path: project.Path, RootCommit: project.RootCommit, Overrides: byKind}
+	rec := record{Path: project.Path, RootCommit: project.RootCommit, Overrides: byKind, Presets: presets}
 
 	data, err := toml.Marshal(rec)
 	if err != nil {

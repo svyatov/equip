@@ -212,6 +212,12 @@ func (m *Machine) WriteFile(path, content string) {
 	}
 }
 
+// Preset writes the preset named name, a TOML body, into the presets dir.
+func (m *Machine) Preset(name, body string) {
+	m.t.Helper()
+	m.WriteFile(filepath.Join(m.ConfigHome, "equip", "presets", name+".toml"), body)
+}
+
 // CodexConfig is the Codex user config.
 func (m *Machine) CodexConfig() string { return filepath.Join(m.CodexHome, "config.toml") }
 
