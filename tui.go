@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"slices"
+	"strconv"
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
@@ -175,12 +176,12 @@ func (m *model) adopt(key string) {
 		return
 	}
 
-	i := int(key[0] - '1')
-	if len(key) != 1 || i < 0 || i >= len(m.orphans) {
+	i, err := strconv.Atoi(key)
+	if err != nil || i < 1 || i > len(m.orphans) {
 		return
 	}
 
-	err := m.s.Adopt(m.orphans[i])
+	err = m.s.Adopt(m.orphans[i-1])
 	if err != nil {
 		m.flash = m.style.warn.Render("adopt failed: " + err.Error())
 	}
