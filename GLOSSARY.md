@@ -51,6 +51,14 @@ _Avoid_: Profile, bundle, loadout
 A state the user set by hand for one extension in one project, which wins over the project's presets.
 _Avoid_: Exception, pin
 
+**Record**:
+What equip keeps of a Project on one machine: its path, its root commit, and its Overrides.
+_Avoid_: Profile, state file
+
+**Orphan**:
+A Record whose path no longer exists. A Project's first open offers to adopt an Orphan with its root commit, which moves the Record to the Project.
+_Avoid_: Stale record, leftover
+
 **Facet**:
 A way to narrow the list of extensions by kind, agent, state, or change, shown with the count of extensions it keeps.
 _Avoid_: Filter, category
