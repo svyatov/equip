@@ -11,10 +11,9 @@ import (
 	"github.com/svyatov/equip/internal/equiptest"
 )
 
-// movedRepo saves github off in a repo with a commit, then moves the repo. It
-// returns the old path and the new one. ~/.claude.json keeps the entry under
-// the old path, so only the record carries the state to the new one.
-func movedRepo(t *testing.T, machine *equiptest.Machine) (string, string) {
+// savedRepo saves github off in a repo with a commit and returns the repo.
+// ~/.claude.json keeps the entry under the repo's path.
+func savedRepo(t *testing.T, machine *equiptest.Machine) string {
 	t.Helper()
 
 	repo := machine.Repo("app")
@@ -24,6 +23,15 @@ func movedRepo(t *testing.T, machine *equiptest.Machine) (string, string) {
 	session.SetState("mcp:github", equip.Off)
 	save(t, session)
 
+	return repo
+}
+
+// movedRepo moves a savedRepo and returns the old path and the new one. Only
+// the record carries github's state to the new one.
+func movedRepo(t *testing.T, machine *equiptest.Machine) (string, string) {
+	t.Helper()
+
+	repo := savedRepo(t, machine)
 	moved := filepath.Join(machine.Root, "moved")
 
 	err := os.Rename(repo, moved)
@@ -153,13 +161,7 @@ func TestNoRecordIsOfferedWithoutARootCommit(t *testing.T) {
 func TestSecondCloneOfARepoKeepsItsOwnRecord(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
-	machine.Commit(repo)
-	writeFile(t, claudeJSON(machine), `{"mcpServers": {"github": {"command": "gh"}}}`)
-	session := newSession(t, machine, repo)
-	session.SetState("mcp:github", equip.Off)
-	save(t, session)
-
+	repo := savedRepo(t, machine)
 	clone := filepath.Join(machine.Root, "clone")
 	machine.RunGit(machine.Root, "clone", "-q", repo, clone)
 
