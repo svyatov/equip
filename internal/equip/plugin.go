@@ -138,7 +138,7 @@ func readPlugin(key, dir string, setting json.RawMessage) []Extension {
 		Kind: Plugin, Key: key, Description: man.Description, fallback: map[Agent]State{ClaudeCode: fallback},
 		cost:      map[Agent]int{ClaudeCode: contentsCost(contents) + listingCost(dir, man.Name)},
 		Locations: []Location{{Path: dir, Agent: ClaudeCode}}, contents: contents, hooks: err == nil || man.Hooks != nil,
-		lists: mcpLists{on: "", off: "", settings: false}, builtIn: false, plugin: "", listed: "",
+		lists: mcpLists{on: "", off: "", settings: false}, builtIn: false, plugin: "", server: "", listed: "",
 	}
 
 	return append([]Extension{plugin}, pluginServers(ClaudeCode, key, dir, man)...)
@@ -236,7 +236,7 @@ func pluginServers(agent Agent, key, dir string, man manifest) []Extension {
 			fallback: map[Agent]State{}, Locations: []Location{{Path: dir, Agent: agent}}, contents: nil, hooks: false,
 			// Claude Code 2.1.283 names a plugin's server by the plugin's
 			// manifest name, which falls back to its marketplace entry name.
-			lists: claudeJSONLists(On), builtIn: false, plugin: key, listed: "plugin:" + man.Name + ":" + name,
+			lists: claudeJSONLists(On), builtIn: false, plugin: key, server: name, listed: "plugin:" + man.Name + ":" + name,
 		})
 	}
 

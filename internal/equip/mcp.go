@@ -18,13 +18,7 @@ const mcpPrefix = "mcp:"
 
 // name is what the list shows of the extension: an MCP server's name without
 // its prefix, and a plugin's MCP server's without its plugin, else its key.
-func (e Extension) name() string {
-	if e.plugin != "" {
-		return strings.TrimPrefix(e.Key, mcpPrefix+e.plugin+":")
-	}
-
-	return keyName(e.Key)
-}
+func (e Extension) name() string { return cmp.Or(e.server, keyName(e.Key)) }
 
 // listName is the name Claude Code lists the MCP server's state under.
 func (e Extension) listName() string { return cmp.Or(e.listed, e.name()) }
@@ -238,7 +232,7 @@ func discoverServers(machine Machine, project Project) ([]Extension, error) {
 			Kind: MCPServer, Key: mcpPrefix + name, Description: "", cost: map[Agent]int{},
 			fallback:  map[Agent]State{ClaudeCode: fallback},
 			Locations: nil, contents: nil, hooks: false, lists: claudeJSONLists(fallback), builtIn: true,
-			plugin: "", listed: "",
+			plugin: "", server: "", listed: "",
 		}
 	}
 
@@ -280,7 +274,8 @@ func addServers(byName map[string]*Extension, servers jsonObject, path string, l
 			ext = &Extension{
 				Kind: MCPServer, Key: mcpPrefix + name, Description: "", cost: map[Agent]int{},
 				fallback:  map[Agent]State{},
-				Locations: nil, contents: nil, hooks: false, lists: lists, builtIn: false, plugin: "", listed: "",
+				Locations: nil, contents: nil, hooks: false, lists: lists, builtIn: false, plugin: "", server: "",
+				listed: "",
 			}
 			byName[name] = ext
 		}

@@ -191,11 +191,7 @@ func setCodexState(doc map[string]any, path []string, state State, set bool) boo
 		return true
 	}
 	// Tables that held only equip's entry go with it.
-	tables := []map[string]any{doc}
-	for _, key := range path {
-		tables = append(tables, table(tables[len(tables)-1], key))
-	}
-
+	tables := tablesOn(doc, path)
 	delete(tables[len(path)], "enabled")
 
 	for i := len(path); i > 0 && len(tables[i]) == 0; i-- {
@@ -292,7 +288,7 @@ func addCodexServers(byKey map[string]*Extension, layer codexLayer, dead []strin
 			byKey[key] = &Extension{
 				Kind: MCPServer, Key: key, Description: "", cost: map[Agent]int{}, fallback: map[Agent]State{},
 				Locations: nil, contents: nil, hooks: false, lists: mcpLists{on: "", off: "", settings: false},
-				builtIn: false, plugin: "", listed: "",
+				builtIn: false, plugin: "", server: "", listed: "",
 			}
 		}
 
@@ -314,15 +310,23 @@ func (e Extension) codexPath() []string {
 	return []string{codexPlugins, e.Key}
 }
 
+// tablesOn lists doc and each table on path in it, nil from the first one
+// missing.
+func tablesOn(doc map[string]any, path []string) []map[string]any {
+	tables := make([]map[string]any, 1, len(path)+1)
+	tables[0] = doc
+
+	for _, key := range path {
+		tables = append(tables, table(tables[len(tables)-1], key))
+	}
+
+	return tables
+}
+
 // codexState reads the state in the table at path in doc, reporting whether
 // the table holds one.
 func codexState(doc map[string]any, path []string) (State, bool) {
-	entry := doc
-	for _, key := range path {
-		entry = table(entry, key)
-	}
-
-	enabled, ok := entry["enabled"].(bool)
+	enabled, ok := tablesOn(doc, path)[len(path)]["enabled"].(bool)
 	if !enabled {
 		return Off, ok
 	}
@@ -375,7 +379,8 @@ func readCodexPlugin(key, dir string) []Extension {
 		Kind: Plugin, Key: key, Description: man.Description, fallback: map[Agent]State{},
 		cost:      map[Agent]int{Codex: contentsCost(contents)},
 		Locations: []Location{{Path: dir, Agent: Codex}}, contents: contents, hooks: false,
-		lists: mcpLists{on: "", off: "", settings: false}, builtIn: false, plugin: "", listed: "",
+		lists: mcpLists{on: "", off: "", settings: false}, builtIn: false, plugin: "", server: "",
+		listed: "",
 	}
 
 	return append([]Extension{plugin}, pluginServers(Codex, key, dir, man)...)
