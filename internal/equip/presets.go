@@ -25,6 +25,9 @@ type Preset struct {
 	Projects []string // the paths of the projects on this machine whose records have it active
 	Active   bool     // active in this Project, pending
 	New      bool     // created in this Session and not written yet
+	// Missing reports a preset the record has active but the library does
+	// not: its file was deleted or not synced yet. Its Name is its id.
+	Missing bool
 	// Unwritten reports unwritten edits, which Members show: the ones added
 	// and the ones removed.
 	Unwritten bool
@@ -123,7 +126,7 @@ func readPresets(machine Machine) ([]Preset, error) {
 
 		presets = append(presets, Preset{
 			ID: preset.ID, Name: strings.TrimSuffix(filepath.Base(file), ".toml"), Members: members,
-			Projects: nil, Active: false, New: false, Unwritten: false,
+			Projects: nil, Active: false, New: false, Missing: false, Unwritten: false,
 		})
 	}
 
@@ -140,9 +143,19 @@ func (s *Session) Presets() []Preset {
 
 		return errors.Is(err, fs.ErrNotExist)
 	})
-	out := make([]Preset, 0, len(s.library))
+	library := slices.Clip(s.library)
+	// A missing preset shows while the record or the pending choice has it.
+	for _, id := range slices.Compact(slices.Sorted(slices.Values(append(ids(s.recorded), s.active...)))) {
+		if s.presetIndex(id) < 0 {
+			library = append(library, Preset{
+				ID: id, Name: id, Members: nil, Projects: nil, Active: false, New: false, Missing: true, Unwritten: false,
+			})
+		}
+	}
 
-	for _, preset := range s.library {
+	out := make([]Preset, 0, len(library))
+
+	for _, preset := range library {
 		preset.Active = slices.Contains(s.active, preset.ID)
 		preset.Members = slices.Clone(preset.Members)
 
@@ -246,7 +259,8 @@ func (s *Session) CreatePreset(name string) (string, error) {
 	}
 
 	preset := Preset{
-		ID: rand.Text(), Name: name, Members: nil, Projects: nil, Active: false, New: true, Unwritten: false,
+		ID: rand.Text(), Name: name, Members: nil, Projects: nil, Active: false, New: true, Missing: false,
+		Unwritten: false,
 	}
 
 	err := s.checkName(preset.ID, name)
@@ -598,7 +612,7 @@ func (s *Session) affected(change presetChange) []Affected {
 			project.Skipped = err.Error()
 		// Open ran the change check there, which cannot see hand edits while
 		// an active preset changed since the last save.
-		case len(other.outside) > 0 || other.presetChanged():
+		case len(other.outside) > 0 || other.presetNote() != "":
 			project.Skipped = "changed outside equip"
 		default:
 			before, after := other.preview(change)

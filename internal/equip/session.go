@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 )
 
@@ -284,6 +285,12 @@ func (s *Session) View() View {
 		}
 	}
 
+	for _, id := range s.active {
+		if s.presetIndex(id) < 0 {
+			presets = append(presets, id)
+		}
+	}
+
 	return View{
 		Project: s.project, Rows: rows, Facets: s.facets(rows), Unsaved: s.unsavedCount(), Totals: totals, Unknown: unknown,
 		Orphans: s.orphans, Presets: presets,
@@ -311,6 +318,9 @@ type Detail struct {
 	NotApplied  map[Agent]string // why an agent that has it does not get its state
 	Costs       map[Agent]int    // estimated tokens in each agent that has it
 	Description string
+	// Note says why the row differs from the agent config while an active
+	// preset changed outside equip or is missing.
+	Note        string
 	Marketplace string  // a plugin's
 	Agents      []Agent // the agents that have it
 	Locations   []Location
@@ -346,15 +356,23 @@ func (s *Session) Detail(key string) Detail {
 	ext, ok := s.ext(key)
 	if !ok {
 		return Detail{
-			Description: "", Marketplace: "", Agents: nil, Locations: nil, NotApplied: nil, Costs: nil, States: nil,
-			Contents: nil, Hooks: false, BuiltIn: false, ChangedIn: ClaudeCode,
+			Description: "", Note: "", Marketplace: "", Agents: nil, Locations: nil, NotApplied: nil, Costs: nil,
+			States: nil, Contents: nil, Hooks: false, BuiltIn: false, ChangedIn: ClaudeCode,
 		}
 	}
 
 	detail := Detail{
-		Description: ext.Description, Marketplace: marketplaceOf(ext.Key), Agents: nil, Locations: ext.Locations,
-		NotApplied: map[Agent]string{}, Costs: map[Agent]int{}, States: ext.Kind.claude().states,
+		Description: ext.Description, Note: "", Marketplace: marketplaceOf(ext.Key), Agents: nil,
+		Locations: ext.Locations, NotApplied: map[Agent]string{}, Costs: map[Agent]int{}, States: ext.Kind.claude().states,
 		Contents: s.contents(ext), Hooks: ext.hooks, BuiltIn: ext.builtIn, ChangedIn: s.outside[key],
+	}
+	// Only where the record's state differs from the agent config.
+	if s.inRow(ext, func(key string) bool {
+		return slices.ContainsFunc(Agents(), func(agent Agent) bool {
+			return differ(s.entries(agent, s.saved, ids(s.recorded)), s.disk[agent], key)
+		})
+	}) {
+		detail.Note = s.presetNote()
 	}
 
 	for _, agent := range Agents() {
@@ -887,7 +905,7 @@ func (s *Session) state(ext Extension) (State, bool) {
 // none, so the preset change shows as unsaved states. It reports whether any
 // entry changed.
 func (s *Session) take(agent Agent, now map[string]State) bool {
-	changed, presetChanged := false, s.presetChanged()
+	changed, presetChanged := false, s.presetNote() != ""
 	recorded := s.entries(agent, s.saved, ids(s.recorded))
 
 	for _, e := range s.applied[agent] {
@@ -923,10 +941,22 @@ func (s *Session) take(agent Agent, now map[string]State) bool {
 	return changed
 }
 
-// presetChanged reports whether an active preset changed since the last
-// save: its members hash differs from the record's.
-func (s *Session) presetChanged() bool {
-	return !slices.Equal(s.recorded, s.recordPresets(ids(s.recorded)))
+// presetNote notes each active preset that changed since the last save, its
+// members hash differs from the record's, and each one missing, noted by its
+// id, as the record keeps no name. It is empty with none.
+func (s *Session) presetNote() string {
+	var notes []string
+
+	for i, now := range s.recordPresets(ids(s.recorded)) {
+		switch at := s.presetIndex(now.ID); {
+		case at < 0:
+			notes = append(notes, "preset "+now.ID+" missing")
+		case now != s.recorded[i]:
+			notes = append(notes, "preset "+s.library[at].Name+" changed outside equip")
+		}
+	}
+
+	return strings.Join(notes, ", ")
 }
 
 // unsavedCount counts the pending changes a save would write.

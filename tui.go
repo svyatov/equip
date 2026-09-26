@@ -535,6 +535,35 @@ func (m *model) unsaved() int {
 	return count
 }
 
+// origin is where the state of row comes from, with why it changed outside
+// equip.
+func (m *model) origin(row equip.Row, ext equip.Detail) []string {
+	var lines []string
+
+	origin := "default"
+	if len(m.s.View().Presets) > 0 {
+		origin = "presets"
+	}
+
+	if row.Override {
+		lines = append(lines,
+			"Origin  "+m.style.warn.Render("override")+", set by hand here",
+			m.style.dim.Render("        without it: "+row.Fallback.String()+" ("+origin+")"))
+	} else {
+		lines = append(lines, "Origin  "+origin)
+	}
+
+	if row.ChangedOutside {
+		lines = append(lines, "        "+m.style.warn.Render("changed outside equip in "+ext.ChangedIn.String()))
+	}
+
+	if ext.Note != "" {
+		lines = append(lines, "        "+m.style.warn.Render(ext.Note))
+	}
+
+	return lines
+}
+
 // detail is the detail pane of row: what it is, which agents have it, its
 // origin, the states to pick from, its contents with the MCP server with key
 // server highlighted, and where it comes from.
@@ -563,24 +592,7 @@ func (m *model) detail(row equip.Row, ext equip.Detail, server string) string {
 	}
 
 	lines = append(lines, costLine(row.CostUnknown, ext))
-
-	origin := "default"
-	if len(m.s.View().Presets) > 0 {
-		origin = "presets"
-	}
-
-	if row.Override {
-		lines = append(lines,
-			"Origin  "+m.style.warn.Render("override")+", set by hand here",
-			m.style.dim.Render("        without it: "+row.Fallback.String()+" ("+origin+")"))
-	} else {
-		lines = append(lines, "Origin  "+origin)
-	}
-
-	if row.ChangedOutside {
-		lines = append(lines, "        "+m.style.warn.Render("changed outside equip in "+ext.ChangedIn.String()))
-	}
-
+	lines = append(lines, m.origin(row, ext)...)
 	lines = append(lines, "", "State")
 
 	for index, state := range ext.States {

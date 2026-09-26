@@ -2,10 +2,12 @@ package equip_test
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/svyatov/equip/internal/equip"
@@ -451,5 +453,201 @@ func TestSaveAfterAFailedRecordWriteSucceeds(t *testing.T) {
 	err = session.Save()
 	if err != nil {
 		t.Errorf("Save = %v, want it to write", err)
+	}
+}
+
+func TestPresetChangedOutsideShowsItsDifferencesAsUnsavedStates(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	repo := machine.Repo("app")
+	using(t, machine, repo, "r1")
+	machine.Preset("Ruby", "id = \"r1\"\nskills = [\"lint\", \"review\"]\n")
+	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"docs": "on", "lint": "on", "review": "off"}}`)
+
+	session := newSession(t, machine, repo)
+
+	want := []string{
+		"docs off unsaved preset Ruby changed outside equip", // the record's, not the hand edit
+		"lint on",
+		"review on unsaved preset Ruby changed outside equip",
+	}
+	if got := changes(session); !slices.Equal(got, want) {
+		t.Errorf("rows = %q, want %q", got, want)
+	}
+
+	// A pending change of presets is no outside change.
+	session.SetPresets(nil)
+
+	want = []string{
+		"docs on unsaved preset Ruby changed outside equip",
+		"lint on unsaved",
+		"review on unsaved preset Ruby changed outside equip",
+	}
+	if got := changes(session); !slices.Equal(got, want) {
+		t.Errorf("rows with no presets = %q, want %q", got, want)
+	}
+}
+
+func TestEveryActivePresetChangedOutsideIsNoted(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	repo := machine.Repo("app")
+	using(t, machine, repo, "r1", "w1")
+	machine.Preset("Ruby", "id = \"r1\"\nskills = [\"lint\", \"review\"]\n")
+	removePreset(t, machine, "Writing")
+
+	got := changes(newSession(t, machine, repo))
+
+	const note = "preset Ruby changed outside equip, preset w1 missing"
+	if want := []string{"docs off unsaved " + note, "lint on", "review on unsaved " + note}; !slices.Equal(got, want) {
+		t.Errorf("rows = %q, want %q", got, want)
+	}
+}
+
+// changes are the rows of session as "name state", followed by "unsaved",
+// "override" and "outside" where they hold, and the note of its detail.
+func changes(session *equip.Session) []string {
+	rows := session.View().Rows
+	out := make([]string, 0, len(rows))
+
+	for _, row := range rows {
+		line := row.Name + " " + row.State.String()
+
+		if row.Unsaved {
+			line += " unsaved"
+		}
+
+		if row.Override {
+			line += " override"
+		}
+
+		if row.ChangedOutside {
+			line += " outside"
+		}
+
+		out = append(out, strings.TrimSpace(line+" "+session.Detail(row.Key).Note))
+	}
+
+	return out
+}
+
+// removePreset removes the file of the preset name on machine.
+func removePreset(t *testing.T, machine *equiptest.Machine, name string) {
+	t.Helper()
+
+	err := os.Remove(filepath.Join(machine.ConfigHome, "equip", "presets", name+".toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestSaveAppliesAPresetChangedOutside(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	repo := machine.Repo("app")
+	using(t, machine, repo, "r1")
+	machine.Preset("Ruby", "id = \"r1\"\nskills = [\"lint\", \"review\"]\n")
+	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"docs": "on", "lint": "on", "review": "off"}}`)
+
+	save(t, newSession(t, machine, repo))
+
+	got := readJSON(t, settingsLocal(repo))["skillOverrides"]
+	if want := map[string]any{"docs": "off", "lint": "on", "review": "on"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("skillOverrides = %v, want %v", got, want)
+	}
+
+	// With Ruby's new hash saved, a hand edit imports again.
+	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"docs": "on", "lint": "on", "review": "on"}}`)
+
+	rows := changes(newSession(t, machine, repo))
+	if want := []string{"docs on unsaved override outside", "lint on", "review on"}; !slices.Equal(rows, want) {
+		t.Errorf("rows = %q, want %q", rows, want)
+	}
+}
+
+func TestSaveAppliesAMissingPreset(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	repo := machine.Repo("app")
+	using(t, machine, repo, "r1")
+	removePreset(t, machine, "Ruby")
+
+	save(t, newSession(t, machine, repo))
+
+	got := readJSON(t, settingsLocal(repo))["skillOverrides"]
+	if want := map[string]any{"docs": "off", "lint": "off", "review": "off"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("skillOverrides = %v, want %v", got, want)
+	}
+
+	view := newSession(t, machine, repo).View()
+	if view.Unsaved != 0 || !slices.Equal(view.Presets, []string{"r1"}) {
+		t.Errorf("Unsaved = %d, Presets = %q, want 0 and r1 still active", view.Unsaved, view.Presets)
+	}
+}
+
+func TestLibraryListsAMissingPresetActiveHere(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	repo := machine.Repo("app")
+	using(t, machine, repo, "r1")
+	removePreset(t, machine, "Ruby")
+	session := newSession(t, machine, repo)
+	missing := func() []string {
+		presets := session.Presets()
+		out := make([]string, 0, len(presets))
+
+		for _, preset := range presets {
+			out = append(out, fmt.Sprintf("%s active=%t missing=%t", preset.Name, preset.Active, preset.Missing))
+		}
+
+		return out
+	}
+
+	want := []string{"Writing active=false missing=false", "r1 active=true missing=true"}
+	if got := missing(); !slices.Equal(got, want) {
+		t.Errorf("library = %q, want %q", got, want)
+	}
+
+	session.TogglePreset("r1")
+
+	want[1] = "r1 active=false missing=true"
+	if got := missing(); !slices.Equal(got, want) {
+		t.Errorf("library after unchecking = %q, want %q", got, want)
+	}
+}
+
+func TestMissingPresetSavedWithNoMembersImportsNoHandEdit(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	repo := machine.Repo("app")
+	machine.Preset("Empty", `id = "e1"`)
+	using(t, machine, repo, "e1")
+	removePreset(t, machine, "Empty")
+	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"docs": "on", "lint": "off", "review": "off"}}`)
+
+	got := changes(newSession(t, machine, repo))
+
+	if want := []string{"docs off unsaved preset e1 missing", "lint off", "review off"}; !slices.Equal(got, want) {
+		t.Errorf("rows = %q, want %q", got, want)
+	}
+}
+
+func TestMissingPresetStaysActiveWithNoMembers(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	repo := machine.Repo("app")
+	using(t, machine, repo, "r1")
+	removePreset(t, machine, "Ruby")
+	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"docs": "on", "lint": "on", "review": "off"}}`)
+
+	got := changes(newSession(t, machine, repo))
+
+	want := []string{
+		"docs off unsaved preset r1 missing", // the record's, not the hand edit
+		"lint off unsaved preset r1 missing",
+		"review off",
+	}
+	if !slices.Equal(got, want) {
+		t.Errorf("rows = %q, want %q", got, want)
 	}
 }
