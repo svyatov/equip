@@ -586,8 +586,8 @@ func (s *Session) totals() (map[Agent]int, map[Agent]bool, map[Agent]bool) {
 // an MCP server that is on but not measured yet, and whether its skill listing
 // passes agent's listing budget.
 func (s *Session) total(agent Agent) (int, bool, bool) {
-	total, listing, unknown := 0, 0, false // listing is the tokens of its skill listing
-	listed, plugins := false, false        // a skill or plugin is on, so agent lists skills; a plugin is on
+	total, listingTokens, unknown := 0, 0, false
+	listed, plugins := false, false // a skill or plugin is on, so agent lists skills; a plugin is on
 
 	for _, ext := range s.exts {
 		// A plugin's MCP server counts in its plugin's cost.
@@ -599,7 +599,7 @@ func (s *Session) total(agent Agent) (int, bool, bool) {
 		total += cost
 
 		if ext.Kind != MCPServer && cost > 0 {
-			listing += ext.cost[agent] // of its skills alone, without a plugin's MCP servers
+			listingTokens += ext.cost[agent] // of its skills alone, without a plugin's MCP servers
 			listed = true
 		}
 
@@ -609,7 +609,7 @@ func (s *Session) total(agent Agent) (int, bool, bool) {
 
 	budget := agent.listing().budget
 
-	return total + fixedCost(agent, listed, plugins), unknown, budget > 0 && listing > budget
+	return total + fixedCost(agent, listed, plugins), unknown, budget > 0 && listingTokens > budget
 }
 
 // readMeasurements takes the cached measurement of each MCP server, from its
