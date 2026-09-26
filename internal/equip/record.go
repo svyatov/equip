@@ -39,21 +39,19 @@ func (k Kind) keyOf(name string) string {
 	return name
 }
 
-// recordPath is the record file of project, one per path, so two clones of a
-// repo keep their own.
-func recordPath(machine Machine, project Project) string {
-	sum := sha256.Sum256([]byte(project.Path))
-	name := filepath.Base(project.Path) + "-" + hex.EncodeToString(sum[:8]) + ".toml"
+// recordPath is the record file of the Project at path, one per path, so two
+// clones of a repo keep their own.
+func recordPath(machine Machine, path string) string {
+	sum := sha256.Sum256([]byte(path))
+	name := filepath.Base(path) + "-" + hex.EncodeToString(sum[:8]) + ".toml"
 
 	return filepath.Join(machine.StateHome, "equip", name)
 }
 
-// readRecord reads the Overrides in the record of project. A kind the record
+// readRecord reads the Overrides in the record at path. A kind the record
 // has no table for, with no record or one from before equip knew the kind,
 // takes its states set by hand from disk, so a save keeps them.
-func readRecord(machine Machine, project Project, disk map[string]State) (map[string]State, error) {
-	path := recordPath(machine, project)
-
+func readRecord(path string, disk map[string]State) (map[string]State, error) {
 	rec, err := decodeRecord(path)
 	if err != nil {
 		return nil, err
@@ -103,6 +101,35 @@ func decodeRecord(path string) (record, error) {
 	return rec, nil
 }
 
+// orphans are the paths of the records project can adopt: of a repo with its
+// root commit whose path no longer exists. A second clone keeps its own.
+// Only a first open offers them, and without a root commit nothing ties a
+// record to project.
+func orphans(machine Machine, project Project) []string {
+	_, err := os.Stat(recordPath(machine, project.Path))
+	if project.RootCommit == "" || !errors.Is(err, fs.ErrNotExist) {
+		return nil
+	}
+
+	files, _ := filepath.Glob(filepath.Join(machine.StateHome, "equip", "*.toml"))
+
+	var paths []string
+
+	for _, file := range files {
+		rec, err := decodeRecord(file)
+		if err != nil || rec.RootCommit != project.RootCommit {
+			continue
+		}
+
+		_, err = os.Stat(rec.Path)
+		if errors.Is(err, fs.ErrNotExist) {
+			paths = append(paths, rec.Path)
+		}
+	}
+
+	return paths
+}
+
 // errUnknownState is the error of a record with a state equip does not know,
 // or one the extension's kind does not offer.
 var errUnknownState = errors.New("unknown state")
@@ -137,5 +164,5 @@ func writeRecord(machine Machine, project Project, overrides map[string]State) e
 		return fmt.Errorf("encode record: %w", err)
 	}
 
-	return writeFile(recordPath(machine, project), data)
+	return writeFile(recordPath(machine, project.Path), data)
 }

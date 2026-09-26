@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"os"
 	"path/filepath"
 	"slices"
 	"sync"
@@ -18,6 +19,10 @@ var ErrChangedSinceOpen = errors.New("changed outside equip since open")
 // ErrCannotProbe is the error of a probe of an extension equip does not
 // start: one that is not an MCP server an agent has on and trusted.
 var ErrCannotProbe = errors.New("equip measures only an MCP server an agent has on and trusted")
+
+// ErrNotOrphan is the error of an adoption of a record the Project was not
+// offered.
+var ErrNotOrphan = errors.New("not a record this project can adopt")
 
 // Project is the git repo equip runs in, taken at the main checkout's root,
 // or the directory itself outside git.
@@ -56,6 +61,7 @@ type Session struct {
 	codex     codexConfig
 	machine   Machine
 	project   Project
+	orphans   []string // the paths of the records the Project can adopt
 	exts      []Extension
 	mu        sync.Mutex
 	approvals bool // Claude Code takes the .mcp.json approvals in settings.local.json
@@ -70,7 +76,10 @@ type View struct {
 	Unknown map[Agent]bool
 	Rows    []Row
 	Facets  []Facet // the ways to narrow Rows, in the order the sidebar shows them
-	Unsaved int     // pending changes a save would write
+	// Orphans are the paths of the records the Project can adopt on its first
+	// open: of a repo with its root commit whose path no longer exists.
+	Orphans []string
+	Unsaved int // pending changes a save would write
 }
 
 // Facet is a way to narrow the list.
@@ -144,21 +153,13 @@ func Open(machine Machine, dir string) (*Session, error) {
 
 	applied := appliedExts(exts, codex)
 	disk := map[Agent]map[string]State{}
-	all := map[string]State{}
 
 	for _, agent := range Agents() {
 		// ponytail: broken config reads as no entries here; Save reports it.
 		disk[agent], _ = agent.config().read(machine, project, applied[agent])
-		// Where the agents disagree, the first agent's state is the record's,
-		// and the other's shows as changed outside.
-		for key, st := range disk[agent] {
-			if _, ok := all[key]; !ok {
-				all[key] = st
-			}
-		}
 	}
 
-	saved, err := readRecord(machine, project, all)
+	saved, err := readRecord(recordPath(machine, project.Path), firstStates(disk))
 	if err != nil {
 		return nil, err
 	}
@@ -169,22 +170,36 @@ func Open(machine Machine, dir string) (*Session, error) {
 		exts:      exts,
 		applied:   applied,
 		codex:     codex,
-		overrides: maps.Clone(saved),
-		saved:     saved,
-		disk:      map[Agent]map[string]State{},
-		outside:   map[string]Agent{},
+		overrides: nil,
+		saved:     nil,
+		disk:      nil,
+		outside:   nil,
 		measured:  map[string]measurement{},
 		approvals: approvalsCount(machine, project),
+		orphans:   orphans(machine, project),
 		mu:        sync.Mutex{},
 	}
-
-	for _, agent := range Agents() {
-		session.take(agent, disk[agent])
-	}
-
+	session.start(saved, disk)
 	session.readMeasurements()
 
 	return session, nil
+}
+
+// firstStates are the states of disk, each agent's entries. Where the agents
+// disagree, the first agent's state is the record's, and the other's shows
+// as changed outside.
+func firstStates(disk map[Agent]map[string]State) map[string]State {
+	all := map[string]State{}
+
+	for _, agent := range Agents() {
+		for key, st := range disk[agent] {
+			if _, ok := all[key]; !ok {
+				all[key] = st
+			}
+		}
+	}
+
+	return all
 }
 
 // appliedExts are the exts whose states equip writes for each agent, with
@@ -266,6 +281,7 @@ func (s *Session) View() View {
 
 	return View{
 		Project: s.project, Rows: rows, Facets: s.facets(rows), Unsaved: s.unsavedCount(), Totals: totals, Unknown: unknown,
+		Orphans: s.orphans,
 	}
 }
 
@@ -384,6 +400,36 @@ func (s *Session) ProbeCost(key string) func() error {
 	return func() error { return ErrCannotProbe }
 }
 
+// Adopt moves the record of the moved repo at path, one of View's Orphans, to
+// the Project, in place of the states imported at open.
+func (s *Session) Adopt(path string) error {
+	if !slices.Contains(s.orphans, path) {
+		return fmt.Errorf("%w: %s", ErrNotOrphan, path)
+	}
+
+	old, disk := recordPath(s.machine, path), s.disk
+
+	saved, err := readRecord(old, firstStates(disk))
+	if err != nil {
+		return err
+	}
+
+	err = writeRecord(s.machine, s.project, saved)
+	if err != nil {
+		return err
+	}
+
+	err = os.Remove(old)
+	if err != nil {
+		return fmt.Errorf("remove the adopted record: %w", err)
+	}
+
+	s.start(saved, disk)
+	s.orphans = nil
+
+	return nil
+}
+
 // DropOverride removes the Override for key, so the extension falls back.
 func (s *Session) DropOverride(key string) { delete(s.overrides, key) }
 
@@ -420,6 +466,17 @@ func (s *Session) Save() error {
 	clear(s.outside)
 
 	return nil
+}
+
+// start takes saved, the Overrides of the record, and disk, each agent's
+// entries, as an open does.
+func (s *Session) start(saved map[string]State, disk map[Agent]map[string]State) {
+	s.saved, s.overrides = saved, maps.Clone(saved)
+	s.disk, s.outside = map[Agent]map[string]State{}, map[string]Agent{}
+
+	for _, agent := range Agents() {
+		s.take(agent, disk[agent])
+	}
 }
 
 // facets are the facets of rows, in the order the sidebar shows them.
