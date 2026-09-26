@@ -58,7 +58,7 @@ func TestLibraryShowsWhereEachPresetIsActive(t *testing.T) {
 
 	got := make([]string, 0, len(presets))
 	for _, preset := range presets {
-		got = append(got, fmt.Sprintf("%s active=%t projects=%d", preset.Name, preset.Active, preset.Projects))
+		got = append(got, fmt.Sprintf("%s active=%t projects=%d", preset.Name, preset.Active, len(preset.Projects)))
 	}
 
 	if want := []string{"Ruby active=false projects=1", "Writing active=true projects=0"}; !slices.Equal(got, want) {
@@ -79,7 +79,7 @@ func TestLibraryDoesNotCountAProjectWhosePathIsGone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := newSession(t, machine, machine.Repo("other")).Presets()[0].Projects; got != 0 {
+	if got := len(newSession(t, machine, machine.Repo("other")).Presets()[0].Projects); got != 0 {
 		t.Errorf("Ruby's projects = %d, want 0", got)
 	}
 }

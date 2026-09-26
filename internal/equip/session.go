@@ -63,7 +63,8 @@ type Session struct {
 	project   Project
 	orphans   []string // the paths of the records the Project can adopt
 	exts      []Extension
-	library   []Preset       // by name
+	library   []Preset       // by name, as written, and a new one
+	draft     *Preset        // the one preset with unwritten edits, as edited; nil with none
 	active    []string       // the ids of the active presets, pending, sorted
 	recorded  []recordPreset // the active presets at the last save
 	mu        sync.Mutex
@@ -178,6 +179,7 @@ func Open(machine Machine, dir string) (*Session, error) {
 		project:   project,
 		exts:      exts,
 		library:   library,
+		draft:     nil,
 		active:    nil,
 		recorded:  nil,
 		applied:   applied,
@@ -263,30 +265,9 @@ func (s *Session) View() View {
 
 	for _, ext := range s.exts {
 		// A plugin's MCP server shows among the plugin's contents.
-		if ext.plugin != "" {
-			continue
+		if ext.plugin == "" {
+			rows = append(rows, s.row(ext))
 		}
-
-		state, override := s.state(ext)
-		cost := 0
-
-		for _, agent := range Agents() {
-			cost = max(cost, s.costIn(agent, ext))
-		}
-
-		_, changed := s.outside[ext.Key]
-		rows = append(rows, Row{
-			Key:            ext.Key,
-			Name:           ext.name(),
-			Kind:           ext.Kind,
-			Cost:           cost,
-			CostUnknown:    s.unknown(ext),
-			State:          state,
-			Override:       override,
-			Fallback:       s.base(ext.primary(), ext, s.active),
-			Unsaved:        s.inRow(ext, s.unsaved),
-			ChangedOutside: changed,
-		})
 	}
 
 	totals, unknown := s.totals()
@@ -476,13 +457,13 @@ func (s *Session) Save() error {
 	// Written before the record, so a failed record write does not make
 	// equip's own entries look changed outside.
 	if !nothing {
-		err = s.writeAgents()
+		err = s.writeAgents(s.overrides, s.active)
 		if err != nil {
 			return err
 		}
 	}
 
-	presets := s.recordPresets()
+	presets := s.recordPresets(s.active)
 
 	err = writeRecord(s.machine, s.project, s.overrides, presets)
 	if err != nil {
@@ -494,6 +475,31 @@ func (s *Session) Save() error {
 	clear(s.outside)
 
 	return nil
+}
+
+// row is the row of ext in the list.
+func (s *Session) row(ext Extension) Row {
+	state, override := s.state(ext)
+	cost := 0
+
+	for _, agent := range Agents() {
+		cost = max(cost, s.costIn(agent, ext))
+	}
+
+	_, changed := s.outside[ext.Key]
+
+	return Row{
+		Key:            ext.Key,
+		Name:           ext.name(),
+		Kind:           ext.Kind,
+		Cost:           cost,
+		CostUnknown:    s.unknown(ext),
+		State:          state,
+		Override:       override,
+		Fallback:       s.base(ext.primary(), ext, s.active),
+		Unsaved:        s.inRow(ext, s.unsaved),
+		ChangedOutside: changed,
+	}
 }
 
 // start takes saved and presets, the Overrides and active presets of the
@@ -764,10 +770,11 @@ func (s *Session) changedOutside() (bool, error) {
 	return changed, nil
 }
 
-// writeAgents writes the pending Overrides into each agent's config.
-func (s *Session) writeAgents() error {
+// writeAgents writes the entries of overrides and the active presets with
+// ids into each agent's config.
+func (s *Session) writeAgents(overrides map[string]State, active []string) error {
 	for _, agent := range Agents() {
-		err := agent.config().write(s.machine, s.project, s.applied[agent], s.pending(agent))
+		err := agent.config().write(s.machine, s.project, s.applied[agent], s.entries(agent, overrides, active))
 		if err != nil {
 			// A file written before the failure holds equip's own entries,
 			// which the next save must not read as changed outside.
@@ -783,7 +790,7 @@ func (s *Session) writeAgents() error {
 	}
 
 	for _, agent := range Agents() {
-		s.disk[agent] = s.pending(agent)
+		s.disk[agent] = s.entries(agent, overrides, active)
 	}
 	// The write removed the dead Codex entries.
 	s.codex = readCodexConfig(s.machine, s.project)

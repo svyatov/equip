@@ -2,6 +2,8 @@ package equip
 
 import (
 	"bytes"
+	"cmp"
+	"crypto/rand"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -20,25 +22,55 @@ type Preset struct {
 	ID       string // set at creation, never changes
 	Name     string
 	Members  []Member // by kind, then by name
-	Projects int      // the projects on this machine whose records have it active
+	Projects []string // the paths of the projects on this machine whose records have it active
 	Active   bool     // active in this Project, pending
+	New      bool     // created in this Session and not written yet
+	// Unwritten reports unwritten edits, which Members show: the ones added
+	// and the ones removed.
+	Unwritten bool
 }
 
-// Member is one extension a Preset names, which may not be installed.
+// ErrUnwrittenEdits is the error of an edit of a preset while another one
+// has unwritten edits.
+var ErrUnwrittenEdits = errors.New("another preset has unwritten edits")
+
+// ErrPresetName is the error of a preset name that is empty, taken, or
+// cannot name a file.
+var ErrPresetName = errors.New("a preset needs a free name that can name a file")
+
+// ErrNoPreset is the error of an edit of a preset the library does not have.
+var ErrNoPreset = errors.New("no such preset")
+
+// Member is one extension a Preset names, which may not be installed. An
+// installed one has its row's state, cost and Override mark here.
 type Member struct {
-	Key       string
-	Name      string
-	Kind      Kind
-	Installed bool
+	Key         string
+	Name        string
+	Kind        Kind
+	State       State
+	Cost        int
+	CostUnknown bool
+	Override    bool
+	Installed   bool
+	Added       bool // an unwritten edit adds it
+	Removed     bool // an unwritten edit removes it
+}
+
+// member is the member with key, as a preset file names it.
+func member(key string) Member {
+	return Member{
+		Key: key, Name: keyName(key), Kind: keyKind(key), State: On, Cost: 0, CostUnknown: false, Override: false,
+		Installed: false, Added: false, Removed: false,
+	}
 }
 
 // presetFile is a preset as its file keeps it: members by kind, as record
 // tables name the kinds.
 type presetFile struct {
 	ID         string   `toml:"id"`
-	Skills     []string `toml:"skills"`
-	Plugins    []string `toml:"plugins"`
-	MCPServers []string `toml:"mcp_servers"`
+	Skills     []string `toml:"skills,omitempty"`
+	Plugins    []string `toml:"plugins,omitempty"`
+	MCPServers []string `toml:"mcp_servers,omitempty"`
 }
 
 // errNoID is the error of a preset file with no id, which a Project cannot
@@ -89,13 +121,13 @@ func readPresets(machine Machine) ([]Preset, error) {
 
 		for kind, names := range [][]string{Skill: preset.Skills, Plugin: preset.Plugins, MCPServer: preset.MCPServers} {
 			for _, name := range slices.Sorted(slices.Values(names)) {
-				members = append(members, Member{Key: Kind(kind).keyOf(name), Name: name, Kind: Kind(kind), Installed: false})
+				members = append(members, member(Kind(kind).keyOf(name)))
 			}
 		}
 
 		presets = append(presets, Preset{
 			ID: preset.ID, Name: strings.TrimSuffix(filepath.Base(file), ".toml"), Members: members,
-			Projects: 0, Active: false,
+			Projects: nil, Active: false, New: false, Unwritten: false,
 		})
 	}
 
@@ -118,13 +150,23 @@ func (s *Session) Presets() []Preset {
 		preset.Active = slices.Contains(s.active, preset.ID)
 		preset.Members = slices.Clone(preset.Members)
 
-		for i, member := range preset.Members {
-			_, preset.Members[i].Installed = s.ext(member.Key)
+		if s.draft != nil && s.draft.ID == preset.ID {
+			preset.Members, preset.Unwritten = edits(preset.Members, s.draft.Members), true
+		}
+
+		for i := range preset.Members {
+			m := &preset.Members[i]
+
+			var ext Extension
+			if ext, m.Installed = s.ext(m.Key); m.Installed {
+				row := s.row(ext)
+				m.State, m.Cost, m.CostUnknown, m.Override = row.State, row.Cost, row.CostUnknown, row.Override
+			}
 		}
 
 		for _, rec := range recs {
 			if slices.Contains(ids(rec.Presets), preset.ID) {
-				preset.Projects++
+				preset.Projects = append(preset.Projects, rec.Path)
 			}
 		}
 
@@ -152,19 +194,19 @@ func (s *Session) TogglePreset(id string) {
 	}
 }
 
-// TurnedSince counts the rows that turned into each state since the view
-// before: with the totals of both, the effect of the changes in between.
-func (v View) TurnedSince(before View) map[State]int {
-	counts := map[State]int{}
+// TurnedSince returns the rows whose state changed since the view before:
+// with the totals of both, the effect of the changes in between.
+func (v View) TurnedSince(before View) []Row {
+	var turned []Row
 
 	for _, row := range v.Rows {
 		i := slices.IndexFunc(before.Rows, func(was Row) bool { return was.Key == row.Key })
 		if i >= 0 && before.Rows[i].State != row.State {
-			counts[row.State]++
+			turned = append(turned, row)
 		}
 	}
 
-	return counts
+	return turned
 }
 
 // ids are the ids of presets.
@@ -177,12 +219,12 @@ func ids(presets []recordPreset) []string {
 	return out
 }
 
-// recordPresets are the active presets as a save records them, each with a
-// hash of its members.
-func (s *Session) recordPresets() []recordPreset {
-	out := make([]recordPreset, 0, len(s.active))
+// recordPresets are the active presets with ids as a record keeps them, each
+// with a hash of its members.
+func (s *Session) recordPresets(ids []string) []recordPreset {
+	out := make([]recordPreset, 0, len(ids))
 
-	for _, active := range s.active {
+	for _, active := range ids {
 		sum := sha256.New()
 
 		for _, preset := range s.library {
@@ -199,6 +241,253 @@ func (s *Session) recordPresets() []recordPreset {
 	}
 
 	return out
+}
+
+// CreatePreset creates the preset name, with no members and unwritten, and
+// returns its id.
+func (s *Session) CreatePreset(name string) (string, error) {
+	if s.draft != nil {
+		return "", ErrUnwrittenEdits
+	}
+
+	preset := Preset{
+		ID: rand.Text(), Name: name, Members: nil, Projects: nil, Active: false, New: true, Unwritten: false,
+	}
+
+	err := s.checkName(preset.ID, name)
+	if err != nil {
+		return "", err
+	}
+
+	s.library = append(s.library, preset)
+	slices.SortFunc(s.library, byName)
+	s.draft = &preset
+
+	return preset.ID, nil
+}
+
+// AddMember adds the extension with key to the preset with id, an unwritten
+// edit.
+func (s *Session) AddMember(id, key string) error {
+	return s.edit(id, func(members []Member) []Member {
+		return append(members, member(key))
+	})
+}
+
+// RemoveMember removes the extension with key from the preset with id, an
+// unwritten edit.
+func (s *Session) RemoveMember(id, key string) error {
+	return s.edit(id, func(members []Member) []Member {
+		return slices.DeleteFunc(members, func(m Member) bool { return m.Key == key })
+	})
+}
+
+// edit makes change to the members of the preset with id, an unwritten edit.
+// Only one preset has unwritten edits at a time.
+func (s *Session) edit(presetID string, change func([]Member) []Member) error {
+	if s.draft != nil && s.draft.ID != presetID {
+		return ErrUnwrittenEdits
+	}
+
+	at := s.presetIndex(presetID)
+	if at < 0 {
+		return fmt.Errorf("%w: %s", ErrNoPreset, presetID)
+	}
+
+	written := s.library[at]
+	if s.draft == nil {
+		draft := written
+		draft.Members = slices.Clone(written.Members)
+		s.draft = &draft
+	}
+
+	s.draft.Members = change(s.draft.Members)
+	slices.SortFunc(s.draft.Members, byKind)
+	// Undone to the preset as written, which has no unwritten edits left.
+	if !written.New && !slices.ContainsFunc(edits(written.Members, s.draft.Members), func(m Member) bool {
+		return m.Added || m.Removed
+	}) {
+		s.draft = nil
+	}
+
+	return nil
+}
+
+// RenamePreset names the preset with id name. It renames its file at once,
+// and every Project that uses the preset still does.
+func (s *Session) RenamePreset(presetID, name string) error {
+	index := s.presetIndex(presetID)
+	if index < 0 {
+		return fmt.Errorf("%w: %s", ErrNoPreset, presetID)
+	}
+
+	err := s.checkName(presetID, name)
+	if err != nil {
+		return err
+	}
+
+	if !s.library[index].New {
+		err := os.Rename(presetPath(s.machine, s.library[index].Name), presetPath(s.machine, name))
+		if err != nil {
+			return fmt.Errorf("rename preset: %w", err)
+		}
+	}
+
+	s.library[index].Name = name
+	slices.SortFunc(s.library, byName)
+
+	return nil
+}
+
+// checkName reports ErrPresetName unless name can name the preset with id:
+// trimmed, not hidden, one file name, and no other preset's in any case, as
+// a disk may not tell case apart.
+func (s *Session) checkName(id, name string) error {
+	if name == "" || strings.TrimSpace(name) != name || strings.HasPrefix(name, ".") ||
+		strings.ContainsAny(name, `/\`) ||
+		slices.ContainsFunc(s.library, func(p Preset) bool { return p.ID != id && strings.EqualFold(p.Name, name) }) {
+		return fmt.Errorf("%w: %q", ErrPresetName, name)
+	}
+
+	return nil
+}
+
+// presetIndex is the index of the preset with id in the library, or -1.
+func (s *Session) presetIndex(id string) int {
+	return slices.IndexFunc(s.library, func(p Preset) bool { return p.ID == id })
+}
+
+// presetPath is the file of the preset name.
+func presetPath(machine Machine, name string) string {
+	return filepath.Join(presetsDir(machine), name+".toml")
+}
+
+// byName orders presets by name, as their files sort.
+func byName(a, b Preset) int { return cmp.Compare(a.Name, b.Name) }
+
+// DiscardPreset drops the unwritten edits, and a preset not written yet.
+func (s *Session) DiscardPreset() {
+	s.library = slices.DeleteFunc(s.library, func(p Preset) bool { return p.New })
+	s.draft = nil
+}
+
+// byKind orders members by kind, then by name.
+func byKind(a, b Member) int { return cmp.Or(cmp.Compare(a.Kind, b.Kind), cmp.Compare(a.Name, b.Name)) }
+
+// edits are the members of written, a preset's as written, and of draft, as
+// edited, each added or removed marked so.
+func edits(written, draft []Member) []Member {
+	has := func(members []Member, m Member) bool {
+		return slices.ContainsFunc(members, func(other Member) bool { return other.Key == m.Key })
+	}
+
+	var out []Member
+
+	for _, m := range draft {
+		m.Added = !has(written, m)
+		out = append(out, m)
+	}
+
+	for _, m := range written {
+		if !has(draft, m) {
+			m.Removed = true
+			out = append(out, m)
+		}
+	}
+
+	slices.SortFunc(out, byKind)
+
+	return out
+}
+
+// PreviewWrite returns the view of the Project once the preset with
+// unwritten edits is written, and writes nothing.
+func (s *Session) PreviewWrite() View {
+	if s.draft == nil {
+		return s.View()
+	}
+
+	library := s.library
+	defer func() { s.library = library }()
+
+	s.library = slices.Clone(library)
+	s.library[s.presetIndex(s.draft.ID)].Members = s.draft.Members
+
+	return s.View()
+}
+
+// WritePreset writes the preset with unwritten edits. If the Project saved it
+// active, it rewrites the Project's agent config and record with the states
+// the preset changes, and pending changes stay pending. If an agent's entries
+// changed since they were read, it writes nothing, imports the changes and
+// returns ErrChangedSinceOpen.
+func (s *Session) WritePreset() error {
+	if s.draft == nil {
+		return nil
+	}
+
+	active := ids(s.recorded)
+	here := slices.Contains(active, s.draft.ID)
+
+	if here {
+		changed, err := s.changedOutside()
+		if err != nil {
+			return err
+		}
+
+		if changed {
+			return ErrChangedSinceOpen
+		}
+	}
+
+	err := s.writeDraft()
+	if err != nil || !here {
+		return err
+	}
+	// The saved states, with the preset as written.
+	err = s.writeAgents(s.saved, active)
+	if err != nil {
+		return err
+	}
+
+	presets := s.recordPresets(active)
+
+	err = writeRecord(s.machine, s.project, s.saved, presets)
+	if err != nil {
+		return err
+	}
+
+	s.recorded = presets
+
+	return nil
+}
+
+// writeDraft writes the preset with unwritten edits into its file, and takes
+// it into the library.
+func (s *Session) writeDraft() error {
+	var names [3][]string // by kind
+	for _, member := range s.draft.Members {
+		names[member.Kind] = append(names[member.Kind], member.Name)
+	}
+
+	data, err := toml.Marshal(presetFile{
+		ID: s.draft.ID, Skills: names[Skill], Plugins: names[Plugin], MCPServers: names[MCPServer],
+	})
+	if err != nil {
+		return fmt.Errorf("encode preset: %w", err)
+	}
+
+	written := &s.library[s.presetIndex(s.draft.ID)]
+
+	err = writeFile(presetPath(s.machine, written.Name), data)
+	if err != nil {
+		return err
+	}
+
+	written.Members, written.New = s.draft.Members, false
+	s.draft = nil
+
+	return nil
 }
 
 // base is the state ext has in agent without an Override. With active
