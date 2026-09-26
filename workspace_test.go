@@ -27,10 +27,10 @@ func topLine(tui *model) string {
 	return top
 }
 
-// codexOverBudget adds Codex skills at the listing budget to machine, and the
-// Codex plugin github@official, whose skill puts them past it, on in the
+// writeCodexOverBudget adds Codex skills at the listing budget to machine, and
+// the Codex plugin github@official, whose skill puts them past it, on in the
 // trusted machine.Root.
-func codexOverBudget(machine *equiptest.Machine) {
+func writeCodexOverBudget(machine *equiptest.Machine) {
 	machine.SkillsAtCodexBudget(machine.CodexSkills())
 	machine.Skill(filepath.Join(machine.CodexPlugin("github@official"), "skills"), "review")
 	machine.WriteFile(machine.CodexConfig(),
@@ -40,7 +40,7 @@ func codexOverBudget(machine *equiptest.Machine) {
 func TestWorkspaceTopLineMarksTheSideOverBudget(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)
-	codexOverBudget(machine)
+	writeCodexOverBudget(machine)
 	tui := newModel(t, machine)
 
 	// Ruby turns the plugin off: its skill, 8, and the plugins block, 250.
@@ -60,7 +60,7 @@ func TestWorkspaceTopLineMarksTheSideOverBudget(t *testing.T) {
 func TestWriteConfirmMarksTheSideOverBudget(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)
-	codexOverBudget(machine)
+	writeCodexOverBudget(machine)
 	using(t, machine, machine.Root, "r1")
 	tui := newModel(t, machine)
 

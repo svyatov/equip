@@ -259,7 +259,7 @@ func TestSkillThatDisablesModelInvocationKeepsItsCostInCodex(t *testing.T) {
 	}
 }
 
-func TestCodexTotalPastTheListingBudgetIsOverBudgetAndKeepsEverySkill(t *testing.T) {
+func TestCodexListingPastTheBudgetIsOverBudgetAndKeepsEverySkill(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	machine.SkillsAtCodexBudget(machine.CodexSkills())

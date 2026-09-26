@@ -159,8 +159,8 @@ const (
 	lastSkillChars = 169  // 3 + 169 = 172 bytes, 43 tokens
 )
 
-// SkillsAtCodexBudget writes skills into the skills dir whose Codex estimates
-// add up to 5,440 tokens, Codex's listing budget.
+// SkillsAtCodexBudget writes skills into the Location skills. Their Codex
+// estimates add up to 5,440 tokens, Codex's listing budget.
 func (m *Machine) SkillsAtCodexBudget(skills string) {
 	m.t.Helper()
 
