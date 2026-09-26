@@ -116,10 +116,12 @@ func (m *Machine) Repo(name string) string {
 	return dir
 }
 
-// Commit makes an empty commit in repo and returns its hash.
+// Commit makes an empty commit in repo and returns its hash. The message
+// names repo, as equal empty commits made in one second share a hash, and
+// two repos would share a root commit.
 func (m *Machine) Commit(repo string) string {
 	m.t.Helper()
-	m.RunGit(repo, "commit", "-q", "--allow-empty", "-m", "commit")
+	m.RunGit(repo, "commit", "-q", "--allow-empty", "-m", "commit in "+repo)
 
 	return m.RunGit(repo, "rev-parse", "HEAD")
 }

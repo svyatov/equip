@@ -57,8 +57,7 @@ func TestNoRecordOfAnotherMovedRepoIsOffered(t *testing.T) {
 	machine := equiptest.New(t)
 	movedRepo(t, machine)
 	other := machine.Repo("other")
-	// Its own message, as equal empty commits in one second share a hash.
-	machine.RunGit(other, "commit", "-q", "--allow-empty", "-m", "other")
+	machine.Commit(other)
 
 	if got := open(t, machine, other).Orphans; len(got) != 0 {
 		t.Errorf("Orphans = %q, want none", got)
