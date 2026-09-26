@@ -63,6 +63,10 @@ _Avoid_: Stale record, leftover
 A way to narrow the list of extensions by kind, agent, state, or change, shown with the count of extensions it keeps.
 _Avoid_: Filter, category
 
+**Listing budget**:
+The most an agent puts into a session for its skill listing. Past it, the agent shortens or drops what it lists.
+_Avoid_: Cap, limit
+
 ## Relationships
 
 - A **Plugin** contains zero or more **Skills** and **MCP servers**, its **Contents**
