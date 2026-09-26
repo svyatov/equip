@@ -229,8 +229,8 @@ func TestMovingOffAPresetWithUnwrittenEditsAsksToWriteOrDiscard(t *testing.T) {
 
 	press(tui, key('w'), key('y'))
 
-	if line(tui, "Writing*") != "" {
-		t.Errorf("w then y does not write Writing:\n%s", tui.View().Content)
+	if tui.ws.open || tui.s.Unwritten() {
+		t.Errorf("w then y does not write Writing and go back:\n%s", tui.View().Content)
 	}
 }
 
@@ -280,6 +280,10 @@ func TestWriteConfirmShowsTheChangesHereAndNCancels(t *testing.T) {
 
 	if data, _ := os.ReadFile(file); !strings.Contains(string(data), "review") {
 		t.Errorf("y did not write Ruby:\n%s", data)
+	}
+	// The write saved review on, so nothing is left unsaved.
+	if top := topLine(tui); strings.Contains(top, "unsaved") {
+		t.Errorf("top line %q shows the written change as unsaved", top)
 	}
 }
 
@@ -342,7 +346,7 @@ func TestAddListSearchesOnRequest(t *testing.T) {
 	press(tui, key('p'), key('a'), key('/'))
 	press(tui, typed("rev")...)
 
-	if line(tui, "○ docs") != "" && line(tui, "● docs") != "" || line(tui, "review") == "" {
+	if line(tui, "○ docs") != "" || line(tui, "● docs") != "" || line(tui, "review") == "" {
 		t.Errorf("the search does not keep only review:\n%s", tui.View().Content)
 	}
 }

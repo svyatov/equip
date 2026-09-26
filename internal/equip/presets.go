@@ -38,30 +38,27 @@ var ErrUnwrittenEdits = errors.New("another preset has unwritten edits")
 // cannot name a file.
 var ErrPresetName = errors.New("a preset needs a free name that can name a file")
 
-// ErrNoPreset is the error of an edit of a preset the library does not have.
-var ErrNoPreset = errors.New("no such preset")
+// errNoPreset is the error of an edit of a preset the library does not have.
+var errNoPreset = errors.New("no such preset")
 
 // Member is one extension a Preset names, which may not be installed. An
-// installed one has its row's state, cost and Override mark here.
+// installed one has its row here: its state, cost and Override mark.
 type Member struct {
-	Key         string
-	Name        string
-	Kind        Kind
-	State       State
-	Cost        int
-	CostUnknown bool
-	Override    bool
-	Installed   bool
-	Added       bool // an unwritten edit adds it
-	Removed     bool // an unwritten edit removes it
+	Row
+
+	Installed bool
+	Added     bool // an unwritten edit adds it
+	Removed   bool // an unwritten edit removes it
 }
 
 // member is the member with key, as a preset file names it.
 func member(key string) Member {
-	return Member{
-		Key: key, Name: keyName(key), Kind: keyKind(key), State: On, Cost: 0, CostUnknown: false, Override: false,
-		Installed: false, Added: false, Removed: false,
+	row := Row{
+		Key: key, Name: keyName(key), Kind: keyKind(key), Cost: 0, State: On, Fallback: On, CostUnknown: false,
+		Override: false, Unsaved: false, ChangedOutside: false,
 	}
+
+	return Member{Row: row, Installed: false, Added: false, Removed: false}
 }
 
 // presetFile is a preset as its file keeps it: members by kind, as record
@@ -159,8 +156,7 @@ func (s *Session) Presets() []Preset {
 
 			var ext Extension
 			if ext, m.Installed = s.ext(m.Key); m.Installed {
-				row := s.row(ext)
-				m.State, m.Cost, m.CostUnknown, m.Override = row.State, row.Cost, row.CostUnknown, row.Override
+				m.Row = s.row(ext)
 			}
 		}
 
@@ -291,7 +287,7 @@ func (s *Session) edit(presetID string, change func([]Member) []Member) error {
 
 	at := s.presetIndex(presetID)
 	if at < 0 {
-		return fmt.Errorf("%w: %s", ErrNoPreset, presetID)
+		return fmt.Errorf("%w: %s", errNoPreset, presetID)
 	}
 
 	written := s.library[at]
@@ -318,7 +314,7 @@ func (s *Session) edit(presetID string, change func([]Member) []Member) error {
 func (s *Session) RenamePreset(presetID, name string) error {
 	index := s.presetIndex(presetID)
 	if index < 0 {
-		return fmt.Errorf("%w: %s", ErrNoPreset, presetID)
+		return fmt.Errorf("%w: %s", errNoPreset, presetID)
 	}
 
 	err := s.checkName(presetID, name)
@@ -400,20 +396,22 @@ func edits(written, draft []Member) []Member {
 	return out
 }
 
-// PreviewWrite returns the view of the Project once the preset with
-// unwritten edits is written, and writes nothing.
-func (s *Session) PreviewWrite() View {
-	if s.draft == nil {
-		return s.View()
+// PreviewWrite returns the views of the Project's saved states before and
+// after the write of the preset with unwritten edits: what the write changes
+// here, pending changes left out. It writes nothing.
+func (s *Session) PreviewWrite() (View, View) {
+	overrides, active, library := s.overrides, s.active, s.library
+	defer func() { s.overrides, s.active, s.library = overrides, active, library }()
+
+	s.overrides, s.active = s.saved, ids(s.recorded)
+	before := s.View()
+
+	if s.draft != nil {
+		s.library = slices.Clone(library)
+		s.library[s.presetIndex(s.draft.ID)].Members = s.draft.Members
 	}
 
-	library := s.library
-	defer func() { s.library = library }()
-
-	s.library = slices.Clone(library)
-	s.library[s.presetIndex(s.draft.ID)].Members = s.draft.Members
-
-	return s.View()
+	return before, s.View()
 }
 
 // WritePreset writes the preset with unwritten edits. If the Project saved it
@@ -441,11 +439,21 @@ func (s *Session) WritePreset() error {
 	}
 
 	err := s.writeDraft()
-	if err != nil || !here {
-		return err
+	if err == nil && here {
+		err = s.rewriteHere(active)
 	}
-	// The saved states, with the preset as written.
-	err = s.writeAgents(s.saved, active)
+	// Kept until every write lands, so a failed one can be written again.
+	if err == nil {
+		s.draft = nil
+	}
+
+	return err
+}
+
+// rewriteHere writes the saved states, with the presets as written, into the
+// Project's agent config, and the record with the active presets with ids.
+func (s *Session) rewriteHere(active []string) error {
+	err := s.writeAgents(s.saved, active)
 	if err != nil {
 		return err
 	}
@@ -465,7 +473,7 @@ func (s *Session) WritePreset() error {
 // writeDraft writes the preset with unwritten edits into its file, and takes
 // it into the library.
 func (s *Session) writeDraft() error {
-	var names [3][]string // by kind
+	names := map[Kind][]string{}
 	for _, member := range s.draft.Members {
 		names[member.Kind] = append(names[member.Kind], member.Name)
 	}
@@ -484,11 +492,14 @@ func (s *Session) writeDraft() error {
 		return err
 	}
 
-	written.Members, written.New = s.draft.Members, false
-	s.draft = nil
+	// A clone, as the draft stays until every write lands.
+	written.Members, written.New = slices.Clone(s.draft.Members), false
 
 	return nil
 }
+
+// Unwritten reports whether a preset has unwritten edits.
+func (s *Session) Unwritten() bool { return s.draft != nil }
 
 // base is the state ext has in agent without an Override. With active
 // presets, it is on for a member of one of them and off for everything else;

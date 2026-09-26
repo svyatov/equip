@@ -302,30 +302,105 @@ func TestWriteStopsWhenThisProjectChangedOutsideSinceOpen(t *testing.T) {
 	}
 }
 
-func TestPreviewShowsThisProjectAfterTheWriteAndWritesNothing(t *testing.T) {
+func TestPreviewShowsWhatTheWriteChangesInTheSavedStatesAndWritesNothing(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)
-	session := newSession(t, machine, machine.Root)
+	repo := machine.Repo("app")
+	session := newSession(t, machine, repo)
 	session.SetPresets([]string{"r1"})
+	save(t, session)
+	// Pending, so the write still rewrites the project with Ruby active.
+	session.SetPresets(nil)
 	add(t, session, "r1", "review")
-	before := session.View()
 
-	after := session.PreviewWrite()
+	before, after := session.PreviewWrite()
 
-	if got := row(t, after, "review"); got.State != equip.On {
-		t.Errorf("review after the write = %s, want on", got.State)
+	if was, got := row(t, before, "review"), row(t, after, "review"); was.State != equip.Off || got.State != equip.On {
+		t.Errorf("review = %s, then %s after the write; want off, then on", was.State, got.State)
 	}
 
 	if got, was := after.Totals[equip.ClaudeCode], before.Totals[equip.ClaudeCode]; got <= was {
 		t.Errorf("Claude Code total after the write = %d, want more than %d", got, was)
 	}
 
-	if got := row(t, session.View(), "review"); got.State != equip.Off || !session.Presets()[0].Unwritten {
-		t.Errorf("review = %s, want off with the edit still unwritten", got.State)
+	if view := session.View(); len(view.Presets) != 0 || !session.Presets()[0].Unwritten {
+		t.Errorf("Presets = %q, want none pending with Ruby's edit still unwritten", view.Presets)
 	}
 
-	if got := members(newSession(t, machine, machine.Root), "r1"); !slices.Equal(got, []string{"lint =", "rspec ="}) {
+	if got := members(newSession(t, machine, repo), "r1"); !slices.Equal(got, []string{"lint =", "rspec ="}) {
 		t.Errorf("Ruby's members on disk = %q, want lint and rspec", got)
+	}
+}
+
+func TestPreviewOfAPresetOnlyPendingActiveChangesNothingHere(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	session := newSession(t, machine, machine.Root)
+	session.SetPresets([]string{"r1"})
+	add(t, session, "r1", "review")
+
+	before, after := session.PreviewWrite()
+
+	if turned := after.TurnedSince(before); len(turned) != 0 {
+		t.Errorf("turned = %+v, want none", turned)
+	}
+}
+
+func TestAFailedWriteKeepsTheEditsToWriteAgain(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	repo := machine.Repo("app")
+	session := newSession(t, machine, repo)
+	session.SetPresets([]string{"r1"})
+	save(t, session)
+	add(t, session, "r1", "review")
+
+	records := filepath.Dir(recordFile(t, machine))
+	record, _ := os.ReadFile(recordFile(t, machine))
+	chmod(t, records, 0o500)
+
+	err := session.WritePreset()
+	if err == nil || !session.Presets()[0].Unwritten {
+		t.Fatalf("WritePreset = %v with the record unwritable, want an error and the edit kept", err)
+	}
+
+	chmod(t, records, 0o750)
+	write(t, session)
+
+	if after, _ := os.ReadFile(recordFile(t, machine)); string(after) == string(record) || session.Presets()[0].Unwritten {
+		t.Errorf("the second write did not land:\n%s", after)
+	}
+}
+
+// chmod sets the mode of path, and gives the owner back full access once the
+// test ends, so its temp dir can go.
+func chmod(t *testing.T, path string, mode os.FileMode) {
+	t.Helper()
+
+	err := os.Chmod(path, mode)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = os.Chmod(path, 0o700) })
+}
+
+func TestRenamingANewPresetNamesTheFileItsWriteCreates(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	session := newSession(t, machine, machine.Root)
+	docsID := create(t, session, "Docs")
+
+	err := session.RenamePreset(docsID, "Notes")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	write(t, session)
+
+	got := library(newSession(t, machine, machine.Root))
+	if want := []string{"Notes " + docsID + " 0", "Ruby r1 2", "Writing w1 1"}; !slices.Equal(got, want) {
+		t.Errorf("library = %q, want %q", got, want)
 	}
 }
 

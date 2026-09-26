@@ -19,12 +19,18 @@ const (
 	askLeave    = "leave"    // write or discard the unwritten edits before moving off
 )
 
-// desk is the state of the presets workspace.
-type desk struct {
+// What the name typed is for.
+const (
+	nameNew    = "new"    // a new preset
+	nameRename = "rename" // the highlighted preset
+)
+
+// workspace is the state of the presets workspace.
+type workspace struct {
 	name      string     // typed while naming
-	naming    string     // what the name typed is for, "new" or "rename"; empty when not naming
+	naming    string     // what the name typed is for, nameNew or nameRename; empty when not naming
 	asking    string     // the question the right pane asks; empty with none
-	leave     string     // the key that moved off the preset with unwritten edits, done once they are discarded
+	leave     string     // the key that moved off the preset with unwritten edits, done once they are written or discarded
 	created   string     // the id of the preset the last write created
 	query     string     // the add list's search
 	before    equip.View // at the workspace's opening
@@ -36,9 +42,9 @@ type desk struct {
 	searching bool // the keys type into the add list's search
 }
 
-// newDesk is a closed workspace that compares with before.
-func newDesk(before equip.View) desk {
-	return desk{
+// newWorkspace is a closed workspace that compares with before.
+func newWorkspace(before equip.View) workspace {
+	return workspace{
 		before: before, open: false, name: "", naming: "", asking: "", leave: "", created: "", query: "", preset: 0,
 		member: 0, members: false, adding: false, searching: false,
 	}
@@ -47,7 +53,7 @@ func newDesk(before equip.View) desk {
 // openWorkspace opens the presets workspace, which compares what the keys
 // change there with the view at opening.
 func (m *model) openWorkspace() {
-	m.ws = newDesk(m.s.View())
+	m.ws = newWorkspace(m.s.View())
 	m.ws.open = true
 }
 
@@ -63,7 +69,7 @@ func (m *model) inWorkspace(keyMsg tea.KeyPressMsg) {
 	case m.ws.adding:
 		m.inAddList(keyMsg, presets)
 	default:
-		m.onDesk(keyMsg.String(), presets)
+		m.onPanes(keyMsg.String(), presets)
 	}
 
 	presets = m.s.Presets()
@@ -79,14 +85,14 @@ func (m *model) inWorkspace(keyMsg tea.KeyPressMsg) {
 	m.ws.member = max(min(m.ws.member, listed-1), 0)
 }
 
-// onDesk acts on key in the library or the members pane: the arrows move,
+// onPanes acts on key in the library or the members pane: the arrows move,
 // space makes the highlighted preset active here or adds or removes the
 // highlighted member, n creates a preset, r renames it, a adds members, w
 // writes it, tab moves between the panes, and esc goes back to the main
 // screen. A key that moves off the preset with unwritten edits asks first.
-func (m *model) onDesk(key string, presets []equip.Preset) {
+func (m *model) onPanes(key string, presets []equip.Preset) {
 	if delta, isStep := step(key); isStep {
-		m.moveOnDesk(key, delta, presets)
+		m.moveInPanes(key, delta, presets)
 
 		return
 	}
@@ -94,10 +100,10 @@ func (m *model) onDesk(key string, presets []equip.Preset) {
 	switch {
 	case key == "tab":
 		m.ws.members = !m.ws.members
-	case key == escKey && !m.guard(key, presets):
+	case key == escKey && !m.guard(key):
 		m.ws.open = false
-	case key == "n" && !m.guard(key, presets):
-		m.ws.naming, m.ws.name = "new", ""
+	case key == "n" && !m.guard(key):
+		m.ws.naming, m.ws.name = nameNew, ""
 	default:
 		if cur, found := m.current(presets); found {
 			m.onPreset(key, cur)
@@ -105,15 +111,15 @@ func (m *model) onDesk(key string, presets []equip.Preset) {
 	}
 }
 
-// moveOnDesk moves the highlight by delta, as the arrow key does: among the
-// members, else among presets.
-func (m *model) moveOnDesk(key string, delta int, presets []equip.Preset) {
+// moveInPanes moves the highlight by delta, as the arrow key does: among
+// the members, else among presets.
+func (m *model) moveInPanes(key string, delta int, presets []equip.Preset) {
 	next := max(min(m.ws.preset+delta, len(presets)-1), 0)
 
 	switch {
 	case m.ws.members:
 		m.ws.member += delta
-	case next != m.ws.preset && !m.guard(key, presets):
+	case next != m.ws.preset && !m.guard(key):
 		m.ws.preset, m.ws.member = next, 0
 	}
 }
@@ -122,18 +128,18 @@ func (m *model) moveOnDesk(key string, delta int, presets []equip.Preset) {
 func (m *model) onPreset(key string, cur equip.Preset) {
 	switch key {
 	case "r":
-		m.ws.naming, m.ws.name = "rename", cur.Name
+		m.ws.naming, m.ws.name = nameRename, cur.Name
 	case "a":
 		m.ws.adding, m.ws.members, m.ws.searching, m.ws.query, m.ws.member = true, true, false, "", 0
 	case "w":
-		m.ws.asking = askWrite
+		m.ws.asking, m.ws.leave = askWrite, ""
 		if !cur.Unwritten {
 			m.ws.asking, m.flash = "", m.style.dim.Render("no unwritten edits in "+cur.Name)
 		}
-	case spaceKey, "x":
+	case spaceKey:
 		if m.ws.members {
 			m.toggleMember(cur)
-		} else if key == spaceKey {
+		} else {
 			m.toggleActive(cur)
 		}
 	}
@@ -141,8 +147,8 @@ func (m *model) onPreset(key string, cur equip.Preset) {
 
 // guard reports whether a preset has unwritten edits, and then asks to
 // write or discard them before key moves off it.
-func (m *model) guard(key string, presets []equip.Preset) bool {
-	if !slices.ContainsFunc(presets, func(p equip.Preset) bool { return p.Unwritten }) {
+func (m *model) guard(key string) bool {
+	if !m.s.Unwritten() {
 		return false
 	}
 
@@ -202,7 +208,7 @@ func (m *model) giveName(name string, presets []equip.Preset) {
 		err      error
 	)
 
-	if cur, found := m.current(presets); m.ws.naming == "rename" && found {
+	if cur, found := m.current(presets); m.ws.naming == nameRename && found {
 		presetID, err = cur.ID, m.s.RenamePreset(cur.ID, name)
 	} else {
 		presetID, err = m.s.CreatePreset(name)
@@ -269,34 +275,69 @@ func (m *model) typeSearch(keyMsg tea.KeyPressMsg) {
 	}
 }
 
-// answer acts on key as the answer to the question the right pane asks.
+// answer acts on key as the answer to the question the right pane asks. Once
+// the unwritten edits are written or discarded, the key that moved off them
+// moves on.
 func (m *model) answer(key string, presets []equip.Preset) {
 	asked := m.ws.asking
 	m.ws.asking = ""
 
-	switch {
-	case asked == askWrite && key == "y":
-		m.write(presets)
-	case asked == askActivate && key == "y":
-		m.s.TogglePreset(m.ws.created)
-	case asked == askLeave && key == "w":
-		m.ws.asking = askWrite
-	case asked == askLeave && key == "d":
-		m.s.DiscardPreset()
-		m.onDesk(m.ws.leave, m.s.Presets())
+	switch asked {
+	case askWrite:
+		if key == "y" {
+			m.write(presets)
+
+			return
+		}
+
+		m.ws.leave = ""
+	case askActivate:
+		if key == "y" {
+			m.s.TogglePreset(m.ws.created)
+		}
+	case askLeave:
+		switch key {
+		case "w":
+			m.ws.asking = askWrite
+
+			return
+		case "d":
+			m.s.DiscardPreset()
+		default:
+			m.ws.leave = ""
+		}
+	}
+
+	m.moveOn()
+}
+
+// moveOn does the key that moved off the unwritten edits, if one did.
+func (m *model) moveOn() {
+	key := m.ws.leave
+	m.ws.leave = ""
+
+	if key != "" {
+		m.onPanes(key, m.s.Presets())
 	}
 }
 
 // write writes the preset with unwritten edits, the highlighted one of
-// presets, and offers to make it active here when the write created it.
+// presets, and offers to make it active here when the write created it. The
+// workspace then compares with the view after the write, which saved what
+// it changed here.
 func (m *model) write(presets []equip.Preset) {
 	cur, _ := m.current(presets)
 
 	err := m.s.WritePreset()
-	if err != nil {
-		m.flash = m.style.warn.Render("write failed: " + err.Error())
-	} else if cur.New {
-		m.ws.asking, m.ws.created = askActivate, cur.ID
+
+	switch {
+	case err != nil:
+		m.flash, m.ws.leave = m.style.warn.Render("write failed: "+err.Error()), ""
+	case cur.New:
+		m.ws.before, m.ws.asking, m.ws.created = m.s.View(), askActivate, cur.ID
+	default:
+		m.ws.before = m.s.View()
+		m.moveOn()
 	}
 }
 
@@ -595,16 +636,17 @@ func (m *model) extension(key, name string, presets []equip.Preset) string {
 	return name + m.style.dim.Render("  not installed") + "\n\n" + line
 }
 
-// confirm is the right pane that asks to write preset: the extensions that
-// change state here, and each agent's session total before and after.
+// confirm is the right pane that asks to write preset: the extensions whose
+// saved state the write changes here, and each agent's session total before
+// and after.
 func (m *model) confirm(preset equip.Preset) string {
 	verb := "Write"
 	if preset.New {
 		verb = "Create"
 	}
 
-	now, after := m.s.View(), m.s.PreviewWrite()
-	changes := now.TurnedSince(after) // the rows as they are now
+	before, after := m.s.PreviewWrite()
+	changes := after.TurnedSince(before)
 	lines := []string{m.style.warn.Render(verb + " preset " + preset.Name + "?"), "", "This project"}
 
 	if len(changes) == 0 {
@@ -612,13 +654,14 @@ func (m *model) confirm(preset equip.Preset) string {
 	}
 
 	for _, row := range changes {
-		lines = append(lines, "  "+glyph(row.State)+" → "+glyph(after.Rows[index(after.Rows, row.Key)].State)+" "+row.Name)
+		was := before.Rows[index(before.Rows, row.Key)].State
+		lines = append(lines, "  "+glyph(was)+" → "+glyph(row.State)+" "+row.Name)
 	}
 
 	lines = append(lines, "")
 
 	for _, agent := range equip.Agents() {
-		lines = append(lines, agent.String()+" "+costOf(now.Unknown[agent], now.Totals[agent])+" → "+
+		lines = append(lines, agent.String()+" "+costOf(before.Unknown[agent], before.Totals[agent])+" → "+
 			costOf(after.Unknown[agent], after.Totals[agent]))
 	}
 

@@ -65,17 +65,17 @@ type model struct {
 	style      styles
 	s          *equip.Session
 	flash      string
-	query      string   // the search: the list keeps the rows whose names contain it
-	key        string   // of the highlighted row, which the highlight stays on while the list has it
-	pinned     string   // of a row the keys changed, which the list keeps until the highlight leaves it
-	orphans    []string // the records of a moved repo the first open offers, while it asks to adopt one
-	ws         desk     // the presets workspace
-	cur        int      // the highlighted row
-	facet      int      // the picked facet
-	server     int      // the highlighted MCP server among the highlighted plugin's contents
-	inContents bool     // the keys act on the highlighted MCP server, not the row
-	quitting   bool     // asking to quit with unsaved changes
-	searching  bool     // the keys type into the search
+	query      string    // the search: the list keeps the rows whose names contain it
+	key        string    // of the highlighted row, which the highlight stays on while the list has it
+	pinned     string    // of a row the keys changed, which the list keeps until the highlight leaves it
+	orphans    []string  // the records of a moved repo the first open offers, while it asks to adopt one
+	ws         workspace // the presets workspace
+	cur        int       // the highlighted row
+	facet      int       // the picked facet
+	server     int       // the highlighted MCP server among the highlighted plugin's contents
+	inContents bool      // the keys act on the highlighted MCP server, not the row
+	quitting   bool      // asking to quit with unsaved changes
+	searching  bool      // the keys type into the search
 }
 
 // digitKeys is the count of the digit keys 1 to 9, which pick a record in
@@ -108,7 +108,7 @@ func newTUI(session *equip.Session) *model {
 	tui := &model{
 		s: session, style: newStyles(), cur: 0, facet: 0, server: 0, inContents: false, quitting: false,
 		searching: false, flash: "", query: "", key: "", pinned: "", orphans: orphans[:min(len(orphans), digitKeys)],
-		ws: newDesk(view),
+		ws: newWorkspace(view),
 	}
 	tui.clamp()
 
@@ -312,11 +312,9 @@ func (m *model) search(keyMsg tea.KeyPressMsg) {
 		m.searching = false
 	case escKey:
 		m.searching, m.query = false, ""
-	case "backspace":
-		m.query = typeInto(m.query, keyMsg)
 	default:
+		m.query = typeInto(m.query, keyMsg)
 		if keyMsg.Text != "" {
-			m.query += keyMsg.Text
 			m.first()
 		}
 	}
@@ -530,7 +528,7 @@ func (m *model) quit() tea.Cmd {
 // with unwritten edits.
 func (m *model) unsaved() int {
 	count := m.s.View().Unsaved
-	if slices.ContainsFunc(m.s.Presets(), func(p equip.Preset) bool { return p.Unwritten }) {
+	if m.s.Unwritten() {
 		count++
 	}
 
