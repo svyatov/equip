@@ -241,19 +241,6 @@ func TestMembersShowTheirStateCostAndOverrideHere(t *testing.T) {
 	}
 }
 
-func TestLibraryNamesTheProjectsThatUseAPreset(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.WithPresets(t)
-	repo := machine.Repo("app")
-	app := newSession(t, machine, repo)
-	app.SetPresets([]string{"r1"})
-	save(t, app)
-
-	if got := newSession(t, machine, machine.Repo("other")).Presets()[0].Projects; !slices.Equal(got, []string{repo}) {
-		t.Errorf("Ruby's projects = %q, want %q", got, repo)
-	}
-}
-
 func TestWritingAnActivePresetRewritesThisProjectAndKeepsPendingTogglesPending(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)

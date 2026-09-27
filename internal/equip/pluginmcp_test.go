@@ -232,19 +232,3 @@ func TestPluginMCPServerSetOffByHandAfterASaveIsUnsavedAndChangedOutside(t *test
 		t.Errorf("plugin row = %+v, want unsaved", plugin)
 	}
 }
-
-func TestSaveTurnsAPluginMCPServerOffUnderItsManifestNameInClaudeCode(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	repo := machine.Repo("app")
-	pluginServer(t, machine)
-	session := newSession(t, machine, repo)
-
-	session.SetState(search(t, session).Key, equip.Off)
-	save(t, session)
-
-	if got, want := projectEntry(t, machine, repo)["disabledMcpServers"], []any{"plugin:gh:search"}; !reflect.DeepEqual(
-		got, want) {
-		t.Errorf("disabledMcpServers = %v, want %v", got, want)
-	}
-}

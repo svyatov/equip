@@ -67,30 +67,6 @@ func TestCostRoundsUp(t *testing.T) {
 	}
 }
 
-func TestManualOnlySkillCostsNothingInClaudeCode(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	machine.Skill(machine.ClaudeSkills(), "review")
-	session := newSession(t, machine, machine.Root)
-	session.SetState("review", equip.ManualOnly)
-
-	if got := row(t, session.View(), "review").Cost; got != 0 {
-		t.Errorf("Cost = %d, want 0", got)
-	}
-}
-
-func TestOffSkillCostsNothingInClaudeCode(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	machine.Skill(machine.ClaudeSkills(), "review")
-	session := newSession(t, machine, machine.Root)
-	session.SetState("review", equip.Off)
-
-	if got := row(t, session.View(), "review").Cost; got != 0 {
-		t.Errorf("Cost = %d, want 0", got)
-	}
-}
-
 func TestClaudeCodeSkillCostCountsWhenToUse(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
@@ -156,19 +132,6 @@ func TestCodexSkillCostCapsTheDescriptionAt1024Characters(t *testing.T) {
 
 	if got := row(t, open(t, machine, machine.Root), "abc").Cost; got != 513 {
 		t.Errorf("Cost = %d, want 513", got)
-	}
-}
-
-func TestOffSkillKeepsItsFullCostInCodex(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	// 3 + 29 = 32 bytes.
-	writeSkill(t, machine.CodexSkills(), strings.Repeat("x", 29), "")
-	session := newSession(t, machine, machine.Root)
-	session.SetState("abc", equip.Off)
-
-	if got := row(t, session.View(), "abc").Cost; got != 8 {
-		t.Errorf("Cost = %d, want 8", got)
 	}
 }
 

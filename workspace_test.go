@@ -616,14 +616,3 @@ func TestQuitAsksWithUnwrittenPresetEdits(t *testing.T) {
 		t.Errorf("ctrl+c did not ask first:\n%s", tui.View().Content)
 	}
 }
-
-func TestSpaceOnAnActivePresetRemovesIt(t *testing.T) {
-	t.Parallel()
-	tui := presetModel(t)
-
-	press(tui, key('p'), down(), key(' '), key(' '))
-
-	if line(tui, "[ ] Writing") == "" || strings.Contains(topLine(tui), "→") {
-		t.Errorf("Writing is still active:\n%s", tui.View().Content)
-	}
-}

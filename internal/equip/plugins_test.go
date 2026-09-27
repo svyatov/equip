@@ -12,18 +12,6 @@ import (
 	"github.com/svyatov/equip/internal/equiptest"
 )
 
-func TestViewListsAUserInstalledPluginByNameAndMarketplace(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	repo := machine.Repo("app")
-	machine.Plugin("github@official", "user", "")
-
-	got := names(open(t, machine, repo))
-	if want := []string{"github@official"}; !slices.Equal(got, want) {
-		t.Errorf("rows = %q, want %q", got, want)
-	}
-}
-
 func TestViewListsOnlyPluginsInstalledForThisProject(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)

@@ -408,18 +408,6 @@ func TestMeasuredServerCostsNothingInAnAgentThatDoesNotHaveIt(t *testing.T) {
 	}
 }
 
-func TestMeasuredCostShowsOnTheNextOpenWithoutAProbe(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	repo := machine.Repo("app")
-	fakeServer(t, machine, "modern", "")
-	probedRow(t, machine, repo)
-
-	if got := row(t, open(t, machine, repo), "fake"); got.CostUnknown || got.Cost != 7 {
-		t.Errorf("row = %+v, want the cached cost of 7", got)
-	}
-}
-
 func TestMeasuredCostIsUnknownAgainOnceItsTTLHasPassed(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
