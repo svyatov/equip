@@ -291,6 +291,28 @@ func TestSaveWritesMCPJSONServersAsExplicitEntriesInSettingsLocal(t *testing.T) 
 	}
 }
 
+func TestTrackedSettingsFileLeavesMCPJSONServersUnappliedButNotUserServers(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	writeFile(t, claudeJSON(machine), `{"mcpServers": {"github": {"command": "gh"}}}`)
+	writeFile(t, filepath.Join(repo, ".mcp.json"), `{"mcpServers": {"db": {"command": "db"}}}`)
+	writeFile(t, settingsLocal(repo), `{}`)
+	machine.RunGit(repo, "add", ".claude/settings.local.json")
+	session := newSession(t, machine, repo)
+	session.SetState("mcp:github", equip.Off)
+
+	save(t, session)
+
+	if got := session.Detail("mcp:db").NotApplied[equip.ClaudeCode]; !strings.Contains(got, "tracked by git") {
+		t.Errorf("NotApplied[ClaudeCode] of db = %q, want the file tracked by git", got)
+	}
+
+	if got, want := projectEntry(t, machine, repo)["disabledMcpServers"], []any{"github"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("disabledMcpServers = %v, want %v", got, want)
+	}
+}
+
 func TestSaveWritesAServerInSeveralPlacesWhereClaudeCodeTakesItFrom(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)

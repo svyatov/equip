@@ -70,6 +70,17 @@ func tracked(machine Machine, project Project, rel string) bool {
 	return err == nil
 }
 
+// trackedReason is why equip does not write rel, a config in the Project,
+// when git tracks it. It is empty when git does not.
+func trackedReason(machine Machine, project Project, rel string) string {
+	// A tracked file belongs to everyone who clones the repo.
+	if tracked(machine, project, rel) {
+		return rel + " is tracked by git"
+	}
+
+	return ""
+}
+
 // exclude adds rel, a path in the Project, to the main checkout's
 // .git/info/exclude unless git already ignores it. Outside git it does
 // nothing.

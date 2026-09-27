@@ -1,6 +1,7 @@
 package equip
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"maps"
@@ -38,16 +39,18 @@ func (s State) String() string {
 
 // Session is one open Project.
 type Session struct {
-	pending  choice                     // the pending active presets and Overrides, with the installed exts
-	saved    map[string]State           // the overrides at the last save
-	disk     map[Agent]map[string]State // each agent's entries for its applied exts, as last read or written
-	outside  map[string]Agent           // changed outside equip since the last save, in that agent
-	measured map[string]measurement     // the MCP servers measured, by key; guarded by mu
-	codex    codexConfig
-	machine  Machine
-	project  Project
-	orphans  []string // the paths of the records the Project can adopt
-	draft    *Preset  // the one preset with unwritten edits, as edited; nil with none
+	pending    choice                     // the pending active presets and Overrides, with the installed exts
+	saved      map[string]State           // the overrides at the last save
+	disk       map[Agent]map[string]State // each agent's entries for its applied exts, as last read or written
+	outside    map[string]Agent           // changed outside equip since the last save, in that agent
+	measured   map[string]measurement     // the MCP servers measured, by key; guarded by mu
+	codex      codexConfig
+	notApplied map[Agent]string // why equip does not write each agent's config; empty for one it writes
+	discovered map[string]State // the Claude Code defaults of the exts kept in settings.local.json, as discovered
+	machine    Machine
+	project    Project
+	orphans    []string // the paths of the records the Project can adopt
+	draft      *Preset  // the one preset with unwritten edits, as edited; nil with none
 	// unfinished are the other Projects that use the draft, opened by a
 	// write of it that failed, before its preset file changed; nil with none.
 	unfinished []Affected
@@ -113,19 +116,6 @@ func Open(machine Machine, dir string) (*Session, error) {
 		return nil, err
 	}
 
-	applied := appliedExts(exts, codex)
-	disk := map[Agent]map[string]State{}
-
-	for _, agent := range Agents() {
-		// ponytail: broken config reads as no entries here; Save reports it.
-		disk[agent], _ = agent.config().read(machine, project, applied[agent])
-	}
-
-	saved, presets, err := readRecord(recordPath(machine, project.Path), firstStates(disk))
-	if err != nil {
-		return nil, err
-	}
-
 	library, err := readPresets(machine)
 	if err != nil {
 		return nil, err
@@ -134,11 +124,13 @@ func Open(machine Machine, dir string) (*Session, error) {
 	session := &Session{
 		machine:    machine,
 		project:    project,
-		pending:    choice{library: library, active: nil, overrides: nil, exts: exts, applied: applied},
+		pending:    choice{library: library, active: nil, overrides: nil, exts: exts, applied: nil},
 		draft:      nil,
 		unfinished: nil,
 		recorded:   nil,
 		codex:      codex,
+		notApplied: nil,
+		discovered: claudeDefaults(exts),
 		saved:      nil,
 		disk:       nil,
 		outside:    nil,
@@ -147,6 +139,20 @@ func Open(machine Machine, dir string) (*Session, error) {
 		orphans:    orphans(machine, project),
 		mu:         sync.Mutex{},
 	}
+	session.takeConfigs(codex)
+
+	disk := map[Agent]map[string]State{}
+
+	for _, agent := range Agents() {
+		// ponytail: broken config reads as no entries here; Save reports it.
+		disk[agent], _ = agent.config().read(machine, project, session.pending.applied[agent])
+	}
+
+	saved, presets, err := readRecord(recordPath(machine, project.Path), firstStates(disk))
+	if err != nil {
+		return nil, err
+	}
+
 	session.start(saved, presets, disk)
 	session.readMeasurements()
 
@@ -168,35 +174,6 @@ func firstStates(disk map[Agent]map[string]State) map[string]State {
 	}
 
 	return all
-}
-
-// appliedExts are the exts whose states equip writes for each agent, with
-// Codex's config codex.
-func appliedExts(exts []Extension, codex codexConfig) map[Agent][]Extension {
-	applied := map[Agent][]Extension{}
-
-	for _, agent := range Agents() {
-		for _, ext := range exts {
-			if ext.has(agent) && whyNotApplied(agent, ext, codex) == "" {
-				applied[agent] = append(applied[agent], ext)
-			}
-		}
-	}
-
-	return applied
-}
-
-// whyNotApplied is why equip does not write the state of ext for agent, with
-// Codex's config codex. It is empty when equip does.
-func whyNotApplied(agent Agent, ext Extension, codex codexConfig) string {
-	switch {
-	case agent == ClaudeCode:
-		return ""
-	case ext.Kind == Skill:
-		return "Codex has no per-project skill setting"
-	}
-
-	return codex.notApplied
 }
 
 // adapter is how equip reads and writes an agent's config for a Project.
@@ -250,7 +227,9 @@ func (s *Session) View() View {
 		}
 	}
 
-	presets = append(presets, s.missing(s.pending.active)...)
+	for _, id := range s.missing(s.pending.active) {
+		presets = append(presets, s.missingName(id))
+	}
 
 	return View{
 		Project: s.project, Rows: rows, Facets: s.facets(rows), Unsaved: s.unsavedCount(), Totals: totals,
@@ -325,7 +304,7 @@ func (s *Session) Detail(key string) Detail {
 			detail.Agents = append(detail.Agents, agent)
 			detail.Costs[agent] = s.costIn(agent, ext)
 
-			if why := whyNotApplied(agent, ext, s.codex); why != "" {
+			if why := s.whyNotApplied(agent, ext); why != "" {
 				detail.NotApplied[agent] = why
 			}
 		}
@@ -384,19 +363,20 @@ func (s *Session) Save() error {
 	// the record of a first open's imports gets created. With records on
 	// offer, it creates an empty record, so the next open offers them no more.
 	nothing := s.unsavedCount() == 0 && len(s.saved) == 0
-	if nothing && len(s.orphans) == 0 {
-		return nil
-	}
-	// Written before the record, so a failed record write does not make
-	// equip's own entries look changed outside.
-	if !nothing {
+	if nothing {
+		// As a write would, every save keeps the settings file out of git.
+		err = excludeSettings(s.machine, s.project)
+	} else {
+		// Written before the record, so a failed record write does not make
+		// equip's own entries look changed outside.
 		err = s.writeAgents(s.pending)
-		if err != nil {
-			return err
-		}
 	}
 
-	presets := s.pending.record()
+	if err != nil || nothing && len(s.orphans) == 0 {
+		return err
+	}
+
+	presets := s.pending.record(s.recorded)
 
 	err = writeRecord(s.machine, s.project, s.pending.overrides, presets)
 	if err != nil {
@@ -488,9 +468,47 @@ func (s *Session) contents(plugin Extension) []Content {
 	return contents
 }
 
-// changedOutside reads each agent's entries again and imports the ones that
-// changed since the last read, reporting whether any did.
+// takeConfigs takes codex, Codex's config, and reads again whether git tracks
+// Claude Code's settings.local.json, then which exts equip writes for each
+// agent. Either config may have become tracked or untracked since the last
+// read.
+func (s *Session) takeConfigs(codex codexConfig) {
+	s.codex = codex
+	s.notApplied = map[Agent]string{
+		ClaudeCode: trackedReason(s.machine, s.project, settingsRel),
+		Codex:      codex.notApplied,
+	}
+	takeClaudeDefaults(s.machine, s.project, s.pending.exts, s.discovered, s.notApplied[ClaudeCode] != "")
+
+	s.pending.applied = map[Agent][]Extension{}
+
+	for _, agent := range Agents() {
+		for _, ext := range s.pending.exts {
+			if ext.has(agent) && s.whyNotApplied(agent, ext) == "" {
+				s.pending.applied[agent] = append(s.pending.applied[agent], ext)
+			}
+		}
+	}
+}
+
+// whyNotApplied is why equip does not write the state of ext for agent. It is
+// empty when equip does.
+func (s *Session) whyNotApplied(agent Agent, ext Extension) string {
+	switch {
+	case agent == ClaudeCode && !ext.inSettings():
+		return "" // kept in ~/.claude.json, which equip always writes
+	case agent == Codex && ext.Kind == Skill:
+		return "Codex has no per-project skill setting"
+	}
+
+	return s.notApplied[agent]
+}
+
+// changedOutside reads each agent's config and entries again and imports the
+// entries that changed since the last read, reporting whether any did.
 func (s *Session) changedOutside() (bool, error) {
+	s.takeConfigs(readCodexConfig(s.machine, s.project))
+
 	now := map[Agent]map[string]State{}
 
 	for _, agent := range Agents() {
@@ -528,11 +546,12 @@ func (s *Session) writeAgents(chosen choice) error {
 		}
 	}
 
+	// The write removed the dead Codex entries.
+	s.codex = readCodexConfig(s.machine, s.project)
+
 	for _, agent := range Agents() {
 		s.disk[agent] = chosen.entries(agent)
 	}
-	// The write removed the dead Codex entries.
-	s.codex = readCodexConfig(s.machine, s.project)
 
 	return nil
 }
@@ -584,8 +603,9 @@ func (s *Session) importEntries(agent Agent, now map[string]State) bool {
 func (s *Session) presetsChanged() []string {
 	var changed []string
 
-	for i, now := range s.lastSave().record() {
-		if s.presetIndex(now.ID) < 0 || now != s.recorded[i] {
+	// A rename changes only the name, and changes no member.
+	for i, now := range s.lastSave().record(s.recorded) {
+		if s.presetIndex(now.ID) < 0 || now.Hash != s.recorded[i].Hash {
 			changed = append(changed, now.ID)
 		}
 	}
@@ -594,8 +614,7 @@ func (s *Session) presetsChanged() []string {
 }
 
 // presetNote notes each active preset that changed since the last save, and
-// each one missing, noted by its id, as the record keeps no name. It is empty
-// with none.
+// each one missing. It is empty with none.
 func (s *Session) presetNote() string {
 	changed := s.presetsChanged()
 	notes := make([]string, 0, len(changed))
@@ -604,11 +623,17 @@ func (s *Session) presetNote() string {
 		if at := s.presetIndex(id); at >= 0 {
 			notes = append(notes, "preset "+s.pending.library[at].Name+" changed outside equip")
 		} else {
-			notes = append(notes, "preset "+id+" missing")
+			notes = append(notes, "preset "+s.missingName(id)+" missing")
 		}
 	}
 
 	return strings.Join(notes, ", ")
+}
+
+// missingName is the name of the missing preset with id: the record's, or
+// its id when the record keeps none.
+func (s *Session) missingName(id string) string {
+	return cmp.Or(presetName(s.recorded, id), id)
 }
 
 // missing are the presets with ids the library does not have, sorted.

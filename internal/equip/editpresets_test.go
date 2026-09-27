@@ -113,6 +113,11 @@ func TestEditsStayPendingAndMarkedUntilWritten(t *testing.T) {
 		session.Presets()[0].Unwritten {
 		t.Errorf("Ruby's members after the write = %q, want %q and no unwritten edits", got, want)
 	}
+
+	// rspec is not installed here, and the file keeps it for other machines.
+	if got := members(newSession(t, machine, machine.Root), "r1"); !slices.Equal(got, []string{"review =", "rspec ="}) {
+		t.Errorf("Ruby's members on disk after the write = %q, want review and rspec", got)
+	}
 }
 
 func TestOnlyOnePresetHasUnwrittenEdits(t *testing.T) {
@@ -660,6 +665,37 @@ func TestWriteSkipsAProjectWithAMissingPreset(t *testing.T) {
 	if got, want := affected(others), []string{other + ": skipped: changed outside equip"}; !slices.Equal(got, want) {
 		t.Errorf("affected = %q, want %q", got, want)
 	}
+}
+
+func TestWriteAndDeleteKeepAnotherProjectsOverride(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	other := machine.Repo("other")
+	there := newSession(t, machine, other)
+	there.SetPresets([]string{"r1"})
+	there.SetState("review", equip.On)
+	save(t, there)
+
+	kept := func(after string) {
+		t.Helper()
+
+		got := row(t, newSession(t, machine, other).View(), "review")
+		if got.State != equip.On || !got.Override || got.Unsaved {
+			t.Errorf("review there after %s = %+v, want a saved on Override", after, got)
+		}
+	}
+
+	session := newSession(t, machine, machine.Repo("app"))
+	add(t, session, "r1", "docs")
+	write(t, session)
+	kept("the write")
+
+	err := session.DeletePreset("r1")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	kept("the delete")
 }
 
 func TestDeleteRemovesThePresetFromEveryProject(t *testing.T) {

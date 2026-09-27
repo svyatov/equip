@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 )
@@ -45,7 +46,6 @@ const settingsRel = ".claude/settings.local.json"
 type settingsFile struct {
 	keys    jsonObject                          // raw, so every other key stays exactly as it was
 	entries map[Kind]map[string]json.RawMessage // the value of each kind's settings key
-	missing bool
 }
 
 // readSettings reads the settings file at path. A missing file reads as
@@ -54,15 +54,12 @@ func readSettings(path string) (settingsFile, error) {
 	settings := settingsFile{
 		keys:    jsonObject{},
 		entries: map[Kind]map[string]json.RawMessage{Skill: {}, Plugin: {}},
-		missing: false,
 	}
 
-	missing, err := readDoc(path, json.Unmarshal, &settings.keys)
+	_, err := readDoc(path, json.Unmarshal, &settings.keys)
 	if err != nil {
 		return settingsFile{}, err
 	}
-
-	settings.missing = missing
 
 	for kind, entries := range settings.entries {
 		if raw, ok := settings.keys[kind.claude().settingsKey]; ok {
@@ -138,6 +135,60 @@ func (e Extension) claudeState(settings settingsFile, projectEntry jsonObject) (
 	return e.lists.state(projectEntry, e.listName())
 }
 
+// inSettings reports whether Claude Code keeps the extension's state in the
+// Project's settings.local.json.
+func (e Extension) inSettings() bool { return e.Kind != MCPServer || e.lists.settings }
+
+// claudeDefaults are the Claude Code defaults of the exts kept in
+// settings.local.json, by key.
+func claudeDefaults(exts []Extension) map[string]State {
+	defaults := map[string]State{}
+
+	for _, ext := range exts {
+		if ext.inSettings() {
+			defaults[ext.Key] = ext.fallback[ClaudeCode]
+		}
+	}
+
+	return defaults
+}
+
+// takeClaudeDefaults sets the Claude Code default of each of exts kept in
+// settings.local.json. While git tracks the file, it is the ext's entry
+// there: Claude Code reads the file, and equip leaves it alone. Else, and for
+// an ext with no entry, it is the one in discovered. A file equip cannot read
+// has no entries.
+func takeClaudeDefaults(machine Machine, project Project, exts []Extension, discovered map[string]State, tracked bool) {
+	entries := map[string]State{}
+	if tracked {
+		entries, _ = readClaude(machine, project, exts)
+	}
+
+	for _, ext := range exts {
+		if !ext.inSettings() {
+			continue
+		}
+
+		st, ok := entries[ext.Key]
+		if !ok {
+			st = discovered[ext.Key]
+		}
+
+		ext.fallback[ClaudeCode] = st
+	}
+}
+
+// excludeSettings keeps the Project's .claude/settings.local.json out of git
+// when it exists. git ignores the line for a file it tracks.
+func excludeSettings(machine Machine, project Project) error {
+	_, err := os.Stat(filepath.Join(project.Path, settingsRel))
+	if err != nil {
+		return nil //nolint:nilerr // no file to keep out
+	}
+
+	return exclude(machine, project, settingsRel)
+}
+
 // pluginState reads one enabledPlugins value, reporting whether equip knows it.
 func pluginState(raw json.RawMessage) (State, bool) {
 	switch string(raw) {
@@ -169,8 +220,14 @@ func skillState(raw json.RawMessage) (State, bool) {
 }
 
 // writeClaude writes the states of overrides into the Project's
-// .claude/settings.local.json, keeping every key equip does not own.
+// .claude/settings.local.json, keeping every key equip does not own, and into
+// ~/.claude.json. It never writes a settings.local.json git tracks.
 func writeClaude(machine Machine, project Project, exts []Extension, overrides map[string]State) error {
+	// Checked here, as the file may have become tracked since open.
+	if tracked(machine, project, settingsRel) {
+		return writeClaudeJSON(machine, project, exts, overrides)
+	}
+
 	path := filepath.Join(project.Path, settingsRel)
 
 	settings, err := readSettings(path)
@@ -200,11 +257,9 @@ func writeClaude(machine Machine, project Project, exts []Extension, overrides m
 		return fmt.Errorf("encode %s: %w", path, err)
 	}
 
-	if settings.missing {
-		err = exclude(machine, project, settingsRel)
-		if err != nil {
-			return err
-		}
+	err = exclude(machine, project, settingsRel)
+	if err != nil {
+		return err
 	}
 
 	err = writeFile(path, data)

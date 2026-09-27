@@ -58,13 +58,25 @@ func quits(cmd tea.Cmd) bool {
 // the list and the detail pane side by side, so s can match in any of them;
 // for the highlighted row, use highlighted.
 func line(tui *model, s string) string {
-	for l := range strings.Lines(tui.View().Content) {
-		if strings.Contains(styleCodes.ReplaceAllString(l, ""), s) {
-			return l
+	at := lineIndex(tui, 0, s)
+	if at < 0 {
+		return ""
+	}
+
+	return strings.Split(tui.View().Content, "\n")[at]
+}
+
+// lineIndex is the index of the first line of the view, from, whose text,
+// styles left out, contains s; -1 with none.
+func lineIndex(tui *model, from int, s string) int {
+	lines := strings.Split(styleCodes.ReplaceAllString(tui.View().Content, ""), "\n")
+	for i := max(from, 0); i < len(lines); i++ {
+		if strings.Contains(lines[i], s) {
+			return i
 		}
 	}
 
-	return ""
+	return -1
 }
 
 // styleCodes matches the escape codes that style the view's text.
@@ -211,6 +223,11 @@ func TestDetailPaneListsThePluginsContents(t *testing.T) {
 	tui := newModel(t, machine)
 
 	press(tui, key('2'))
+
+	// Only its MCP servers can be overridden.
+	if line(tui, "Contents  skills follow the plugin, MCP servers too unless overridden") == "" {
+		t.Errorf("contents header does not say the skills follow the plugin:\n%s", tui.View().Content)
+	}
 
 	if got := line(tui, "○ skill review ~0"); !strings.Contains(got, "The review skill.") {
 		t.Errorf("skill line %q does not show the skill's state, cost and description", got)
@@ -430,6 +447,21 @@ func TestQuitWithUnsavedChangesAsksFirst(t *testing.T) {
 
 	if !quits(press(tui, key('q'), key('y'))) {
 		t.Error("y did not quit")
+	}
+}
+
+func TestSaveShowsTheError(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "review")
+	tui := newModel(t, machine)
+	settings := filepath.Join(machine.Root, ".claude", "settings.local.json")
+	machine.WriteFile(settings, `{"skillOverrides": {"review": "off"}}`)
+
+	press(tui, key('3'), key('s'))
+
+	if line(tui, "save failed: changed outside equip since open") == "" {
+		t.Errorf("s does not show the error:\n%s", tui.View().Content)
 	}
 }
 

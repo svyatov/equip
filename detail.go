@@ -158,7 +158,7 @@ func (m *model) contents(contents []equip.Content, key string) []string {
 		return nil
 	}
 
-	lines := []string{"", "Contents  " + m.style.dim.Render("follow the plugin unless overridden")}
+	lines := []string{"", "Contents  " + m.style.dim.Render("skills follow the plugin, MCP servers too unless overridden")}
 
 	for _, content := range contents {
 		name, ovr := content.Name, ""

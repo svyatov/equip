@@ -183,7 +183,7 @@ func TestSpaceKeepsAnActivePresetWhoseFileIsMissing(t *testing.T) {
 	}
 
 	tui := newModel(t, machine)
-	press(tui, key('p'), key(' '))
+	press(tui, key('p'), down(), key(' ')) // Old is first, Ruby second
 
 	err = tui.s.Save()
 	if err != nil {
@@ -223,13 +223,13 @@ func TestMissingPresetShowsMissingAndCannotBeDeleted(t *testing.T) {
 	}
 
 	tui := newModel(t, machine)
-	press(tui, key('p'), down(), down(), key('d'))
+	press(tui, key('p'), key('d'))
 
-	if got := line(tui, "[x] o1"); !strings.Contains(got, "missing") {
-		t.Errorf("o1 line %q, want it checked and missing:\n%s", got, tui.View().Content)
+	if got := line(tui, "[x] Old"); !strings.Contains(got, "missing") {
+		t.Errorf("Old line %q, want it checked and missing:\n%s", got, tui.View().Content)
 	}
 
-	if line(tui, "preset o1 missing: sync its file") == "" || line(tui, "Delete preset o1?") != "" {
+	if line(tui, "preset Old missing: sync its file") == "" || line(tui, "Delete preset Old?") != "" {
 		t.Errorf("d on a missing preset did not refuse:\n%s", tui.View().Content)
 	}
 }
@@ -496,6 +496,18 @@ func TestMembersPaneMarksEditsAndOverrides(t *testing.T) {
 	}
 }
 
+func TestXInTheWorkspaceKeepsTheOverride(t *testing.T) {
+	t.Parallel()
+	tui := presetModel(t)
+	tui.s.SetState("lint", equip.ManualOnly)
+
+	press(tui, key('p'), key('x'), tab(), key('x'))
+
+	if line(tui, "lint ~0 ovr") == "" {
+		t.Errorf("x dropped lint's Override in the workspace:\n%s", tui.View().Content)
+	}
+}
+
 func TestRightPaneShowsTheUsersOrTheHighlightedExtensionsPresets(t *testing.T) {
 	t.Parallel()
 	tui, machine := ruby(t)
@@ -528,6 +540,45 @@ func TestRenameAppliesAtOnce(t *testing.T) {
 
 	if line(tui, "[ ] Rails") == "" || line(tui, "Rails*") != "" || line(tui, "Members of Rails") == "" {
 		t.Errorf("r does not rename Ruby to Rails at once:\n%s", tui.View().Content)
+	}
+}
+
+// inOrder reports whether the view shows, from the line with first on, each
+// of want below the one before it.
+func inOrder(tui *model, first string, want ...string) bool {
+	index := lineIndex(tui, 0, first)
+	if index < 0 {
+		return false
+	}
+
+	for _, s := range want {
+		index = lineIndex(tui, index+1, s)
+		if index < 0 {
+			return false
+		}
+	}
+
+	return true
+}
+
+func TestMembersAndTheAddListAreGroupedByKind(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	machine.Plugin("github@official", "user", "")
+	machine.Plugin("atlas@official", "user", "")
+	machine.Preset("Ruby", "id = \"r1\"\nskills = [\"lint\"]\nplugins = [\"github@official\"]\n")
+	tui := newModel(t, machine)
+
+	press(tui, key('p'))
+
+	if !inOrder(tui, "Members of Ruby", "skill", "lint", "plugin", "github@official") {
+		t.Errorf("members are not grouped by kind:\n%s", tui.View().Content)
+	}
+
+	press(tui, key('a'))
+
+	if !inOrder(tui, "Add to Ruby", "skill", "docs", "review", "plugin", "atlas@official") {
+		t.Errorf("the add list is not grouped by kind:\n%s", tui.View().Content)
 	}
 }
 
