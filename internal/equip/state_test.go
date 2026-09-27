@@ -268,7 +268,7 @@ func TestSaveExcludesOnANewLineAfterAnUnterminatedExclude(t *testing.T) {
 	}
 }
 
-func TestSaveDoesNotExcludeASettingsFileItDidNotCreate(t *testing.T) {
+func TestSaveExcludesAnUntrackedSettingsFileItDidNotCreate(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	repo := machine.Repo("app")
@@ -279,9 +279,31 @@ func TestSaveDoesNotExcludeASettingsFileItDidNotCreate(t *testing.T) {
 
 	save(t, session)
 
-	status := machine.RunGit(repo, "status", "--porcelain", "--untracked-files=all")
-	if status != "?? .claude/settings.local.json" {
-		t.Errorf("git status shows %q, want the settings file untracked", status)
+	if st := machine.RunGit(repo, "status", "--porcelain", "--untracked-files=all"); st != "" {
+		t.Errorf("git status shows %q, want nothing", st)
+	}
+}
+
+func TestTrackedSettingsFileIsNotWrittenAndTheDetailSaysWhy(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+
+	const settings = `{"skillOverrides": {"review": "off"}}`
+	writeFile(t, settingsLocal(repo), settings)
+	machine.RunGit(repo, "add", ".claude/settings.local.json")
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.ManualOnly)
+
+	save(t, session)
+
+	if data, _ := os.ReadFile(settingsLocal(repo)); string(data) != settings {
+		t.Errorf("settings.local.json = %q, want it as it was", data)
+	}
+
+	if got := session.Detail("review").NotApplied[equip.ClaudeCode]; !strings.Contains(got, "tracked by git") {
+		t.Errorf("NotApplied[ClaudeCode] = %q, want the file tracked by git", got)
 	}
 }
 

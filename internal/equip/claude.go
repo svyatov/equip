@@ -45,7 +45,6 @@ const settingsRel = ".claude/settings.local.json"
 type settingsFile struct {
 	keys    jsonObject                          // raw, so every other key stays exactly as it was
 	entries map[Kind]map[string]json.RawMessage // the value of each kind's settings key
-	missing bool
 }
 
 // readSettings reads the settings file at path. A missing file reads as
@@ -54,15 +53,12 @@ func readSettings(path string) (settingsFile, error) {
 	settings := settingsFile{
 		keys:    jsonObject{},
 		entries: map[Kind]map[string]json.RawMessage{Skill: {}, Plugin: {}},
-		missing: false,
 	}
 
-	missing, err := readDoc(path, json.Unmarshal, &settings.keys)
+	_, err := readDoc(path, json.Unmarshal, &settings.keys)
 	if err != nil {
 		return settingsFile{}, err
 	}
-
-	settings.missing = missing
 
 	for kind, entries := range settings.entries {
 		if raw, ok := settings.keys[kind.claude().settingsKey]; ok {
@@ -168,9 +164,25 @@ func skillState(raw json.RawMessage) (State, bool) {
 	return 0, false
 }
 
+// settingsNotApplied is why equip does not write the Project's
+// .claude/settings.local.json. It is empty when equip does.
+func settingsNotApplied(machine Machine, project Project) string {
+	// A tracked file belongs to everyone who clones the repo.
+	if tracked(machine, project, settingsRel) {
+		return settingsRel + " is tracked by git"
+	}
+
+	return ""
+}
+
 // writeClaude writes the states of overrides into the Project's
 // .claude/settings.local.json, keeping every key equip does not own.
 func writeClaude(machine Machine, project Project, exts []Extension, overrides map[string]State) error {
+	// Checked again, as the file may have become tracked since open.
+	if settingsNotApplied(machine, project) != "" {
+		return writeClaudeJSON(machine, project, exts, overrides)
+	}
+
 	path := filepath.Join(project.Path, settingsRel)
 
 	settings, err := readSettings(path)
@@ -200,11 +212,9 @@ func writeClaude(machine Machine, project Project, exts []Extension, overrides m
 		return fmt.Errorf("encode %s: %w", path, err)
 	}
 
-	if settings.missing {
-		err = exclude(machine, project, settingsRel)
-		if err != nil {
-			return err
-		}
+	err = exclude(machine, project, settingsRel)
+	if err != nil {
+		return err
 	}
 
 	err = writeFile(path, data)

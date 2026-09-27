@@ -44,6 +44,7 @@ type Session struct {
 	outside  map[string]Agent           // changed outside equip since the last save, in that agent
 	measured map[string]measurement     // the MCP servers measured, by key; guarded by mu
 	codex    codexConfig
+	settings string // why equip does not write .claude/settings.local.json; empty when it does
 	machine  Machine
 	project  Project
 	orphans  []string // the paths of the records the Project can adopt
@@ -107,13 +108,14 @@ func Open(machine Machine, dir string) (*Session, error) {
 	project := locate(machine, dir)
 
 	codex := readCodexConfig(machine, project)
+	settings := settingsNotApplied(machine, project)
 
 	exts, err := discover(machine, project, dir, codex)
 	if err != nil {
 		return nil, err
 	}
 
-	applied := appliedExts(exts, codex)
+	applied := appliedExts(exts, codex, settings)
 	disk := map[Agent]map[string]State{}
 
 	for _, agent := range Agents() {
@@ -139,6 +141,7 @@ func Open(machine Machine, dir string) (*Session, error) {
 		unfinished: nil,
 		recorded:   nil,
 		codex:      codex,
+		settings:   settings,
 		saved:      nil,
 		disk:       nil,
 		outside:    nil,
@@ -171,13 +174,14 @@ func firstStates(disk map[Agent]map[string]State) map[string]State {
 }
 
 // appliedExts are the exts whose states equip writes for each agent, with
-// Codex's config codex.
-func appliedExts(exts []Extension, codex codexConfig) map[Agent][]Extension {
+// Codex's config codex and Claude Code's settings, why equip does not write
+// .claude/settings.local.json.
+func appliedExts(exts []Extension, codex codexConfig, settings string) map[Agent][]Extension {
 	applied := map[Agent][]Extension{}
 
 	for _, agent := range Agents() {
 		for _, ext := range exts {
-			if ext.has(agent) && whyNotApplied(agent, ext, codex) == "" {
+			if ext.has(agent) && whyNotApplied(agent, ext, codex, settings) == "" {
 				applied[agent] = append(applied[agent], ext)
 			}
 		}
@@ -187,9 +191,12 @@ func appliedExts(exts []Extension, codex codexConfig) map[Agent][]Extension {
 }
 
 // whyNotApplied is why equip does not write the state of ext for agent, with
-// Codex's config codex. It is empty when equip does.
-func whyNotApplied(agent Agent, ext Extension, codex codexConfig) string {
+// Codex's config codex and settings, why equip does not write
+// .claude/settings.local.json. It is empty when equip does.
+func whyNotApplied(agent Agent, ext Extension, codex codexConfig, settings string) string {
 	switch {
+	case agent == ClaudeCode && (ext.Kind != MCPServer || ext.lists.settings):
+		return settings
 	case agent == ClaudeCode:
 		return ""
 	case ext.Kind == Skill:
@@ -325,7 +332,7 @@ func (s *Session) Detail(key string) Detail {
 			detail.Agents = append(detail.Agents, agent)
 			detail.Costs[agent] = s.costIn(agent, ext)
 
-			if why := whyNotApplied(agent, ext, s.codex); why != "" {
+			if why := whyNotApplied(agent, ext, s.codex, s.settings); why != "" {
 				detail.NotApplied[agent] = why
 			}
 		}
