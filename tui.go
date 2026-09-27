@@ -254,14 +254,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) View() tea.View {
-	screen := m.mainView
+	screen, footer := m.mainView, m.footer()
 	if m.ws.open {
-		screen = m.workspaceView
-	}
-
-	footer := m.footer()
-	if m.ws.open {
-		footer = m.workspaceFooter()
+		screen, footer = m.workspaceView, m.workspaceFooter()
 	}
 
 	// The status and the panes take the lines above the footer.
@@ -733,7 +728,7 @@ func (m *model) list(session equip.View, rows []equip.Row, width, height int) (s
 	facet := session.Facets[m.facet]
 
 	title := m.style.head.Render(facet.Name) + m.style.dim.Render(fmt.Sprintf(" · %d", len(rows)))
-	if m.width < wideWidth {
+	if m.leftmost() == onList {
 		title += m.style.dim.Render("  [ ] facet")
 	}
 
