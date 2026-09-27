@@ -1524,6 +1524,25 @@ func TestByNameSkillShowsByNameInPlaceOfItsCost(t *testing.T) {
 	}
 }
 
+func TestManualOnlySkillReadsManualWhereNoAgentListsIt(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "both")
+	machine.Skill(machine.CodexSkills(), "both")
+	machine.Skill(machine.ClaudeSkills(), "solo")
+	tui := newModel(t, machine)
+
+	press(tui, key('2'), down(), key('2'))
+
+	if got := rowLine(tui, "solo"); !strings.Contains(got, "manual") {
+		t.Errorf("row %q does not say manual", got)
+	}
+	// Codex has no per-project skill setting, so it still lists this one.
+	if got := rowLine(tui, "both"); strings.Contains(got, "manual") || !strings.Contains(got, "~") {
+		t.Errorf("row %q hides its Codex cost", got)
+	}
+}
+
 func TestSaveSaysHowManyChangesItWrote(t *testing.T) {
 	t.Parallel()
 	tui := newModel(t, withSkills(t, 2))

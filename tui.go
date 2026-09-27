@@ -780,15 +780,15 @@ func (m *model) matching(session equip.View, facet equip.Facet) int {
 
 // entry is the list line of row, width cells: the highlight's mark when
 // highlighted, the state glyph, the name, and the cost at the right edge. A
-// By-name skill's line is muted, as it costs nothing.
+// By-name or manual-only skill's line is muted, as the model does not call it.
 func (m *model) entry(row equip.Row, highlighted bool, width int) string {
-	cost := m.costCell(row.ByName, row.CostUnknown, row.Cost)
+	cost := m.costCell(row.State, row.ByName, row.CostUnknown, row.Cost)
 	style, mark := lipgloss.NewStyle(), m.glyph(row.State)
 
 	switch {
 	case highlighted:
 		style = m.style.cur
-	case row.ByName:
+	case row.ByName || row.State == equip.ManualOnly:
 		style, mark = m.style.muted, m.style.muted.Render(glyph(row.State))
 	}
 
@@ -812,13 +812,16 @@ func (m *model) name(name string, width int, style lipgloss.Style) string {
 }
 
 // costCell is the cost of a row or a plugin's content, as the list and the
-// contents show it: by name for a By-name skill, ? while unmeasured, else
-// its tokens then a bar of their size. The bar takes the last cell, blank
-// with none, so the numbers and the bars each line up.
-func (m *model) costCell(byName, unknown bool, tokens int) string {
+// contents show it in state: by name for a By-name skill, manual for a
+// manual-only one no agent lists, ? while unmeasured, else its tokens then a
+// bar of their size. The bar takes the last cell, blank with none, so the
+// numbers and the bars each line up.
+func (m *model) costCell(state equip.State, byName, unknown bool, tokens int) string {
 	switch {
 	case byName:
 		return m.style.muted.Render("by name") + "  "
+	case state == equip.ManualOnly && tokens == 0:
+		return m.style.muted.Render("manual") + "  "
 	case unknown && tokens == 0:
 		return m.style.unmeasured.Render("?") + "  "
 	case tokens == 0:

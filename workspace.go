@@ -646,7 +646,7 @@ func (m *model) memberLine(member equip.Member, width int) string {
 		name += m.style.warn.Render(" ovr")
 	}
 
-	cost := m.costCell(member.ByName, member.CostUnknown, member.Cost)
+	cost := m.costCell(member.State, member.ByName, member.CostUnknown, member.Cost)
 
 	return fit(m.glyph(member.State)+" "+edit+" "+name, width-lipgloss.Width(cost)) + cost
 }

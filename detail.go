@@ -266,7 +266,7 @@ func (m *model) contents(contents []equip.Content, key string, width int) ([]str
 
 	for i, content := range contents {
 		names[i] = m.contentName(content)
-		costs[i] = m.costCell(content.ByName, content.CostUnknown, content.Cost)
+		costs[i] = m.costCell(content.State, content.ByName, content.CostUnknown, content.Cost)
 		kindWidth = max(kindWidth, len(content.Kind.String()))
 		nameWidth = max(nameWidth, lipgloss.Width(names[i]))
 		costWidth = max(costWidth, lipgloss.Width(costs[i]))
