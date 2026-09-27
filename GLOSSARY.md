@@ -43,6 +43,10 @@ _Avoid_: Status, enabled flag
 The state of a skill that the user can call by name but that puts nothing into the session's context.
 _Avoid_: User-invocable-only, explicit-only
 
+**By-name skill**:
+A skill whose `SKILL.md` stops the agent from calling it on its own, so only a call by its name loads it. It puts nothing into the session's context in any state.
+_Avoid_: Explicit-only, manual skill
+
 **Preset**:
 A named set of extensions for one kind of project, such as Ruby or Accounting.
 _Avoid_: Profile, bundle, loadout

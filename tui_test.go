@@ -1285,7 +1285,7 @@ func TestARowThatLeavesTheFacetStaysUntilTheHighlightMoves(t *testing.T) {
 	tui := newModel(t, machine)
 
 	// The On facet, then alpha off twice over.
-	press(tui, key(']'), key(']'), key(']'), key(']'), key(']'), key(']'), key('3'), key('3'))
+	press(tui, key(']'), key(']'), key(']'), key(']'), key(']'), key(']'), key(']'), key('3'), key('3'))
 
 	if r := tui.s.View().Rows[1]; r.State != equip.On {
 		t.Errorf("beta = %+v, want on: the second key acts on alpha again", r)

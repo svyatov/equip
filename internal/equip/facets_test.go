@@ -1,6 +1,7 @@
 package equip_test
 
 import (
+	"path/filepath"
 	"slices"
 	"testing"
 
@@ -56,7 +57,11 @@ func TestFacetsCountRowsByKind(t *testing.T) {
 	machine.Plugin("github@official", "user", "")
 	writeFile(t, claudeJSON(machine), `{"mcpServers": {"db": {"command": "db"}}}`)
 
-	wantCounts(t, open(t, machine, repo), map[string]int{"All": 4, "Skills": 2, "Plugins": 1, "MCP servers": 1})
+	writeFile(t, filepath.Join(machine.ClaudeSkills(), "ship", "SKILL.md"),
+		"---\nname: ship\ndescription: x\ndisable-model-invocation: true\n---\n")
+
+	wantCounts(t, open(t, machine, repo),
+		map[string]int{"All": 5, "Skills": 3, "Plugins": 1, "MCP servers": 1, "By name": 1})
 }
 
 func TestFacetsCountRowsOnlyOneAgentHas(t *testing.T) {

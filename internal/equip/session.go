@@ -93,6 +93,7 @@ type Row struct {
 	State       State
 	Fallback    State // the state without the Override
 	CostUnknown bool  // an MCP server not measured yet
+	ByName      bool  // a By-name skill, or a plugin of only such skills
 	Override    bool  // State was set by hand in this Project
 	Unsaved     bool
 	// ChangedOutside reports that the row changed through an edit outside
@@ -275,6 +276,7 @@ type Content struct {
 	State        State
 	Cost         int  // estimated tokens in the agent the plugin was read for, Claude Code when both have it
 	CostUnknown  bool // an MCP server not measured yet
+	ByName       bool // a By-name skill
 	Override     bool // an MCP server's State was set by hand in this Project
 	Unsaved      bool // a save would change an MCP server's Override or entries
 	// ChangedOutside reports that an MCP server changed through an edit
@@ -410,12 +412,23 @@ func (s *Session) row(ext Extension) Row {
 		Kind:           ext.Kind,
 		Cost:           s.cost(ext),
 		CostUnknown:    s.unknown(ext),
+		ByName:         s.byName(ext),
 		State:          state,
 		Override:       override,
 		Fallback:       s.pending.base(ext.primary(), ext),
 		Unsaved:        s.inRow(ext, s.unsaved),
 		ChangedOutside: changed,
 	}
+}
+
+// byName reports whether ext is a By-name skill, or a plugin of skills that
+// are all By-name skills and nothing else that costs tokens.
+func (s *Session) byName(ext Extension) bool {
+	skills := ext.Kind == Skill || slices.ContainsFunc(ext.contents, func(c Content) bool { return c.Kind == Skill })
+
+	costs := slices.ContainsFunc(Agents(), func(agent Agent) bool { return ext.has(agent) && ext.cost[agent] > 0 })
+
+	return skills && !costs && !slices.ContainsFunc(s.pending.exts, func(e Extension) bool { return e.plugin == ext.Key })
 }
 
 // start takes saved and presets, the Overrides and active presets of the
@@ -469,7 +482,7 @@ func (s *Session) contents(plugin Extension) []Content {
 
 		contents = append(contents, Content{
 			Key: server.Key, Name: server.name(), Description: "",
-			Kind: MCPServer, State: state, Cost: cost, CostUnknown: s.unknown(server), Override: override,
+			Kind: MCPServer, State: state, Cost: cost, CostUnknown: s.unknown(server), ByName: false, Override: override,
 			Unsaved: s.unsaved(server.Key), ChangedOutside: changed, ChangedIn: changedIn,
 			Unmeasurable: s.unmeasurable(server),
 		})

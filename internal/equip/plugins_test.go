@@ -136,7 +136,7 @@ func TestPluginDefaultsToItsStateInUserSettings(t *testing.T) {
 
 	want := equip.Row{
 		Key: "github@official", Name: "github@official", Kind: equip.Plugin, Cost: 0, State: equip.Off, Fallback: equip.Off,
-		CostUnknown: false, Override: false, Unsaved: false, ChangedOutside: false,
+		CostUnknown: false, ByName: false, Override: false, Unsaved: false, ChangedOutside: false,
 	}
 	if got := row(t, open(t, machine, repo), "github@official"); got != want {
 		t.Errorf("row = %+v, want %+v", got, want)
@@ -207,12 +207,34 @@ func TestPluginDetailListsItsSkills(t *testing.T) {
 	want := []equip.Content{
 		{
 			Key: "", Name: "review", Description: "The review skill.", Kind: equip.Skill, State: equip.On, Cost: 9,
-			CostUnknown: false, Override: false, Unsaved: false, ChangedOutside: false, ChangedIn: equip.ClaudeCode,
+			CostUnknown: false, ByName: false, Override: false, Unsaved: false, ChangedOutside: false,
+			ChangedIn:    equip.ClaudeCode,
 			Unmeasurable: "",
 		},
 	}
 	if got := newSession(t, machine, repo).Detail("github@official").Contents; !slices.Equal(got, want) {
 		t.Errorf("Contents = %+v, want %+v", got, want)
+	}
+}
+
+func TestPluginOfSkillsOnlyTheirNamesCallIsByName(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	writeFile(t, filepath.Join(machine.Plugin("github@official", "user", ""), "skills", "review", "SKILL.md"),
+		"---\nname: review\ndescription: x\ndisable-model-invocation: true\n---\n")
+	machine.Plugin("empty@official", "user", "")
+
+	session := newSession(t, machine, repo)
+	if got := session.Detail("github@official").Contents; len(got) != 1 || !got[0].ByName {
+		t.Errorf("Contents = %+v, want review by name", got)
+	}
+
+	view := session.View()
+	for name, want := range map[string]bool{"github@official": true, "empty@official": false} {
+		if got := row(t, view, name).ByName; got != want {
+			t.Errorf("%s: ByName = %v, want %v", name, got, want)
+		}
 	}
 }
 
@@ -228,7 +250,8 @@ func TestPluginSkillFollowsItsPlugin(t *testing.T) {
 	want := []equip.Content{
 		{
 			Key: "", Name: "review", Description: "The review skill.", Kind: equip.Skill, State: equip.Off, Cost: 0,
-			CostUnknown: false, Override: false, Unsaved: false, ChangedOutside: false, ChangedIn: equip.ClaudeCode,
+			CostUnknown: false, ByName: false, Override: false, Unsaved: false, ChangedOutside: false,
+			ChangedIn:    equip.ClaudeCode,
 			Unmeasurable: "",
 		},
 	}

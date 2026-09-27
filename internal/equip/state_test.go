@@ -39,7 +39,7 @@ func TestSetStateMakesAnUnsavedOverride(t *testing.T) {
 
 	want := equip.Row{
 		Key: "review", Name: "review", Kind: equip.Skill,
-		Cost: 0, CostUnknown: false, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true,
+		Cost: 0, CostUnknown: false, ByName: false, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true,
 		ChangedOutside: false,
 	}
 	if view.Rows[0] != want {
@@ -62,7 +62,7 @@ func TestDropOverrideReturnsSkillToDefault(t *testing.T) {
 
 	want := equip.Row{
 		Key: "review", Name: "review", Kind: equip.Skill,
-		Cost: 8, CostUnknown: false, State: equip.On, Override: false, Fallback: equip.On, Unsaved: false,
+		Cost: 8, CostUnknown: false, ByName: false, State: equip.On, Override: false, Fallback: equip.On, Unsaved: false,
 		ChangedOutside: false,
 	}
 
@@ -540,7 +540,8 @@ func TestReopenShowsSavedOverrides(t *testing.T) {
 
 	want := equip.Row{
 		Key: "review", Name: "review", Kind: equip.Skill,
-		Cost: 0, CostUnknown: false, State: equip.ManualOnly, Override: true, Fallback: equip.On, Unsaved: false,
+		Cost: 0, CostUnknown: false, ByName: false, State: equip.ManualOnly, Override: true, Fallback: equip.On,
+		Unsaved:        false,
 		ChangedOutside: false,
 	}
 	if view.Rows[0] != want || view.Unsaved != 0 {
