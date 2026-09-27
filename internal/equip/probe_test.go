@@ -384,7 +384,7 @@ func TestMeasuredServerCostsNothingInAnAgentThatDoesNotHaveIt(t *testing.T) {
 	fakeServer(t, machine, "modern", "")
 	probedRow(t, machine, repo)
 
-	if got := open(t, machine, repo).Totals[equip.Codex]; got != 0 {
+	if got := open(t, machine, repo).Totals[equip.Codex].Tokens; got != 0 {
 		t.Errorf("Codex total = %d, want 0 for a Claude Code server", got)
 	}
 }
@@ -528,8 +528,8 @@ func TestServerNotMeasuredYetLeavesItsPluginAndTotalPartial(t *testing.T) {
 	fakePlugin(t, machine)
 	view := open(t, machine, repo)
 
-	if got := row(t, view, "github@official"); !got.CostUnknown || !view.Unknown[equip.ClaudeCode] {
-		t.Errorf("plugin row = %+v and Unknown = %v, want both partial in Claude Code", got, view.Unknown)
+	if got := row(t, view, "github@official"); !got.CostUnknown || !view.Totals[equip.ClaudeCode].Unknown {
+		t.Errorf("plugin row = %+v and Totals = %v, want both partial in Claude Code", got, view.Totals)
 	}
 }
 
@@ -541,8 +541,8 @@ func TestServerThatIsOffLeavesTheTotalComplete(t *testing.T) {
 	session := newSession(t, machine, repo)
 	session.SetState("mcp:fake", equip.Off)
 
-	if got := session.View().Unknown; got[equip.ClaudeCode] {
-		t.Errorf("Unknown = %v, want Claude Code's total complete", got)
+	if got := session.View().Totals; got[equip.ClaudeCode].Unknown {
+		t.Errorf("Totals = %v, want Claude Code's total complete", got)
 	}
 }
 
@@ -610,7 +610,7 @@ func TestCodexCostsAServersNameAndInstructions(t *testing.T) {
 	probedRow(t, machine, repo)
 
 	// fake and "Use fake.": 13 bytes, with no skills intro as no skill is on.
-	if got := open(t, machine, repo).Totals[equip.Codex]; got != 4 {
+	if got := open(t, machine, repo).Totals[equip.Codex].Tokens; got != 4 {
 		t.Errorf("Codex total = %d, want 4", got)
 	}
 }
@@ -638,8 +638,8 @@ func TestServerNotMeasuredYetCostsNothing(t *testing.T) {
 	fakeCodexServer(t, machine)
 	view := open(t, machine, repo)
 
-	if got := row(t, view, "fake"); got.Cost != 0 || view.Totals[equip.Codex] != 0 {
-		t.Errorf("row = %+v and Codex total %d, want both 0", got, view.Totals[equip.Codex])
+	if got := row(t, view, "fake"); got.Cost != 0 || view.Totals[equip.Codex].Tokens != 0 {
+		t.Errorf("row = %+v and Codex total %d, want both 0", got, view.Totals[equip.Codex].Tokens)
 	}
 }
 

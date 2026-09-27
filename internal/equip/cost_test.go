@@ -35,6 +35,16 @@ func row(t *testing.T, view equip.View, name string) equip.Row {
 	return view.Rows[i]
 }
 
+// totalTokens is the tokens of each total in view.
+func totalTokens(view equip.View) map[equip.Agent]int {
+	tokens := map[equip.Agent]int{}
+	for agent, total := range view.Totals {
+		tokens[agent] = total.Tokens
+	}
+
+	return tokens
+}
+
 func TestClaudeCodeSkillCostsItsNameAndDescriptionBytesOverThree(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
@@ -187,7 +197,7 @@ func TestTotalSumsTheCostsInClaudeCodeBeforeSaving(t *testing.T) {
 	session.SetState("docs", equip.Off)
 
 	want := map[equip.Agent]int{equip.ClaudeCode: 15, equip.Codex: 0}
-	if got := session.View().Totals; !maps.Equal(got, want) {
+	if got := totalTokens(session.View()); !maps.Equal(got, want) {
 		t.Errorf("Totals = %v, want %v", got, want)
 	}
 }
@@ -199,7 +209,7 @@ func TestCodexTotalCountsTheSkillsIntroOnce(t *testing.T) {
 	machine.Skill(machine.CodexSkills(), "docs")   // 19 bytes: 5
 
 	want := map[equip.Agent]int{equip.ClaudeCode: 0, equip.Codex: 711}
-	if got := open(t, machine, machine.Root).Totals; !maps.Equal(got, want) {
+	if got := totalTokens(open(t, machine, machine.Root)); !maps.Equal(got, want) {
 		t.Errorf("Totals = %v, want %v", got, want)
 	}
 }
@@ -265,9 +275,9 @@ func TestCodexListingPastTheBudgetIsOverBudgetAndKeepsEverySkill(t *testing.T) {
 	machine.SkillsAtCodexBudget(machine.CodexSkills())
 	writeSkill(t, machine.CodexSkills(), "x", "") // 3 + 1 = 4 bytes: 1
 
-	got := open(t, machine, machine.Root)
-	if !got.OverBudget[equip.Codex] || got.Totals[equip.Codex] != 6141 {
-		t.Errorf("Codex over = %v, total = %d, want true and 6141", got.OverBudget[equip.Codex], got.Totals[equip.Codex])
+	got := open(t, machine, machine.Root).Totals[equip.Codex]
+	if !got.OverBudget || got.Tokens != 6141 {
+		t.Errorf("Codex over = %v, total = %d, want true and 6141", got.OverBudget, got.Tokens)
 	}
 }
 
@@ -277,9 +287,9 @@ func TestCodexListingAtTheBudgetIsNotOverBudget(t *testing.T) {
 	machine.SkillsAtCodexBudget(machine.CodexSkills())
 
 	// The skills intro puts the total past the budget; it is not in the listing.
-	got := open(t, machine, machine.Root)
-	if got.OverBudget[equip.Codex] || got.Totals[equip.Codex] != 6140 {
-		t.Errorf("Codex over = %v, total = %d, want false and 6140", got.OverBudget[equip.Codex], got.Totals[equip.Codex])
+	got := open(t, machine, machine.Root).Totals[equip.Codex]
+	if got.OverBudget || got.Tokens != 6140 {
+		t.Errorf("Codex over = %v, total = %d, want false and 6140", got.OverBudget, got.Tokens)
 	}
 }
 
@@ -289,8 +299,8 @@ func TestPluginSkillsCountTowardTheListingBudget(t *testing.T) {
 	machine.SkillsAtCodexBudget(machine.CodexSkills())
 	machine.Skill(filepath.Join(codexPlugin(t, machine, "github@official"), "skills"), "review")
 
-	if got := open(t, machine, machine.Root).OverBudget; !got[equip.Codex] {
-		t.Errorf("OverBudget = %v, want Codex over budget", got)
+	if got := open(t, machine, machine.Root).Totals; !got[equip.Codex].OverBudget {
+		t.Errorf("Totals = %v, want Codex over budget", got)
 	}
 }
 
@@ -302,9 +312,9 @@ func TestMCPServersDoNotCountTowardTheListingBudget(t *testing.T) {
 	fakeCodexServer(t, machine) // 4 tokens
 	probedRow(t, machine, repo)
 
-	got := open(t, machine, repo)
-	if got.OverBudget[equip.Codex] || got.Totals[equip.Codex] != 6144 {
-		t.Errorf("Codex over = %v, total = %d, want false and 6144", got.OverBudget[equip.Codex], got.Totals[equip.Codex])
+	got := open(t, machine, repo).Totals[equip.Codex]
+	if got.OverBudget || got.Tokens != 6144 {
+		t.Errorf("Codex over = %v, total = %d, want false and 6144", got.OverBudget, got.Tokens)
 	}
 }
 
@@ -325,8 +335,8 @@ func TestPluginMCPServersDoNotCountTowardTheListingBudget(t *testing.T) {
 	}
 
 	// The skills, the skills intro, the plugins block and the server's 4.
-	if got := session.View(); got.OverBudget[equip.Codex] || got.Totals[equip.Codex] != 6394 {
-		t.Errorf("Codex over = %v, total = %d, want false and 6394", got.OverBudget[equip.Codex], got.Totals[equip.Codex])
+	if got := session.View().Totals[equip.Codex]; got.OverBudget || got.Tokens != 6394 {
+		t.Errorf("Codex over = %v, total = %d, want false and 6394", got.OverBudget, got.Tokens)
 	}
 }
 
@@ -336,7 +346,7 @@ func TestClaudeCodeTotalIsNeverOverBudget(t *testing.T) {
 	machine.SkillsAtCodexBudget(machine.ClaudeSkills())
 	writeSkill(t, machine.ClaudeSkills(), "x", "")
 
-	if got := open(t, machine, machine.Root).OverBudget; got[equip.ClaudeCode] {
-		t.Errorf("OverBudget = %v, want Claude Code not over budget", got)
+	if got := open(t, machine, machine.Root).Totals; got[equip.ClaudeCode].OverBudget {
+		t.Errorf("Totals = %v, want Claude Code not over budget", got)
 	}
 }

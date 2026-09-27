@@ -21,10 +21,8 @@ func fixedCost(agent Agent, listed, plugins bool) int {
 	return cost
 }
 
-// total is the estimated tokens of a session in agent, whether it leaves out
-// an MCP server that is on but not measured yet, and whether its skill listing
-// passes agent's listing budget.
-func (s *Session) total(agent Agent) (int, bool, bool) {
+// total is the total of a session in agent.
+func (s *Session) total(agent Agent) Total {
 	total, listingTokens, unknown := 0, 0, false
 	listed, plugins := false, false // a skill or plugin is on, so agent lists skills; a plugin is on
 
@@ -48,7 +46,10 @@ func (s *Session) total(agent Agent) (int, bool, bool) {
 
 	budget := agent.listing().budget
 
-	return total + fixedCost(agent, listed, plugins), unknown, budget > 0 && listingTokens > budget
+	return Total{
+		Tokens: total + fixedCost(agent, listed, plugins), Unknown: unknown,
+		OverBudget: budget > 0 && listingTokens > budget,
+	}
 }
 
 // unknown reports whether the cost of ext is unknown, in part for a plugin:

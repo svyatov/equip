@@ -59,20 +59,25 @@ type Session struct {
 // View is what the user sees of a Session.
 type View struct {
 	Project Project
-	Totals  map[Agent]int // the estimated tokens of a session in each agent
-	// Unknown marks each agent whose total leaves out an MCP server that is
-	// on but not measured yet.
-	Unknown map[Agent]bool
-	// OverBudget marks each agent whose skill listing passes its listing
-	// budget, so the agent shortens or drops what it lists.
-	OverBudget map[Agent]bool
-	Rows       []Row
-	Facets     []Facet // the ways to narrow Rows, in the order the sidebar shows them
+	Totals  map[Agent]Total // the total of a session in each agent
+	Rows    []Row
+	Facets  []Facet // the ways to narrow Rows, in the order the sidebar shows them
 	// Orphans are the paths of the records the Project can adopt on its first
 	// open: of a repo with its root commit whose path no longer exists.
 	Orphans []string
 	Presets []string // the names of the active presets, pending
 	Unsaved int      // pending changes a save would write
+}
+
+// Total is the estimated tokens of a session in an agent.
+type Total struct {
+	Tokens int
+	// Unknown marks a total that leaves out an MCP server that is on but not
+	// measured yet.
+	Unknown bool
+	// OverBudget marks a skill listing that passes the agent's listing
+	// budget, so the agent shortens or drops what it lists.
+	OverBudget bool
 }
 
 // Row is one extension in the list.
@@ -231,10 +236,10 @@ func (s *Session) View() View {
 		}
 	}
 
-	totals, unknown, over := map[Agent]int{}, map[Agent]bool{}, map[Agent]bool{}
+	totals := map[Agent]Total{}
 
 	for _, agent := range Agents() {
-		totals[agent], unknown[agent], over[agent] = s.total(agent)
+		totals[agent] = s.total(agent)
 	}
 
 	var presets []string
@@ -248,8 +253,8 @@ func (s *Session) View() View {
 	presets = append(presets, s.missing(s.pending.active)...)
 
 	return View{
-		Project: s.project, Rows: rows, Facets: s.facets(rows), Unsaved: s.unsavedCount(), Totals: totals, Unknown: unknown,
-		OverBudget: over, Orphans: s.orphans, Presets: presets,
+		Project: s.project, Rows: rows, Facets: s.facets(rows), Unsaved: s.unsavedCount(), Totals: totals,
+		Orphans: s.orphans, Presets: presets,
 	}
 }
 
