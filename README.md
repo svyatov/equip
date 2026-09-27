@@ -17,7 +17,7 @@ go install github.com/svyatov/equip@latest
 Check the install, then open equip in a project:
 
 ```bash
-equip --version   # equip v0.0.0-20260927124210-0474c614b4f6, a Go pseudo-version until a release is tagged
+equip --version   # equip v0.1.0
 cd your-project
 equip             # opens the TUI on the project's extensions
 ```
