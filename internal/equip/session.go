@@ -227,14 +227,26 @@ func appliedExts(exts []Extension, codex codexConfig) map[Agent][]Extension {
 
 	for _, agent := range Agents() {
 		for _, ext := range exts {
-			// Codex has no per-project skill setting.
-			if ext.has(agent) && (agent == ClaudeCode || ext.Kind != Skill && codex.notApplied == "") {
+			if ext.has(agent) && whyNotApplied(agent, ext, codex) == "" {
 				applied[agent] = append(applied[agent], ext)
 			}
 		}
 	}
 
 	return applied
+}
+
+// whyNotApplied is why equip does not write the state of ext for agent, with
+// Codex's config codex. It is empty when equip does.
+func whyNotApplied(agent Agent, ext Extension, codex codexConfig) string {
+	switch {
+	case agent == ClaudeCode:
+		return ""
+	case ext.Kind == Skill:
+		return "Codex has no per-project skill setting"
+	}
+
+	return codex.notApplied
 }
 
 // adapter is how equip reads and writes an agent's config for a Project.
@@ -374,15 +386,11 @@ func (s *Session) Detail(key string) Detail {
 		if ext.has(agent) {
 			detail.Agents = append(detail.Agents, agent)
 			detail.Costs[agent] = s.costIn(agent, ext)
-		}
-	}
 
-	switch {
-	case !ext.has(Codex):
-	case ext.Kind == Skill:
-		detail.NotApplied[Codex] = "Codex has no per-project skill setting"
-	case s.codex.notApplied != "":
-		detail.NotApplied[Codex] = s.codex.notApplied
+			if why := whyNotApplied(agent, ext, s.codex); why != "" {
+				detail.NotApplied[agent] = why
+			}
+		}
 	}
 
 	return detail
