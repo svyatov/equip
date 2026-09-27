@@ -150,12 +150,14 @@ func TestEntryChangedOnDiskIsImportedAsAnUnsavedOverride(t *testing.T) {
 
 	for name, testCase := range map[string]struct {
 		settings string
+		savedOff string // the skill the record has an Override of off for
 		want     equip.State
-		saved    bool // whether the record has an Override for review
 		cost     int
 	}{
-		"another value": {`{"skillOverrides": {"review": "on"}}`, equip.On, true, 8},
-		"none wanted":   {`{"skillOverrides": {"docs": "off", "review": "user-invocable-only"}}`, equip.ManualOnly, false, 0},
+		"another value": {`{"skillOverrides": {"review": "on"}}`, "review", equip.On, 8},
+		"none wanted": {
+			`{"skillOverrides": {"docs": "off", "review": "user-invocable-only"}}`, "docs", equip.ManualOnly, 0,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -164,13 +166,9 @@ func TestEntryChangedOnDiskIsImportedAsAnUnsavedOverride(t *testing.T) {
 			machine.Skill(machine.ClaudeSkills(), "review")
 			machine.Skill(machine.ClaudeSkills(), "docs")
 
-			if testCase.saved {
-				savedOff(t, machine, repo)
-			} else {
-				session := newSession(t, machine, repo)
-				session.SetState("docs", equip.Off)
-				save(t, session)
-			}
+			session := newSession(t, machine, repo)
+			session.SetState(testCase.savedOff, equip.Off)
+			save(t, session)
 
 			writeFile(t, settingsLocal(repo), testCase.settings)
 

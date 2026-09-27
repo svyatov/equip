@@ -940,21 +940,24 @@ func TestDroppingTheEditsOfAFailedWriteLeavesTheNextWriteItsOwnProjects(t *testi
 		},
 		"delete": func(s *equip.Session) error { return s.DeletePreset("r1") },
 	} {
-		machine, session, _ := failedWrite(t)
-		writing := machine.Repo("writing")
-		using(t, machine, writing, "w1")
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			machine, session, _ := failedWrite(t)
+			writing := machine.Repo("writing")
+			using(t, machine, writing, "w1")
 
-		err := drop(session)
-		if err != nil {
-			t.Fatal(err)
-		}
+			err := drop(session)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-		add(t, session, "w1", "review")
-		write(t, session)
+			add(t, session, "w1", "review")
+			write(t, session)
 
-		if got := review(t, writing); got != "on" {
-			t.Errorf("%s: review in writing = %v, want on", name, got)
-		}
+			if got := review(t, writing); got != "on" {
+				t.Errorf("review in writing = %v, want on", got)
+			}
+		})
 	}
 }
 

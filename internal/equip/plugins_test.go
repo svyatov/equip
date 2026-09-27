@@ -70,7 +70,8 @@ func TestPluginOffersOnlyOnAndOff(t *testing.T) {
 		t.Errorf("plugin States = %v, want %v", got, want)
 	}
 
-	if got, want := session.Detail("review").States, equip.States(); !slices.Equal(got, want) {
+	want = []equip.State{equip.On, equip.ManualOnly, equip.Off}
+	if got := session.Detail("review").States; !slices.Equal(got, want) {
 		t.Errorf("skill States = %v, want %v", got, want)
 	}
 }
