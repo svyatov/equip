@@ -610,9 +610,13 @@ func TestTotalOfMarksUnknownAndOverBudget(t *testing.T) {
 		{"~6146 over budget", equip.Total{Tokens: 6146, Unknown: false, OverBudget: true}},
 		{"~6146 + unknown over budget", equip.Total{Tokens: 6146, Unknown: true, OverBudget: true}},
 	} {
-		if got := totalOf(testCase.total); got != testCase.want {
-			t.Errorf("totalOf(%+v) = %q, want %q", testCase.total, got, testCase.want)
-		}
+		t.Run(testCase.want, func(t *testing.T) {
+			t.Parallel()
+
+			if got := totalOf(testCase.total); got != testCase.want {
+				t.Errorf("totalOf(%+v) = %q, want %q", testCase.total, got, testCase.want)
+			}
+		})
 	}
 }
 
