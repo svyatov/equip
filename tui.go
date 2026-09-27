@@ -813,18 +813,19 @@ func (m *model) name(name string, width int, style lipgloss.Style) string {
 
 // costCell is the cost of a row or a plugin's content, as the list and the
 // contents show it: by name for a By-name skill, ? while unmeasured, else
-// its tokens after a bar of their size.
+// its tokens then a bar of their size. The bar takes the last cell, blank
+// with none, so the numbers and the bars each line up.
 func (m *model) costCell(byName, unknown bool, tokens int) string {
 	switch {
 	case byName:
-		return m.style.muted.Render("by name")
+		return m.style.muted.Render("by name") + "  "
 	case unknown && tokens == 0:
-		return m.style.unmeasured.Render("?")
+		return m.style.unmeasured.Render("?") + "  "
 	case tokens == 0:
-		return m.style.dim.Render("~0")
+		return m.style.dim.Render("~0") + "  "
 	}
 
-	text := fmt.Sprintf("~%d", tokens)
+	text := m.style.dim.Render(fmt.Sprintf("~%d", tokens))
 	if unknown {
 		text += m.style.unmeasured.Render("+?")
 	}
@@ -833,7 +834,7 @@ func (m *model) costCell(byName, unknown bool, tokens int) string {
 	// and 7.
 	level := min(int(math.Log10(float64(tokens))*barsPerTen), len(m.style.bars)-1)
 
-	return m.style.bars[level].Render(string([]rune(bars)[level])) + " " + m.style.dim.Render(text)
+	return text + " " + m.style.bars[level].Render(string([]rune(bars)[level]))
 }
 
 // search acts on keyMsg while the keys type into the search: enter ends it,

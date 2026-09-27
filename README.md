@@ -28,7 +28,7 @@ cd your-project
 equip             # opens the TUI on the project's extensions
 ```
 
-Each row shows a state glyph (`●` on, `◉` manual-only, `○` off), the extension's name, and its estimated tokens after a bar of their size (`▂▄▆█`). `?` marks an MCP server not measured yet. `by name` marks a skill whose `SKILL.md` sets `disable-model-invocation`: only a call by its name loads it, so it costs no tokens, and its row is greyed out. The `By name` facet lists them. The footer of the TUI lists the keys:
+Each row shows a state glyph (`●` on, `◉` manual-only, `○` off), the extension's name, and its estimated tokens, then a bar of their size (`▂▄▆█`). `?` marks an MCP server not measured yet. `by name` marks a skill whose `SKILL.md` sets `disable-model-invocation`: only a call by its name loads it, so it costs no tokens, and its row is greyed out. The `By name` facet lists them. The footer of the TUI lists the keys:
 
 ```text
 j/k  move   h/l  pane   space  cycle state   m  measure   /  search   p  presets   s  save   ?  keys   q  quit

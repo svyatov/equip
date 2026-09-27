@@ -797,7 +797,7 @@ func TestMCPServerRowAndDetailPaneShowTheCostAsUnknown(t *testing.T) {
 	machine.WriteFile(filepath.Join(machine.Home, ".claude.json"), `{"mcpServers": {"github": {"command": "gh"}}}`)
 	tui := newModel(t, machine)
 
-	if got := rowLine(tui, "github"); !strings.Contains(got, " ? │") {
+	if got := rowLine(tui, "github"); !strings.Contains(got, " ?   │") {
 		t.Errorf("row line %q does not show the cost as unmeasured", got)
 	}
 
