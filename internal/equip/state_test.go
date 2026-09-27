@@ -331,6 +331,33 @@ func TestTrackedSettingsFileIsNotWrittenAndTheDetailSaysWhy(t *testing.T) {
 	}
 }
 
+func TestSettingsFileTrackedSinceOpenIsNotWrittenAndTheNextSaveSucceeds(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	writeFile(t, settingsLocal(repo), `{}`)
+	session := newSession(t, machine, repo)
+	machine.RunGit(repo, "add", ".claude/settings.local.json")
+	session.SetState("review", equip.Off)
+
+	save(t, session)
+
+	if got := session.Detail("review").NotApplied[equip.ClaudeCode]; !strings.Contains(got, "tracked by git") {
+		t.Errorf("NotApplied[ClaudeCode] = %q, want the file tracked by git", got)
+	}
+
+	if view := session.View(); view.Unsaved != 0 {
+		t.Errorf("Unsaved = %d after save, want 0", view.Unsaved)
+	}
+
+	save(t, session)
+
+	if got := row(t, session.View(), "review"); got.ChangedOutside {
+		t.Errorf("row = %+v, want no change outside equip", got)
+	}
+}
+
 func TestTrackedSettingsFileEntriesAreClaudeCodesDefaults(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)

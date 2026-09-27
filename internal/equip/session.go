@@ -542,11 +542,16 @@ func (s *Session) writeAgents(chosen choice) error {
 		}
 	}
 
+	// The write removed the dead Codex entries. An agent's config may have
+	// become tracked since open, and the write then left it alone.
+	s.codex = readCodexConfig(s.machine, s.project)
+	s.settings = settingsNotApplied(s.machine, s.project)
+	s.pending.applied = appliedExts(s.pending.exts, s.codex, s.settings)
+	chosen.applied = s.pending.applied
+
 	for _, agent := range Agents() {
 		s.disk[agent] = chosen.entries(agent)
 	}
-	// The write removed the dead Codex entries.
-	s.codex = readCodexConfig(s.machine, s.project)
 
 	return nil
 }
