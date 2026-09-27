@@ -3,7 +3,6 @@ package equip
 import (
 	"cmp"
 	"encoding/json"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -59,13 +58,8 @@ func discoverPlugins(machine Machine, project Project, sharedSettings []settings
 		return nil, err
 	}
 
-	// Claude Code merges enabledPlugins key by key; the project's shared
-	// settings win over the user's. The local file is equip's to write.
-	defaults := map[string]json.RawMessage{}
-
-	for _, settings := range sharedSettings {
-		maps.Copy(defaults, settings.entries[Plugin])
-	}
+	// The local file is equip's to write.
+	defaults := sharedEntries(sharedSettings, Plugin)
 
 	exts := make([]Extension, 0, len(installed.Plugins))
 

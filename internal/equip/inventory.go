@@ -141,6 +141,8 @@ func discover(machine Machine, project Project, dir string, codex codexConfig) (
 		return nil, err
 	}
 
+	inv.takeDefaults(sharedSettings)
+
 	exts, err := discoverPlugins(machine, project, sharedSettings)
 	if err != nil {
 		return nil, err
@@ -220,6 +222,17 @@ func (inv *inventory) add(agent Agent, root string) int {
 	}
 
 	return found
+}
+
+// takeDefaults sets each skill's Claude Code default to its skillOverrides
+// entry in sharedSettings. The local file is equip's to write.
+func (inv *inventory) takeDefaults(sharedSettings []settingsFile) {
+	defaults := sharedEntries(sharedSettings, Skill)
+	for key, skill := range inv.byKey {
+		if st, ok := skillState(defaults[key]); ok {
+			skill.fallback[ClaudeCode] = st
+		}
+	}
 }
 
 // missing reports whether root, which failed to list with err, counts as
