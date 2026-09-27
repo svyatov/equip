@@ -14,6 +14,8 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-09-27
+
 ### Added
 
 - Each skill of a plugin has a row of its own in the list, named by the skill with its plugin greyed after it, and the `Skills` and `By name` facets count it. It follows its plugin: the state keys say so and change nothing, `enter` moves to the plugin, and a search for the plugin's name finds its skills.
@@ -61,6 +63,7 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 - equip keeps a Record per Project and machine. On a moved repository's first open, equip offers to adopt the Record left at the old path.
 - `--help` prints the usage and `--version` prints the build version.
 
-[unreleased]: https://github.com/svyatov/equip/compare/v0.1.1...HEAD
+[unreleased]: https://github.com/svyatov/equip/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/svyatov/equip/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/svyatov/equip/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/svyatov/equip/releases/tag/v0.1.0
