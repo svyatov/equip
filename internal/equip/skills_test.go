@@ -193,6 +193,19 @@ func TestSkillDefaultsToItsStateInProjectSettingsOverUserSettings(t *testing.T) 
 	}
 }
 
+func TestSkillLocalSettingsWinOverSharedSettings(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	writeFile(t, filepath.Join(machine.Home, ".claude", "settings.json"), `{"skillOverrides": {"review": "off"}}`)
+	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "on"}}`)
+
+	if got := row(t, open(t, machine, repo), "review"); got.State != equip.On || got.Fallback != equip.Off {
+		t.Errorf("row = %+v, want on over an off default", got)
+	}
+}
+
 func TestSkillDirReachedTwiceIsOneLocation(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)

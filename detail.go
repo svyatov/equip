@@ -83,7 +83,7 @@ func (m *model) note(text string, style lipgloss.Style, width int) []string {
 // origin is where the state of row comes from in view, with why it changed
 // outside equip, its lines wrapped at width.
 func (m *model) origin(view equip.View, row equip.Row, ext equip.Detail, width int) []string {
-	if row.Plugin != "" {
+	if row.Follows() {
 		return []string{m.field("Origin", "follows "+row.Plugin)}
 	}
 

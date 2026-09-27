@@ -102,6 +102,11 @@ type Row struct {
 	ChangedOutside bool
 }
 
+// Follows reports whether the row is a plugin's skill's, which follows the
+// plugin Plugin: it has no state of its own, and no Preset or Override names
+// it.
+func (r Row) Follows() bool { return r.Plugin != "" }
+
 // Open finds the Project of dir and discovers its extensions.
 func Open(machine Machine, dir string) (*Session, error) {
 	// Resolved, as ~/.claude.json keys projects that way.
@@ -281,7 +286,7 @@ type Content struct {
 	Unmeasurable string
 	Kind         Kind
 	State        State
-	Cost         int  // estimated tokens in the agent the plugin was read for, Claude Code when both have it
+	Cost         int  // estimated tokens: the higher of the agents' costs
 	CostUnknown  bool // an MCP server not measured yet
 	ByName       bool // a By-name skill
 	Override     bool // an MCP server's State was set by hand in this Project
@@ -295,7 +300,7 @@ type Content struct {
 // Detail returns the detail of the extension with key.
 func (s *Session) Detail(key string) Detail {
 	ext, ok := s.pending.ext(key)
-	if pluginKey, name, isSkill := strings.Cut(key, "/"); !ok && isSkill {
+	if pluginKey, name, isSkill := splitSkillRowKey(key); !ok && isSkill {
 		return s.skillDetail(pluginKey, name)
 	}
 
@@ -425,8 +430,8 @@ func (s *Session) skillDetail(pluginKey, name string) Detail {
 
 	skill := detail.Contents[index]
 	detail.Description, detail.States, detail.Contents, detail.Hooks = skill.Description, nil, nil, false
-	// ponytail: a plugin's contents hold one agent's estimate; keep each
-	// agent's once they drift apart.
+	// ponytail: a plugin's contents hold the higher of the agents' estimates,
+	// so each agent shows it; keep each agent's if the pane must tell them apart.
 	for agent := range detail.Costs {
 		detail.Costs[agent] = skill.Cost
 	}
@@ -455,16 +460,23 @@ func (s *Session) row(ext Extension) Row {
 	}
 }
 
-// skillRows are the rows of the skills of plugin, each keyed
-// plugin-key/skill-name. A skill follows its plugin, so it is never an
-// Override and changes only with its plugin.
+// skillRowKey is the key of the row of the skill named name in the plugin
+// with pluginKey. No other key has a /: a skill's is a dir name, and a
+// plugin's is name@marketplace.
+func skillRowKey(pluginKey, name string) string { return pluginKey + "/" + name }
+
+// splitSkillRowKey splits key, reporting whether it is a skillRowKey.
+func splitSkillRowKey(key string) (string, string, bool) { return strings.Cut(key, "/") }
+
+// skillRows are the rows of the skills of plugin. A skill follows its plugin,
+// so it is never an Override and changes only with its plugin.
 func (s *Session) skillRows(plugin Extension) []Row {
 	var rows []Row
 
 	for _, content := range s.contents(plugin) {
 		if content.Kind == Skill {
 			rows = append(rows, Row{
-				Key: plugin.Key + "/" + content.Name, Name: content.Name, Plugin: plugin.Key, Kind: Skill,
+				Key: skillRowKey(plugin.Key, content.Name), Name: content.Name, Plugin: plugin.Key, Kind: Skill,
 				Cost: content.Cost, State: content.State, Fallback: content.State, CostUnknown: false,
 				ByName: content.ByName, Override: false, Unsaved: false, ChangedOutside: false,
 			})

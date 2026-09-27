@@ -53,7 +53,7 @@ func (s *Session) facets(rows []Row) []Facet {
 		{stateFacet("On", On), stateFacet("Manual-only", ManualOnly), stateFacet("Off", Off)},
 		{
 			{name: "Overrides", has: func(ext Extension, row Row) bool {
-				return row.Plugin == "" && s.inRow(ext, s.overridden)
+				return !row.Follows() && s.inRow(ext, s.overridden)
 			}},
 			{name: "Unsaved changes", has: func(_ Extension, row Row) bool { return row.Unsaved }},
 		},

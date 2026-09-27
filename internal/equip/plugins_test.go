@@ -178,7 +178,12 @@ func TestPluginSkillDetailOffersNoState(t *testing.T) {
 	dir := machine.Plugin("github@official", "user", "")
 	machine.Skill(filepath.Join(dir, "skills"), "review")
 
-	got := newSession(t, machine, repo).Detail("github@official/review")
+	session := newSession(t, machine, repo)
+	if none := session.Detail("github@official/nope"); none.Description != "" || none.Locations != nil {
+		t.Errorf("Detail of a skill the plugin lacks = %+v, want an empty one", none)
+	}
+
+	got := session.Detail("github@official/review")
 	if got.Description != "The review skill." || got.States != nil || got.Contents != nil ||
 		got.Marketplace != "official" {
 		t.Errorf("Detail = %+v, want the skill's description, no states, no contents, from official", got)

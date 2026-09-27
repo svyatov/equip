@@ -64,7 +64,7 @@ A Record whose path no longer exists. A Project's first open offers to adopt an 
 _Avoid_: Stale record, leftover
 
 **Facet**:
-A way to narrow the list of extensions by kind, agent, state, or change, shown with the count of extensions it keeps.
+A way to narrow the list of extensions by kind, agent, state, or change, shown with the count of rows it keeps.
 _Avoid_: Filter, category
 
 **Listing budget**:

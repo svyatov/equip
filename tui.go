@@ -796,7 +796,7 @@ func (m *model) entry(row equip.Row, highlighted bool, width int) string {
 	switch {
 	case isPlugin:
 		rest = "@" + rest
-	case row.Plugin != "":
+	case row.Follows():
 		pluginName, _, _ := strings.Cut(row.Plugin, "@")
 		rest = "  " + pluginName
 	}
@@ -821,7 +821,7 @@ func (m *model) name(base, rest string, width int, style lipgloss.Style) string 
 }
 
 // costCell is the cost of a row or a plugin's content, as the list and the
-// contents show it in state: by name for a By-name skill, manual for a
+// contents show it in state: by name for a By-name skill, manual-only for a
 // manual-only one no agent lists, ? while unmeasured, else its tokens then a
 // bar of their size. The bar takes the last cell, blank with none, so the
 // numbers and the bars each line up.
@@ -830,7 +830,7 @@ func (m *model) costCell(state equip.State, byName, unknown bool, tokens int) st
 	case byName:
 		return m.style.muted.Render("by name") + "  "
 	case state == equip.ManualOnly && tokens == 0:
-		return m.style.muted.Render("manual") + "  "
+		return m.style.muted.Render("manual-only") + "  "
 	case unknown && tokens == 0:
 		return m.style.unmeasured.Render("?") + "  "
 	case tokens == 0:
@@ -953,10 +953,10 @@ func (m *model) press(key string) tea.Cmd {
 		return nil
 	}
 
-	switch key {
-	case "q":
+	switch {
+	case key == "q":
 		return m.quit()
-	case "1", "2", "3", "x", "m", spaceKey:
+	case stateKey(key):
 		if target, ok := m.target(rows, servers); ok {
 			// The list keeps the row even when the key takes it out of the
 			// facet, so a second press does not act on the next row.
@@ -964,9 +964,9 @@ func (m *model) press(key string) tea.Cmd {
 
 			return m.act(key, target)
 		}
-	case "p":
+	case key == "p":
 		m.openWorkspace()
-	case "s":
+	case key == "s":
 		m.save()
 	}
 
@@ -978,7 +978,7 @@ func (m *model) press(key string) tea.Cmd {
 // that would change the skill says what it follows. It reports whether it
 // acted.
 func (m *model) follows(rows []equip.Row, key string) bool {
-	if m.cur >= len(rows) || rows[m.cur].Plugin == "" {
+	if m.cur >= len(rows) || !rows[m.cur].Follows() {
 		return false
 	}
 
@@ -986,15 +986,22 @@ func (m *model) follows(rows []equip.Row, key string) bool {
 
 	switch {
 	case key == enterKey && m.focus == onList:
-		// Pinned, so the list shows the plugin whatever the facet and search.
-		m.key, m.pinned = plugin, plugin
-	case slices.Contains([]string{"1", "2", "3", "x", "m", spaceKey}, key):
+		// Pinned, so the list shows the plugin whatever the facet and search;
+		// its detail pane starts at its top, as clamp starts a new row's.
+		m.key, m.pinned, m.detailTop, m.server = plugin, plugin, 0, 0
+	case stateKey(key):
 		m.flash = m.style.dim.Render("follows " + plugin + ", enter goes to it")
 	default:
 		return false
 	}
 
 	return true
+}
+
+// stateKey reports whether key acts on the state of the highlighted
+// extension: sets it, drops its Override, or measures it.
+func stateKey(key string) bool {
+	return slices.Contains([]string{"1", "2", "3", "x", "m", spaceKey}, key)
 }
 
 // save saves the pending changes, and says how many it wrote or why it

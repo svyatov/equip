@@ -35,7 +35,7 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 - The TUI uses the Catppuccin Mocha colours, with a colour per state, per kind, and per agent.
 - The top line counts the MCP servers a total leaves out until they are measured, as in `+ 4 MCP unmeasured`, and says `skills over budget` where it said `over budget`. A cost not measured yet reads `?` in the list and `unmeasured` in the detail pane, where it read `unknown`. The project path writes the home directory as `~`.
 - A skill that no agent that has it calls on its own reads `by name` in place of `~0`, greyed out, and the new `By name` facet lists these skills and the plugins made only of them. The detail pane says it costs none. Claude Code reads `disable-model-invocation` in its `SKILL.md`, and Codex reads `allow_implicit_invocation` in its `agents/openai.yaml`.
-- A manual-only skill's row is greyed out too, and its cost reads `manual` when no agent lists it.
+- A manual-only skill's row is greyed out too, and its cost reads `manual-only` when no agent lists it.
 - The manual-only glyph is `◉` where it was `◐`, which the common coding fonts lack, so terminals drew it wider from another font.
 - The TUI has a retro look: the logo in ANSI shades, pane titles set into the borders, key caps in the footer, and a bar of each cost's size. The list keeps the search in its border, so it shows one more row, and says how many rows are above as well as below. A plugin's `@marketplace` is dimmed and cut before its name. The sidebar counts the rows the search keeps in each facet, and a legend of the marks sits at its foot when there is room.
 - The detail pane wraps long notes, writes paths with `~`, and lines up a plugin's contents in columns.

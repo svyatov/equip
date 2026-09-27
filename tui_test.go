@@ -1534,8 +1534,8 @@ func TestManualOnlySkillReadsManualWhereNoAgentListsIt(t *testing.T) {
 
 	press(tui, key('2'), down(), key('2'))
 
-	if got := rowLine(tui, "solo"); !strings.Contains(got, "manual") {
-		t.Errorf("row %q does not say manual", got)
+	if got := rowLine(tui, "solo"); !strings.Contains(got, "manual-only") {
+		t.Errorf("row %q does not say manual-only", got)
 	}
 	// Codex has no per-project skill setting, so it still lists this one.
 	if got := rowLine(tui, "both"); strings.Contains(got, "manual") || !strings.Contains(got, "~") {
@@ -1596,6 +1596,28 @@ func TestEnterOnAPluginSkillRowMovesToItsPlugin(t *testing.T) {
 
 	if got := rowLine(tui, "github@official"); !strings.Contains(got, "▸") {
 		t.Errorf("plugin row %q is not highlighted:\n%s", got, plain(tui))
+	}
+}
+
+func TestEnterOnAPluginSkillRowShowsItsPluginFromTheTop(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	skills := filepath.Join(machine.Plugin("github@official", "user", ""), "skills")
+	machine.WriteFile(filepath.Join(skills, "review", "SKILL.md"),
+		"---\nname: review\ndescription: "+strings.Repeat("word ", 400)+"\n---\n")
+	tui := newModel(t, machine)
+	resize(tui, 120, 20)
+
+	press(tui, down(), key('l'), key('j'), key('j'), key('j'), key('h'))
+
+	if tui.detailTop == 0 {
+		t.Fatal("the skill's detail pane did not scroll")
+	}
+
+	press(tui, enter())
+
+	if tui.detailTop != 0 {
+		t.Errorf("detailTop = %d on the plugin, want 0", tui.detailTop)
 	}
 }
 

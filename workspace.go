@@ -427,7 +427,7 @@ func (m *model) candidates(preset equip.Preset) []equip.Row {
 	query := strings.ToLower(m.ws.query)
 	// A plugin's skill follows its plugin, so no preset names it.
 	rows := slices.DeleteFunc(m.s.View().Rows, func(row equip.Row) bool {
-		return row.Plugin != "" || !strings.Contains(strings.ToLower(row.Name), query) ||
+		return row.Follows() || !strings.Contains(strings.ToLower(row.Name), query) ||
 			slices.ContainsFunc(preset.Members, func(member equip.Member) bool {
 				return member.Key == row.Key && !member.Removed
 			})

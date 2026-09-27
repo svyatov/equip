@@ -209,7 +209,7 @@ func (v View) TurnedSince(before View) []Row {
 
 	for _, row := range v.Rows {
 		i := slices.IndexFunc(before.Rows, func(was Row) bool { return was.Key == row.Key })
-		if row.Plugin == "" && i >= 0 && before.Rows[i].State != row.State {
+		if !row.Follows() && i >= 0 && before.Rows[i].State != row.State {
 			turned = append(turned, row)
 		}
 	}
