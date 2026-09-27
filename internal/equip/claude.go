@@ -21,7 +21,6 @@ type claudeKind struct {
 	value       func(State) json.RawMessage         // a state as Claude Code spells it
 	state       func(json.RawMessage) (State, bool) // reads an entry, reporting whether equip knows it
 	settingsKey string                              // the settings key that holds the states
-	states      []State                             // the states the user can pick
 }
 
 // claude is how Claude Code keeps the states of an extension of kind k.
@@ -31,17 +30,14 @@ func (k Kind) claude() claudeKind {
 			value:       func(st State) json.RawMessage { return json.RawMessage(strconv.Quote(skillValue(st))) },
 			state:       skillState,
 			settingsKey: "skillOverrides",
-			states:      States(),
 		},
-		// A plugin is all or nothing, so it has no manual-only.
 		Plugin: {
 			value:       func(st State) json.RawMessage { return json.RawMessage(strconv.FormatBool(st == On)) },
 			state:       pluginState,
 			settingsKey: "enabledPlugins",
-			states:      []State{On, Off},
 		},
 		// Claude Code keeps an MCP server's state in lists, not in a settings key.
-		MCPServer: {value: nil, state: nil, settingsKey: "", states: []State{On, Off}},
+		MCPServer: {value: nil, state: nil, settingsKey: ""},
 	}[k]
 }
 

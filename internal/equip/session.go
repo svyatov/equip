@@ -256,7 +256,7 @@ func (a Agent) config() adapter {
 // SetState makes st an Override for the extension with key, unless the
 // extension does not offer st.
 func (s *Session) SetState(key string, st State) {
-	if ext, ok := s.ext(key); ok && !slices.Contains(ext.Kind.claude().states, st) {
+	if ext, ok := s.ext(key); ok && !slices.Contains(ext.Kind.states(), st) {
 		return
 	}
 
@@ -358,7 +358,7 @@ func (s *Session) Detail(key string) Detail {
 
 	detail := Detail{
 		Description: ext.Description, Note: "", Marketplace: marketplaceOf(ext.Key), Agents: nil,
-		Locations: ext.Locations, NotApplied: map[Agent]string{}, Costs: map[Agent]int{}, States: ext.Kind.claude().states,
+		Locations: ext.Locations, NotApplied: map[Agent]string{}, Costs: map[Agent]int{}, States: ext.Kind.states(),
 		Contents: s.contents(ext), Hooks: ext.hooks, BuiltIn: ext.builtIn, ChangedIn: s.outside[key],
 	}
 	// Only where the record's state differs from the agent config.

@@ -77,7 +77,7 @@ func readRecord(path string, disk map[string]State) (map[string]State, []recordP
 	for _, kind := range kinds() {
 		for name, value := range rec.Overrides[kind.recordTable()] {
 			st, ok := parseState(value)
-			if !ok || !slices.Contains(kind.claude().states, st) {
+			if !ok || !slices.Contains(kind.states(), st) {
 				return nil, nil, fmt.Errorf("read %s: %s %q: %w %q", path, kind, name, errUnknownState, value)
 			}
 
