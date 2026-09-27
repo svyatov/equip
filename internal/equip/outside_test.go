@@ -651,6 +651,23 @@ func TestLibraryListsAMissingPresetActiveHere(t *testing.T) {
 	}
 }
 
+func TestTogglingAnotherPresetKeepsAMissingOneActive(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	repo := machine.Repo("app")
+	using(t, machine, repo, "r1")
+	removePreset(t, machine, "Ruby")
+	session := newSession(t, machine, repo)
+
+	session.TogglePreset("w1")
+	save(t, session)
+
+	got := slices.Sorted(slices.Values(newSession(t, machine, repo).View().Presets))
+	if want := []string{"Ruby", "Writing"}; !slices.Equal(got, want) {
+		t.Errorf("Presets = %q, want %q", got, want)
+	}
+}
+
 func TestLibraryListsAMissingPresetByName(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)

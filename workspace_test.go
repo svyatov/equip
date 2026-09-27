@@ -160,46 +160,6 @@ func TestWorkspaceComparesWithTheViewAtItsOpening(t *testing.T) {
 	}
 }
 
-func TestSpaceKeepsAnActivePresetWhoseFileIsMissing(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.WithPresets(t)
-	old := filepath.Join(machine.ConfigHome, "equip", "presets", "Old.toml")
-	machine.WriteFile(old, `id = "o1"`)
-
-	session, err := equip.Open(machine.Machine, machine.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	session.SetPresets([]string{"o1"})
-
-	err = session.Save()
-	if err == nil {
-		err = os.Remove(old)
-	}
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	tui := newModel(t, machine)
-	press(tui, key('p'), down(), key(' ')) // Old is first, Ruby second
-
-	err = tui.s.Save()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	files, _ := filepath.Glob(filepath.Join(machine.StateHome, "equip", "*.toml"))
-	data, _ := os.ReadFile(files[0])
-
-	for _, want := range []string{`'o1'`, `'r1'`} {
-		if !strings.Contains(string(data), want) {
-			t.Errorf("record does not keep %s active:\n%s", want, data)
-		}
-	}
-}
-
 func TestMissingPresetShowsMissingAndCannotBeDeleted(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)
