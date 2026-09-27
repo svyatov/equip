@@ -589,6 +589,23 @@ func TestCodexPluginCostsItsSkillsListedUnderItsName(t *testing.T) {
 	}
 }
 
+func TestCodexPluginSkillThatDisallowsImplicitInvocationIsByName(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	skill := machine.Skill(filepath.Join(codexPlugin(t, machine, "grill-me@tk"), "skills"), "grill-me")
+	writeFile(t, filepath.Join(skill, "agents", "openai.yaml"), "policy:\n  allow_implicit_invocation: false\n")
+	session := newSession(t, machine, repo)
+
+	if got := row(t, session.View(), "grill-me@tk"); got.Cost != 0 || !got.ByName {
+		t.Errorf("Cost = %d, ByName = %v, want 0 and true", got.Cost, got.ByName)
+	}
+
+	if got := session.Detail("grill-me@tk").Contents[0].ByName; !got {
+		t.Error("the skill's ByName = false, want true")
+	}
+}
+
 func TestOffCodexPluginCostsNothingOnlyWhereCodexAppliesIt(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
