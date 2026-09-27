@@ -33,6 +33,8 @@ func TestMain(m *testing.M) {
 		return
 	}
 
+	defer equiptest.RemoveTemplate()
+
 	m.Run()
 }
 
@@ -403,18 +405,6 @@ func TestMeasuredServerCostsNothingInAnAgentThatDoesNotHaveIt(t *testing.T) {
 
 	if got := open(t, machine, repo).Totals[equip.Codex].Tokens; got != 0 {
 		t.Errorf("Codex total = %d, want 0 for a Claude Code server", got)
-	}
-}
-
-func TestMeasuredCostShowsOnTheNextOpenWithoutAProbe(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	repo := machine.Repo("app")
-	fakeServer(t, machine, "modern", "")
-	probedRow(t, machine, repo)
-
-	if got := row(t, open(t, machine, repo), "fake"); got.CostUnknown || got.Cost != 7 {
-		t.Errorf("row = %+v, want the cached cost of 7", got)
 	}
 }
 

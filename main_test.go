@@ -3,7 +3,16 @@ package main
 import (
 	"strings"
 	"testing"
+
+	"github.com/svyatov/equip/internal/equiptest"
 )
+
+// A TestMain that returns exits with m.Run's code.
+func TestMain(m *testing.M) {
+	defer equiptest.RemoveTemplate()
+
+	m.Run()
+}
 
 func TestFlags(t *testing.T) {
 	t.Parallel()

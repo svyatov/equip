@@ -65,7 +65,7 @@ func TestQuittingWithoutSavingLeavesHandEditsToImportAgain(t *testing.T) {
 	machine := equiptest.New(t)
 	repo := machine.Repo("app")
 	machine.Skill(machine.ClaudeSkills(), "review")
-	savedOff(t, machine, repo)
+	savedOff(t, machine, repo, "review")
 
 	const edit = `{"skillOverrides": {"review": "on"}}`
 	writeFile(t, settingsLocal(repo), edit)
@@ -92,7 +92,7 @@ func TestSaveKeepsAnImportAndClearsItsNote(t *testing.T) {
 	machine := equiptest.New(t)
 	repo := machine.Repo("app")
 	machine.Skill(machine.ClaudeSkills(), "review")
-	savedOff(t, machine, repo)
+	savedOff(t, machine, repo, "review")
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "on"}}`)
 	session := newSession(t, machine, repo)
 
@@ -117,11 +117,11 @@ func TestSaveKeepsAnImportAndClearsItsNote(t *testing.T) {
 	}
 }
 
-// savedOff opens repo, sets review off and saves.
-func savedOff(t *testing.T, machine *equiptest.Machine, repo string) {
+// savedOff opens repo, sets the skill key off and saves.
+func savedOff(t *testing.T, machine *equiptest.Machine, repo, key string) {
 	t.Helper()
 	session := newSession(t, machine, repo)
-	session.SetState("review", equip.Off)
+	session.SetState(key, equip.Off)
 	save(t, session)
 }
 
@@ -130,7 +130,7 @@ func TestEntryMissingOnDiskShowsTheRecordStateUnsaved(t *testing.T) {
 	machine := equiptest.New(t)
 	repo := machine.Repo("app")
 	machine.Skill(machine.ClaudeSkills(), "review")
-	savedOff(t, machine, repo)
+	savedOff(t, machine, repo, "review")
 	writeFile(t, settingsLocal(repo), `{}`)
 
 	view := newSession(t, machine, repo).View()
@@ -150,12 +150,14 @@ func TestEntryChangedOnDiskIsImportedAsAnUnsavedOverride(t *testing.T) {
 
 	for name, testCase := range map[string]struct {
 		settings string
+		savedKey string // the skill the record has an Override of off for
 		want     equip.State
-		saved    bool // whether the record has an Override for review
 		cost     int
 	}{
-		"another value": {`{"skillOverrides": {"review": "on"}}`, equip.On, true, 8},
-		"none wanted":   {`{"skillOverrides": {"docs": "off", "review": "user-invocable-only"}}`, equip.ManualOnly, false, 0},
+		"another value": {`{"skillOverrides": {"review": "on"}}`, "review", equip.On, 8},
+		"none wanted": {
+			`{"skillOverrides": {"docs": "off", "review": "user-invocable-only"}}`, "docs", equip.ManualOnly, 0,
+		},
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
@@ -164,14 +166,7 @@ func TestEntryChangedOnDiskIsImportedAsAnUnsavedOverride(t *testing.T) {
 			machine.Skill(machine.ClaudeSkills(), "review")
 			machine.Skill(machine.ClaudeSkills(), "docs")
 
-			if testCase.saved {
-				savedOff(t, machine, repo)
-			} else {
-				session := newSession(t, machine, repo)
-				session.SetState("docs", equip.Off)
-				save(t, session)
-			}
-
+			savedOff(t, machine, repo, testCase.savedKey)
 			writeFile(t, settingsLocal(repo), testCase.settings)
 
 			view := newSession(t, machine, repo).View()
@@ -194,7 +189,7 @@ func TestSaveAfterAnOutsideChangeWritesNothingAndImportsIt(t *testing.T) {
 	repo := machine.Repo("app")
 	machine.Skill(machine.ClaudeSkills(), "docs")
 	machine.Skill(machine.ClaudeSkills(), "review")
-	savedOff(t, machine, repo)
+	savedOff(t, machine, repo, "review")
 	session := newSession(t, machine, repo)
 
 	const outside = `{"skillOverrides": {"review": "on"}}`
@@ -241,7 +236,7 @@ func TestSaveReportsSettingsBrokenSinceOpen(t *testing.T) {
 	machine := equiptest.New(t)
 	repo := machine.Repo("app")
 	machine.Skill(machine.ClaudeSkills(), "review")
-	savedOff(t, machine, repo)
+	savedOff(t, machine, repo, "review")
 	session := newSession(t, machine, repo)
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": `)
 
@@ -308,7 +303,7 @@ func TestSaveAfterAnOutsideRemovalWritesNothing(t *testing.T) {
 	machine := equiptest.New(t)
 	repo := machine.Repo("app")
 	machine.Skill(machine.ClaudeSkills(), "review")
-	savedOff(t, machine, repo)
+	savedOff(t, machine, repo, "review")
 	session := newSession(t, machine, repo)
 	writeFile(t, settingsLocal(repo), `{}`)
 
@@ -336,7 +331,7 @@ func TestSavingADroppedImportRemovesItsEntry(t *testing.T) {
 	machine := equiptest.New(t)
 	repo := machine.Repo("app")
 	machine.Skill(machine.ClaudeSkills(), "review")
-	savedOff(t, machine, repo)
+	savedOff(t, machine, repo, "review")
 	session := newSession(t, machine, repo)
 	session.DropOverride("review")
 	save(t, session)
@@ -357,7 +352,7 @@ func TestSaveAfterAnOutsideChangeBackShowsTheRecordState(t *testing.T) {
 	machine := equiptest.New(t)
 	repo := machine.Repo("app")
 	machine.Skill(machine.ClaudeSkills(), "review")
-	savedOff(t, machine, repo)
+	savedOff(t, machine, repo, "review")
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "on"}}`)
 	session := newSession(t, machine, repo)
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "off"}}`)
@@ -382,7 +377,7 @@ func TestSaveMarksAPendingToggleReplacedByAnOutsideChange(t *testing.T) {
 	machine := equiptest.New(t)
 	repo := machine.Repo("app")
 	machine.Skill(machine.ClaudeSkills(), "review")
-	savedOff(t, machine, repo)
+	savedOff(t, machine, repo, "review")
 	session := newSession(t, machine, repo)
 	session.SetState("review", equip.ManualOnly)
 	writeFile(t, settingsLocal(repo), `{}`)
@@ -653,23 +648,20 @@ func TestLibraryListsAMissingPresetActiveHere(t *testing.T) {
 	}
 }
 
-func TestLibraryListsAMissingPresetByName(t *testing.T) {
+func TestTogglingAnotherPresetKeepsAMissingOneActive(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)
 	repo := machine.Repo("app")
-	machine.Preset("Old", `id = "O1"`)
-	using(t, machine, repo, "O1")
-	removePreset(t, machine, "Old")
+	using(t, machine, repo, "r1")
+	removePreset(t, machine, "Ruby")
+	session := newSession(t, machine, repo)
 
-	presets := newSession(t, machine, repo).Presets()
+	session.TogglePreset("w1")
+	save(t, session)
 
-	got := make([]string, 0, len(presets))
-	for _, preset := range presets {
-		got = append(got, preset.Name)
-	}
-
-	if want := []string{"Old", "Ruby", "Writing"}; !slices.Equal(got, want) {
-		t.Errorf("library = %q, want %q", got, want)
+	got := slices.Sorted(slices.Values(newSession(t, machine, repo).View().Presets))
+	if want := []string{"Ruby", "Writing"}; !slices.Equal(got, want) {
+		t.Errorf("Presets = %q, want %q", got, want)
 	}
 }
 

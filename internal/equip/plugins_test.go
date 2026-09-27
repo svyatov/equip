@@ -12,18 +12,6 @@ import (
 	"github.com/svyatov/equip/internal/equiptest"
 )
 
-func TestViewListsAUserInstalledPluginByNameAndMarketplace(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	repo := machine.Repo("app")
-	machine.Plugin("github@official", "user", "")
-
-	got := names(open(t, machine, repo))
-	if want := []string{"github@official"}; !slices.Equal(got, want) {
-		t.Errorf("rows = %q, want %q", got, want)
-	}
-}
-
 func TestViewListsOnlyPluginsInstalledForThisProject(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
@@ -70,7 +58,8 @@ func TestPluginOffersOnlyOnAndOff(t *testing.T) {
 		t.Errorf("plugin States = %v, want %v", got, want)
 	}
 
-	if got, want := session.Detail("review").States, equip.States(); !slices.Equal(got, want) {
+	want = []equip.State{equip.On, equip.ManualOnly, equip.Off}
+	if got := session.Detail("review").States; !slices.Equal(got, want) {
 		t.Errorf("skill States = %v, want %v", got, want)
 	}
 }

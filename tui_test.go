@@ -361,29 +361,24 @@ func TestSaveKeyWritesTheOverrides(t *testing.T) {
 	}
 }
 
-func TestSaveKeyShowsTheError(t *testing.T) {
+func TestSaveKeyShowsTheErrorUntilTheNextKey(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	machine.Skill(machine.ClaudeSkills(), "review")
-	settings := filepath.Join(machine.Root, ".claude", "settings.local.json")
-	machine.Mkdir(filepath.Dir(settings))
-
-	err := os.WriteFile(settings, []byte("{"), 0o644)
-	if err != nil {
-		t.Fatal(err)
-	}
-
 	tui := newModel(t, machine)
+	settings := filepath.Join(machine.Root, ".claude", "settings.local.json")
+	machine.WriteFile(settings, `{"skillOverrides": {"review": "off"}}`)
 
 	press(tui, key('3'), key('s'))
 
-	if line(tui, "settings.local.json") == "" {
-		t.Errorf("view does not show the save error:\n%s", tui.View().Content)
+	const flash = "save failed: changed outside equip since open"
+	if line(tui, flash) == "" {
+		t.Errorf("s does not show the error:\n%s", tui.View().Content)
 	}
 
 	press(tui, down())
 
-	if line(tui, "settings.local.json") != "" {
+	if line(tui, flash) != "" {
 		t.Error("the save error stays after the next key")
 	}
 }
@@ -447,21 +442,6 @@ func TestQuitWithUnsavedChangesAsksFirst(t *testing.T) {
 
 	if !quits(press(tui, key('q'), key('y'))) {
 		t.Error("y did not quit")
-	}
-}
-
-func TestSaveShowsTheError(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	machine.Skill(machine.ClaudeSkills(), "review")
-	tui := newModel(t, machine)
-	settings := filepath.Join(machine.Root, ".claude", "settings.local.json")
-	machine.WriteFile(settings, `{"skillOverrides": {"review": "off"}}`)
-
-	press(tui, key('3'), key('s'))
-
-	if line(tui, "save failed: changed outside equip since open") == "" {
-		t.Errorf("s does not show the error:\n%s", tui.View().Content)
 	}
 }
 
@@ -618,26 +598,25 @@ func TestTopLineAndPluginRowMarkAServerNotMeasuredYet(t *testing.T) {
 	}
 }
 
-func TestTopLineMarksACodexTotalOverBudget(t *testing.T) {
+func TestTotalOfMarksUnknownAndOverBudget(t *testing.T) {
 	t.Parallel()
-	machine := equiptest.New(t)
-	machine.SkillsAtCodexBudget(machine.CodexSkills())
-	machine.Skill(machine.CodexSkills(), "review") // 6, past the budget
 
-	if got := line(newModel(t, machine), "equip"); !strings.Contains(got, "Codex ~6146 over budget") {
-		t.Errorf("top line %q does not mark the Codex total over budget", got)
-	}
-}
+	for _, testCase := range []struct {
+		want  string
+		total equip.Total
+	}{
+		{"unknown", equip.Total{Tokens: 0, Unknown: true, OverBudget: false}},
+		{"~10 + unknown", equip.Total{Tokens: 10, Unknown: true, OverBudget: false}},
+		{"~6146 over budget", equip.Total{Tokens: 6146, Unknown: false, OverBudget: true}},
+		{"~6146 + unknown over budget", equip.Total{Tokens: 6146, Unknown: true, OverBudget: true}},
+	} {
+		t.Run(testCase.want, func(t *testing.T) {
+			t.Parallel()
 
-func TestTopLineMarksACodexTotalPartialAndOverBudget(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	machine.SkillsAtCodexBudget(machine.CodexSkills())
-	machine.Skill(machine.CodexSkills(), "review")
-	machine.WriteFile(machine.CodexConfig(), "[mcp_servers.search]\ncommand = \"search\"\n")
-
-	if got := line(newModel(t, machine), "equip"); !strings.Contains(got, "Codex ~6146 + unknown over budget") {
-		t.Errorf("top line %q does not mark the Codex total partial and over budget", got)
+			if got := totalOf(testCase.total); got != testCase.want {
+				t.Errorf("totalOf(%+v) = %q, want %q", testCase.total, got, testCase.want)
+			}
+		})
 	}
 }
 

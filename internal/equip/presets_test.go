@@ -47,7 +47,8 @@ mcp_servers = ["github"]`)
 func TestLibraryShowsWhereEachPresetIsActive(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)
-	app := newSession(t, machine, machine.Repo("app"))
+	repo := machine.Repo("app")
+	app := newSession(t, machine, repo)
 	app.SetPresets([]string{"r1"})
 	save(t, app)
 	session := newSession(t, machine, machine.Repo("other"))
@@ -63,6 +64,10 @@ func TestLibraryShowsWhereEachPresetIsActive(t *testing.T) {
 
 	if want := []string{"Ruby active=false projects=1", "Writing active=true projects=0"}; !slices.Equal(got, want) {
 		t.Errorf("library = %q, want %q", got, want)
+	}
+
+	if got := presets[0].Projects; !slices.Equal(got, []string{repo}) {
+		t.Errorf("Ruby's projects = %q, want %q", got, repo)
 	}
 }
 

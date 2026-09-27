@@ -160,47 +160,7 @@ func TestWorkspaceComparesWithTheViewAtItsOpening(t *testing.T) {
 	}
 }
 
-func TestSpaceKeepsAnActivePresetWhoseFileIsMissing(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.WithPresets(t)
-	old := filepath.Join(machine.ConfigHome, "equip", "presets", "Old.toml")
-	machine.WriteFile(old, `id = "o1"`)
-
-	session, err := equip.Open(machine.Machine, machine.Root)
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	session.SetPresets([]string{"o1"})
-
-	err = session.Save()
-	if err == nil {
-		err = os.Remove(old)
-	}
-
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	tui := newModel(t, machine)
-	press(tui, key('p'), down(), key(' ')) // Old is first, Ruby second
-
-	err = tui.s.Save()
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	files, _ := filepath.Glob(filepath.Join(machine.StateHome, "equip", "*.toml"))
-	data, _ := os.ReadFile(files[0])
-
-	for _, want := range []string{`'o1'`, `'r1'`} {
-		if !strings.Contains(string(data), want) {
-			t.Errorf("record does not keep %s active:\n%s", want, data)
-		}
-	}
-}
-
-func TestMissingPresetShowsMissingAndCannotBeDeleted(t *testing.T) {
+func TestMissingPresetShowsMissingAndCanOnlyBeToggled(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)
 	old := filepath.Join(machine.ConfigHome, "equip", "presets", "Old.toml")
@@ -231,6 +191,12 @@ func TestMissingPresetShowsMissingAndCannotBeDeleted(t *testing.T) {
 
 	if line(tui, "preset Old missing: sync its file") == "" || line(tui, "Delete preset Old?") != "" {
 		t.Errorf("d on a missing preset did not refuse:\n%s", tui.View().Content)
+	}
+
+	press(tui, key(' '))
+
+	if got := line(tui, "[ ] Old"); !strings.Contains(got, "missing") {
+		t.Errorf("space on a missing preset did not uncheck it:\n%s", tui.View().Content)
 	}
 }
 
@@ -654,16 +620,5 @@ func TestQuitAsksWithUnwrittenPresetEdits(t *testing.T) {
 
 	if quits(cmd) || line(tui, "Quit without saving?") == "" {
 		t.Errorf("ctrl+c did not ask first:\n%s", tui.View().Content)
-	}
-}
-
-func TestSpaceOnAnActivePresetRemovesIt(t *testing.T) {
-	t.Parallel()
-	tui := presetModel(t)
-
-	press(tui, key('p'), down(), key(' '), key(' '))
-
-	if line(tui, "[ ] Writing") == "" || strings.Contains(topLine(tui), "→") {
-		t.Errorf("Writing is still active:\n%s", tui.View().Content)
 	}
 }

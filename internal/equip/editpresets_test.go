@@ -241,19 +241,6 @@ func TestMembersShowTheirStateCostAndOverrideHere(t *testing.T) {
 	}
 }
 
-func TestLibraryNamesTheProjectsThatUseAPreset(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.WithPresets(t)
-	repo := machine.Repo("app")
-	app := newSession(t, machine, repo)
-	app.SetPresets([]string{"r1"})
-	save(t, app)
-
-	if got := newSession(t, machine, machine.Repo("other")).Presets()[0].Projects; !slices.Equal(got, []string{repo}) {
-		t.Errorf("Ruby's projects = %q, want %q", got, repo)
-	}
-}
-
 func TestWritingAnActivePresetRewritesThisProjectAndKeepsPendingTogglesPending(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)
@@ -940,21 +927,24 @@ func TestDroppingTheEditsOfAFailedWriteLeavesTheNextWriteItsOwnProjects(t *testi
 		},
 		"delete": func(s *equip.Session) error { return s.DeletePreset("r1") },
 	} {
-		machine, session, _ := failedWrite(t)
-		writing := machine.Repo("writing")
-		using(t, machine, writing, "w1")
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			machine, session, _ := failedWrite(t)
+			writing := machine.Repo("writing")
+			using(t, machine, writing, "w1")
 
-		err := drop(session)
-		if err != nil {
-			t.Fatal(err)
-		}
+			err := drop(session)
+			if err != nil {
+				t.Fatal(err)
+			}
 
-		add(t, session, "w1", "review")
-		write(t, session)
+			add(t, session, "w1", "review")
+			write(t, session)
 
-		if got := review(t, writing); got != "on" {
-			t.Errorf("%s: review in writing = %v, want on", name, got)
-		}
+			if got := review(t, writing); got != "on" {
+				t.Errorf("review in writing = %v, want on", got)
+			}
+		})
 	}
 }
 
