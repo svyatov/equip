@@ -1,9 +1,6 @@
 package equip
 
-import (
-	"cmp"
-	"slices"
-)
+import "cmp"
 
 // Facet is a way to narrow the list.
 type Facet struct {
@@ -29,11 +26,9 @@ func kindFacet(name string, k Kind) facet {
 	return facet{name: name, has: func(_ Extension, row Row) bool { return row.Kind == k }}
 }
 
-// onlyFacet is the facet of the rows only agent has.
-func onlyFacet(agent Agent) facet {
-	return facet{name: agent.String() + " only", has: func(ext Extension, _ Row) bool {
-		return !slices.ContainsFunc(Agents(), func(other Agent) bool { return other != agent && ext.has(other) })
-	}}
+// agentFacet is the facet of the rows agent has, in any state.
+func agentFacet(agent Agent) facet {
+	return facet{name: agent.String(), has: func(ext Extension, _ Row) bool { return ext.has(agent) }}
 }
 
 // stateFacet is the facet of the rows in state st.
@@ -49,7 +44,7 @@ func (s *Session) facets(rows []Row) []Facet {
 			kindFacet("Skills", Skill), kindFacet("Plugins", Plugin), kindFacet("MCP servers", MCPServer),
 			{name: "By name", has: func(_ Extension, row Row) bool { return row.ByName }},
 		},
-		{onlyFacet(ClaudeCode), onlyFacet(Codex)},
+		{agentFacet(ClaudeCode), agentFacet(Codex)},
 		{stateFacet("On", On), stateFacet("Manual-only", ManualOnly), stateFacet("Off", Off)},
 		{
 			{name: "Overrides", has: func(ext Extension, row Row) bool {

@@ -1024,15 +1024,16 @@ func TestSidebarPutsABlankLineBeforeEachGroupOfFacets(t *testing.T) {
 
 	view := newModel(t, machine).View().Content
 	lines := strings.Split(view, "\n")
-	above := func(s string) string {
-		return lines[slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, s) })-1]
+	near := func(s string, offset int) string {
+		return lines[slices.IndexFunc(lines, func(l string) bool { return strings.Contains(l, s) })+offset]
 	}
 
-	if strings.Contains(above("Claude Code only"), "MCP servers") {
+	// The header names the agents too, so find the kinds' last facet.
+	if strings.Contains(near("By name", 1), "Claude Code") {
 		t.Errorf("no blank line before the agents' facets:\n%s", view)
 	}
 
-	if !strings.Contains(above("Plugins"), "Skills") {
+	if !strings.Contains(near("Plugins", -1), "Skills") {
 		t.Errorf("a blank line inside the kinds' facets:\n%s", view)
 	}
 }
