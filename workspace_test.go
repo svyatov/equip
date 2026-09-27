@@ -160,7 +160,7 @@ func TestWorkspaceComparesWithTheViewAtItsOpening(t *testing.T) {
 	}
 }
 
-func TestMissingPresetShowsMissingAndCannotBeDeleted(t *testing.T) {
+func TestMissingPresetShowsMissingAndCanOnlyBeToggled(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)
 	old := filepath.Join(machine.ConfigHome, "equip", "presets", "Old.toml")
@@ -191,6 +191,12 @@ func TestMissingPresetShowsMissingAndCannotBeDeleted(t *testing.T) {
 
 	if line(tui, "preset Old missing: sync its file") == "" || line(tui, "Delete preset Old?") != "" {
 		t.Errorf("d on a missing preset did not refuse:\n%s", tui.View().Content)
+	}
+
+	press(tui, key(' '))
+
+	if got := line(tui, "[ ] Old"); !strings.Contains(got, "missing") {
+		t.Errorf("space on a missing preset did not uncheck it:\n%s", tui.View().Content)
 	}
 }
 
