@@ -1,0 +1,61 @@
+version: 2
+
+builds:
+  - binary: equip
+    env:
+      - CGO_ENABLED=0
+    # No -X flags: `equip --version` reads the version Go stamps from the tag
+    # into the build info, which a clean checkout at the tag provides.
+    ldflags:
+      - -s -w
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+
+archives:
+  - formats:
+      - tar.gz
+    name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+# Nobody can read a stripped binary to find out what went into it, and a Go
+# binary carries its dependencies rather than resolving them at run time. syft
+# writes one SPDX document per archive; the release workflow installs it.
+sboms:
+  - artifacts: archive
+
+# No `changelog:` block on purpose. The release body is the changelog section,
+# cut by scripts/release-notes.sh and passed with --release-notes, which already
+# skips GoReleaser's own commit list.
+
+# A tag like v0.2.0-rc.1 must not become the latest release.
+release:
+  prerelease: auto
+
+homebrew_casks:
+  - name: equip
+    description: "Terminal UI that sets which skills, plugins, and MCP servers Claude Code and Codex load"
+    homepage: "https://github.com/svyatov/equip"
+    binaries:
+      - equip
+    # The tap holds one cask per project, so an rc pushed into it is what every
+    # `brew install` gets until the next tag. auto skips prerelease tags.
+    skip_upload: auto
+    # Gatekeeper quarantines anything downloaded, and an unsigned binary that
+    # dies on first run reads as a broken install. The Go template escape leaves
+    # Homebrew's own {{staged_path}} token literal.
+    custom_block: |
+      postflight_steps do
+        on_macos do
+          run "/usr/bin/xattr", args: ["-dr", "com.apple.quarantine", "{{ "{{staged_path}}" }}/equip"]
+        end
+      end
+    repository:
+      owner: svyatov
+      name: homebrew-tap
+      token: "{{ .Env.HOMEBREW_TAP_TOKEN }}"

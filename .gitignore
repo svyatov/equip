@@ -1,2 +1,5 @@
 cover.out
 .codegraph/
+# Release artifacts, written by goreleaser. Ignored so the build tree stays
+# clean and `equip --version` reads the tag rather than a +dirty version.
+/dist/
