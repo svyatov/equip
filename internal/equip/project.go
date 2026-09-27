@@ -9,6 +9,15 @@ import (
 	"strings"
 )
 
+// Project is the git repo equip runs in, taken at the main checkout's root,
+// or the directory itself outside git.
+type Project struct {
+	Path       string // symlinks resolved
+	RootCommit string // empty outside git or with no commits
+	gitDir     string // the main checkout's .git; empty outside git
+	checkout   string // the root of the checkout equip runs in: a worktree's own; Path outside git
+}
+
 // locate finds the Project of dir, a path with symlinks resolved: the main
 // checkout's root in git, else dir.
 func locate(machine Machine, dir string) Project {

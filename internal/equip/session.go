@@ -1,8 +1,6 @@
 package equip
 
 import (
-	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"maps"
@@ -17,22 +15,9 @@ import (
 // changed after equip read them. The save wrote nothing.
 var ErrChangedSinceOpen = errors.New("changed outside equip since open")
 
-// ErrCannotProbe is the error of a probe of an extension equip does not
-// start: one that is not an MCP server an agent has on and trusted.
-var ErrCannotProbe = errors.New("equip measures only an MCP server an agent has on and trusted")
-
 // ErrNotOrphan is the error of an adoption of a record the Project was not
 // offered.
 var ErrNotOrphan = errors.New("not a record this project can adopt")
-
-// Project is the git repo equip runs in, taken at the main checkout's root,
-// or the directory itself outside git.
-type Project struct {
-	Path       string // symlinks resolved
-	RootCommit string // empty outside git or with no commits
-	gitDir     string // the main checkout's .git; empty outside git
-	checkout   string // the root of the checkout equip runs in: a worktree's own; Path outside git
-}
 
 // State is how an extension takes part in a Project's sessions.
 type State int
@@ -88,42 +73,6 @@ type View struct {
 	Orphans []string
 	Presets []string // the names of the active presets, pending
 	Unsaved int      // pending changes a save would write
-}
-
-// Facet is a way to narrow the list.
-type Facet struct {
-	keys     map[string]bool // of the rows it keeps
-	Name     string
-	NewGroup bool // the first of the agents' facets, of the states' or of the changes'
-}
-
-// Has reports whether the facet keeps row.
-func (f Facet) Has(row Row) bool { return f.keys[row.Key] }
-
-// Count is the number of rows the facet keeps.
-func (f Facet) Count() int { return len(f.keys) }
-
-// facet is the name of a Facet and the test of the rows it keeps.
-type facet struct {
-	has  func(ext Extension, row Row) bool
-	name string
-}
-
-// kindFacet is the facet of the rows of kind k.
-func kindFacet(name string, k Kind) facet {
-	return facet{name: name, has: func(_ Extension, row Row) bool { return row.Kind == k }}
-}
-
-// onlyFacet is the facet of the rows only agent has.
-func onlyFacet(agent Agent) facet {
-	return facet{name: agent.String() + " only", has: func(ext Extension, _ Row) bool {
-		return !slices.ContainsFunc(Agents(), func(other Agent) bool { return other != agent && ext.has(other) })
-	}}
-}
-
-// stateFacet is the facet of the rows in state st.
-func stateFacet(name string, st State) facet {
-	return facet{name: name, has: func(_ Extension, row Row) bool { return row.State == st }}
 }
 
 // Row is one extension in the list.
@@ -282,7 +231,11 @@ func (s *Session) View() View {
 		}
 	}
 
-	totals, unknown, over := s.totals()
+	totals, unknown, over := map[Agent]int{}, map[Agent]bool{}, map[Agent]bool{}
+
+	for _, agent := range Agents() {
+		totals[agent], unknown[agent], over[agent] = s.total(agent)
+	}
 
 	var presets []string
 
@@ -298,22 +251,6 @@ func (s *Session) View() View {
 		Project: s.project, Rows: rows, Facets: s.facets(rows), Unsaved: s.unsavedCount(), Totals: totals, Unknown: unknown,
 		OverBudget: over, Orphans: s.orphans, Presets: presets,
 	}
-}
-
-// fixedCost is the tokens of the blocks agent puts into a session once: the
-// skills intro when it lists skills, and Codex's plugins block when a plugin
-// is on.
-func fixedCost(agent Agent, listed, plugins bool) int {
-	cost := 0
-	if listed {
-		cost += agent.listing().introTokens
-	}
-
-	if plugins && agent == Codex {
-		cost += tokens(Codex, codexPluginsBlockBytes)
-	}
-
-	return cost
 }
 
 // Detail is what the detail pane shows of one extension.
@@ -390,36 +327,6 @@ func (s *Session) Detail(key string) Detail {
 	}
 
 	return detail
-}
-
-// ProbeCost returns a probe that starts the MCP server with key and measures
-// its cost. The probe may run on another goroutine: it touches the Session
-// only to record the cost.
-func (s *Session) ProbeCost(key string) func() error {
-	ext, _ := s.pending.ext(key)
-
-	for _, agent := range Agents() {
-		cfg, ok := s.probeConfig(agent, ext)
-		if !ok || !s.onAndTrusted(agent, ext) {
-			continue
-		}
-
-		return func() error {
-			// An agent starts a server in the checkout the session runs in.
-			measured, err := probe(context.Background(), s.machine.Env, s.project.checkout, cfg)
-			if err != nil {
-				return err
-			}
-
-			s.mu.Lock()
-			s.measured[key] = measured
-			s.mu.Unlock()
-
-			return writeCache(s.machine, cfg, measured)
-		}
-	}
-
-	return func() error { return ErrCannotProbe }
 }
 
 // Adopt moves the record of the moved repo at path, one of View's Orphans, to
@@ -501,19 +408,13 @@ func (s *Session) Save() error {
 // row is the row of ext in the list.
 func (s *Session) row(ext Extension) Row {
 	state, override := s.pending.state(ext)
-	cost := 0
-
-	for _, agent := range Agents() {
-		cost = max(cost, s.costIn(agent, ext))
-	}
-
 	_, changed := s.outside[ext.Key]
 
 	return Row{
 		Key:            ext.Key,
 		Name:           ext.name(),
 		Kind:           ext.Kind,
-		Cost:           cost,
+		Cost:           s.cost(ext),
 		CostUnknown:    s.unknown(ext),
 		State:          state,
 		Override:       override,
@@ -531,7 +432,7 @@ func (s *Session) start(saved map[string]State, presets []recordPreset, disk map
 	s.disk, s.outside = map[Agent]map[string]State{}, map[string]Agent{}
 
 	for _, agent := range Agents() {
-		s.take(agent, disk[agent])
+		s.importEntries(agent, disk[agent])
 	}
 }
 
@@ -541,208 +442,6 @@ func (s *Session) lastSave() choice {
 	saved.overrides, saved.active = s.saved, ids(s.recorded)
 
 	return saved
-}
-
-// facets are the facets of rows, in the order the sidebar shows them.
-func (s *Session) facets(rows []Row) []Facet {
-	groups := [][]facet{
-		{
-			{name: "All", has: func(Extension, Row) bool { return true }},
-			kindFacet("Skills", Skill), kindFacet("Plugins", Plugin), kindFacet("MCP servers", MCPServer),
-		},
-		{onlyFacet(ClaudeCode), onlyFacet(Codex)},
-		{stateFacet("On", On), stateFacet("Manual-only", ManualOnly), stateFacet("Off", Off)},
-		{
-			{name: "Overrides", has: func(ext Extension, _ Row) bool { return s.inRow(ext, s.overridden) }},
-			{name: "Unsaved changes", has: func(_ Extension, row Row) bool { return row.Unsaved }},
-		},
-	}
-
-	var out []Facet
-
-	for groupIndex, group := range groups {
-		for index, def := range group {
-			keys := map[string]bool{}
-
-			for _, row := range rows {
-				if ext, _ := s.pending.ext(row.Key); def.has(ext, row) {
-					keys[row.Key] = true
-				}
-			}
-
-			out = append(out, Facet{Name: def.name, keys: keys, NewGroup: groupIndex > 0 && index == 0})
-		}
-	}
-
-	return out
-}
-
-// totals are the estimated tokens of a session in each agent, whether each
-// leaves out an MCP server that is on but not measured yet, and whether each
-// agent's skill listing passes its listing budget.
-func (s *Session) totals() (map[Agent]int, map[Agent]bool, map[Agent]bool) {
-	totals, unknown, over := map[Agent]int{}, map[Agent]bool{}, map[Agent]bool{}
-
-	for _, agent := range Agents() {
-		totals[agent], unknown[agent], over[agent] = s.total(agent)
-	}
-
-	return totals, unknown, over
-}
-
-// total is the estimated tokens of a session in agent, whether it leaves out
-// an MCP server that is on but not measured yet, and whether its skill listing
-// passes agent's listing budget.
-func (s *Session) total(agent Agent) (int, bool, bool) {
-	total, listingTokens, unknown := 0, 0, false
-	listed, plugins := false, false // a skill or plugin is on, so agent lists skills; a plugin is on
-
-	for _, ext := range s.pending.exts {
-		// A plugin's MCP server counts in its plugin's cost.
-		if ext.plugin != "" {
-			continue
-		}
-
-		cost := s.costIn(agent, ext)
-		total += cost
-
-		if ext.Kind != MCPServer && cost > 0 {
-			listingTokens += ext.cost[agent] // of its skills alone, without a plugin's MCP servers
-			listed = true
-		}
-
-		plugins = plugins || ext.Kind == Plugin && ext.has(agent) && s.pending.stateIn(agent, ext) == On
-		unknown = unknown || s.unknownIn(agent, ext)
-	}
-
-	budget := agent.listing().budget
-
-	return total + fixedCost(agent, listed, plugins), unknown, budget > 0 && listingTokens > budget
-}
-
-// readMeasurements takes the cached measurement of each MCP server, from its
-// config in the first agent that has one cached.
-func (s *Session) readMeasurements() {
-	for _, ext := range s.pending.exts {
-		for _, agent := range Agents() {
-			cfg, ok := s.probeConfig(agent, ext)
-			if !ok {
-				continue
-			}
-
-			if measured, cached := readCache(s.machine, cfg); cached {
-				s.measured[ext.Key] = measured
-
-				break
-			}
-		}
-	}
-}
-
-// probeConfig is how to reach the MCP server ext as agent does. It reports
-// whether agent has a config equip can probe: a command, or the URL of a
-// streamable HTTP server. ponytail: not the deprecated SSE transport.
-func (s *Session) probeConfig(agent Agent, ext Extension) (serverConfig, bool) {
-	var cfg serverConfig
-
-	err := json.Unmarshal(ext.config[agent], &cfg)
-	if agent == ClaudeCode {
-		// A plugin's MCP server has its plugin's dir as its one Location.
-		pluginRoot := ""
-		if ext.plugin != "" {
-			pluginRoot = ext.Locations[0].Path
-		}
-
-		cfg = expandVars(cfg, s.machine.Env, pluginRoot)
-	}
-
-	// Codex keeps a remote server's headers and token apart.
-	headers := maps.Clone(cfg.Headers)
-	if headers == nil {
-		headers = map[string]string{}
-	}
-
-	maps.Copy(headers, cfg.HTTPHeaders)
-
-	if cfg.BearerToken != "" {
-		headers["Authorization"] = "Bearer " + getenv(s.machine.Env, cfg.BearerToken)
-	}
-
-	cfg.Headers, cfg.HTTPHeaders = headers, nil
-
-	return cfg, err == nil && cfg.Type != "sse" && (cfg.Command != "" || cfg.URL != "")
-}
-
-// onAndTrusted reports whether agent has ext on and trusts it, as its config
-// on disk says, so pending changes do not count.
-func (s *Session) onAndTrusted(agent Agent, ext Extension) bool {
-	state, onDisk := s.disk[agent][ext.Key]
-	// Claude Code trusts a .mcp.json server only once the user approves it,
-	// in a folder they trust. ponytail: approval by
-	// enableAllProjectMcpServers does not count; read it if users approve
-	// that way.
-	if agent == ClaudeCode && ext.lists.settings && (!onDisk || !s.approvals) {
-		return false
-	}
-
-	if !onDisk {
-		state = ext.fallback[agent]
-	}
-	// A plugin's MCP server loads only while its plugin is on.
-	plugin, inPlugin := s.pending.ext(ext.plugin)
-
-	return state == On && (!inPlugin || s.onAndTrusted(agent, plugin))
-}
-
-// approvalsCount reports whether Claude Code takes the approvals of .mcp.json
-// servers in the Project's settings.local.json: only in a folder the user
-// trusts, and only when git does not track the file, as a cloned repo cannot
-// approve its own servers.
-func approvalsCount(machine Machine, project Project) bool {
-	var trusted bool
-
-	config, _ := readJSONObject(claudeJSONPath(machine))
-	_ = json.Unmarshal(config.object("projects").object(project.Path)["hasTrustDialogAccepted"], &trusted)
-
-	return trusted && !tracked(machine, project, settingsRel)
-}
-
-// unknown reports whether the cost of ext is unknown, in part for a plugin:
-// an MCP server's, until it is measured.
-func (s *Session) unknown(ext Extension) bool {
-	_, measured := s.measurement(ext.Key)
-
-	return ext.Kind == MCPServer && !measured ||
-		slices.ContainsFunc(Agents(), func(agent Agent) bool { return s.unknownIn(agent, ext) })
-}
-
-// unknownIn reports whether agent's cost of ext leaves out an MCP server
-// that is on in agent but not measured yet: ext, or one in plugin ext.
-func (s *Session) unknownIn(agent Agent, ext Extension) bool {
-	if !ext.has(agent) || s.pending.stateIn(agent, ext) != On {
-		return false
-	}
-
-	if ext.Kind == MCPServer {
-		_, measured := s.measurement(ext.Key)
-
-		return !measured
-	}
-
-	return slices.ContainsFunc(s.pending.exts, func(server Extension) bool {
-		return server.plugin == ext.Key && s.unknownIn(agent, server)
-	})
-}
-
-// measurement returns the measurement of the MCP server with key, reporting
-// whether it has one.
-func (s *Session) measurement(key string) (measurement, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-
-	measured, ok := s.measured[key]
-
-	return measured, ok
 }
 
 // contents are the plugin's skills, which follow it, then its MCP servers,
@@ -768,12 +467,10 @@ func (s *Session) contents(plugin Extension) []Content {
 
 		state, override := s.pending.state(server)
 		changedIn, changed := s.outside[server.Key]
-		cost := 0
 
-		for _, agent := range Agents() {
-			if state == On {
-				cost = max(cost, s.costIn(agent, server))
-			}
+		cost := 0
+		if state == On {
+			cost = s.cost(server)
 		}
 
 		contents = append(contents, Content{
@@ -802,7 +499,7 @@ func (s *Session) changedOutside() (bool, error) {
 
 	changed := false
 	for _, agent := range Agents() {
-		changed = s.take(agent, now[agent]) || changed
+		changed = s.importEntries(agent, now[agent]) || changed
 	}
 
 	return changed, nil
@@ -835,42 +532,12 @@ func (s *Session) writeAgents(chosen choice) error {
 	return nil
 }
 
-// costIn estimates the tokens ext puts into agent's sessions.
-func (s *Session) costIn(agent Agent, ext Extension) int {
-	if !ext.has(agent) || s.pending.stateIn(agent, ext) != On {
-		return 0
-	}
-
-	if ext.Kind == MCPServer {
-		var cfg serverConfig
-
-		measured, ok := s.measurement(ext.Key)
-		if !ok {
-			return 0
-		}
-
-		_ = json.Unmarshal(ext.config[ClaudeCode], &cfg)
-
-		return measured.cost(agent, ext.name(), cfg.AlwaysLoad || !claudeToolSearch(s.machine))
-	}
-
-	cost := ext.cost[agent]
-	// A plugin costs its MCP servers too.
-	for _, server := range s.pending.exts {
-		if server.plugin == ext.Key {
-			cost += s.costIn(agent, server)
-		}
-	}
-
-	return cost
-}
-
-// take takes now, agent's entries on disk, and imports each entry that
-// changed since the last read and differs from the record as an unsaved
+// importEntries takes now, agent's entries on disk, and imports each entry
+// that changed since the last read and differs from the record as an unsaved
 // Override. While an active preset changed since the last save, it imports
 // none, so the preset change shows as unsaved states. It reports whether any
 // entry changed.
-func (s *Session) take(agent Agent, now map[string]State) bool {
+func (s *Session) importEntries(agent Agent, now map[string]State) bool {
 	changed, presetChanged := false, len(s.presetsChanged()) > 0
 	recorded := s.lastSave().entries(agent)
 

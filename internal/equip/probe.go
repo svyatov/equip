@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"net/http"
 	"os"
 	"os/exec"
@@ -20,6 +21,10 @@ import (
 	"strings"
 	"time"
 )
+
+// ErrCannotProbe is the error of a probe of an extension equip does not
+// start: one that is not an MCP server an agent has on and trusted.
+var ErrCannotProbe = errors.New("equip measures only an MCP server an agent has on and trusted")
 
 const (
 	// probeTimeout is how long a probe gives an MCP server to answer, as
@@ -587,4 +592,121 @@ func decodeResponse(data []byte, request int, method string, result any) (bool, 
 	}
 
 	return true, nil
+}
+
+// ProbeCost returns a probe that starts the MCP server with key and measures
+// its cost. The probe may run on another goroutine: it touches the Session
+// only to record the cost.
+func (s *Session) ProbeCost(key string) func() error {
+	ext, _ := s.pending.ext(key)
+
+	for _, agent := range Agents() {
+		cfg, ok := s.probeConfig(agent, ext)
+		if !ok || !s.onAndTrusted(agent, ext) {
+			continue
+		}
+
+		return func() error {
+			// An agent starts a server in the checkout the session runs in.
+			measured, err := probe(context.Background(), s.machine.Env, s.project.checkout, cfg)
+			if err != nil {
+				return err
+			}
+
+			s.mu.Lock()
+			s.measured[key] = measured
+			s.mu.Unlock()
+
+			return writeCache(s.machine, cfg, measured)
+		}
+	}
+
+	return func() error { return ErrCannotProbe }
+}
+
+// readMeasurements takes the cached measurement of each MCP server, from its
+// config in the first agent that has one cached.
+func (s *Session) readMeasurements() {
+	for _, ext := range s.pending.exts {
+		for _, agent := range Agents() {
+			cfg, ok := s.probeConfig(agent, ext)
+			if !ok {
+				continue
+			}
+
+			if measured, cached := readCache(s.machine, cfg); cached {
+				s.measured[ext.Key] = measured
+
+				break
+			}
+		}
+	}
+}
+
+// probeConfig is how to reach the MCP server ext as agent does. It reports
+// whether agent has a config equip can probe: a command, or the URL of a
+// streamable HTTP server. ponytail: not the deprecated SSE transport.
+func (s *Session) probeConfig(agent Agent, ext Extension) (serverConfig, bool) {
+	var cfg serverConfig
+
+	err := json.Unmarshal(ext.config[agent], &cfg)
+	if agent == ClaudeCode {
+		// A plugin's MCP server has its plugin's dir as its one Location.
+		pluginRoot := ""
+		if ext.plugin != "" {
+			pluginRoot = ext.Locations[0].Path
+		}
+
+		cfg = expandVars(cfg, s.machine.Env, pluginRoot)
+	}
+
+	// Codex keeps a remote server's headers and token apart.
+	headers := maps.Clone(cfg.Headers)
+	if headers == nil {
+		headers = map[string]string{}
+	}
+
+	maps.Copy(headers, cfg.HTTPHeaders)
+
+	if cfg.BearerToken != "" {
+		headers["Authorization"] = "Bearer " + getenv(s.machine.Env, cfg.BearerToken)
+	}
+
+	cfg.Headers, cfg.HTTPHeaders = headers, nil
+
+	return cfg, err == nil && cfg.Type != "sse" && (cfg.Command != "" || cfg.URL != "")
+}
+
+// onAndTrusted reports whether agent has ext on and trusts it, as its config
+// on disk says, so pending changes do not count.
+func (s *Session) onAndTrusted(agent Agent, ext Extension) bool {
+	state, onDisk := s.disk[agent][ext.Key]
+	// Claude Code trusts a .mcp.json server only once the user approves it,
+	// in a folder they trust. ponytail: approval by
+	// enableAllProjectMcpServers does not count; read it if users approve
+	// that way.
+	if agent == ClaudeCode && ext.lists.settings && (!onDisk || !s.approvals) {
+		return false
+	}
+
+	if !onDisk {
+		state = ext.fallback[agent]
+	}
+	// A plugin's MCP server loads only while its plugin is on.
+	plugin, inPlugin := s.pending.ext(ext.plugin)
+
+	return state == On && (!inPlugin || s.onAndTrusted(agent, plugin))
+}
+
+// approvalsCount reports whether Claude Code takes the approvals of .mcp.json
+// servers in the Project's settings.local.json: only in a folder the user
+// trusts, and only when git does not track the file, as a cloned repo cannot
+// approve its own servers.
+func approvalsCount(machine Machine, project Project) bool {
+	var trusted bool
+
+	config, _ := readJSONObject(claudeJSONPath(machine))
+	_ = json.Unmarshal(config.object("projects").object(project.Path)["hasTrustDialogAccepted"], &trusted)
+
+	return trusted && !tracked(machine, project, settingsRel)
 }

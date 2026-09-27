@@ -3,9 +3,7 @@ package equip
 import (
 	"cmp"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -217,17 +215,9 @@ func tableAt(doc map[string]any, key string) map[string]any {
 func readTOML(path string) (map[string]any, error) {
 	doc := map[string]any{}
 
-	data, err := os.ReadFile(path) //nolint:gosec // equip builds the path
-	if errors.Is(err, fs.ErrNotExist) {
-		return doc, nil
-	}
-
-	if err == nil {
-		err = toml.Unmarshal(data, &doc)
-	}
-
+	_, err := readDoc(path, toml.Unmarshal, &doc)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
+		return nil, err
 	}
 
 	return doc, nil
@@ -286,11 +276,8 @@ func addCodexServers(byKey map[string]*Extension, layer codexLayer, dead []strin
 		}
 
 		if byKey[key] == nil {
-			byKey[key] = &Extension{
-				Kind: MCPServer, Key: key, Description: "", cost: map[Agent]int{}, fallback: map[Agent]State{},
-				config: map[Agent]json.RawMessage{}, Locations: nil, contents: nil, hooks: false,
-				lists: mcpLists{on: "", off: "", settings: false}, builtIn: false, plugin: "", server: "", listed: "",
-			}
+			server := newExtension(MCPServer, key)
+			byKey[key] = &server
 		}
 
 		byKey[key].Locations = append(byKey[key].Locations, Location{Path: layer.path, Agent: Codex})
@@ -383,13 +370,10 @@ func readCodexPlugin(key, dir string) []Extension {
 	man := readManifest(key, dir, ".codex-plugin")
 	contents := pluginSkills(Codex, dir, man.Name)
 
-	plugin := Extension{
-		Kind: Plugin, Key: key, Description: man.Description, fallback: map[Agent]State{}, config: nil,
-		cost:      map[Agent]int{Codex: contentsCost(contents)},
-		Locations: []Location{{Path: dir, Agent: Codex}}, contents: contents, hooks: false,
-		lists: mcpLists{on: "", off: "", settings: false}, builtIn: false, plugin: "", server: "",
-		listed: "",
-	}
+	plugin := newExtension(Plugin, key)
+	plugin.Description, plugin.contents = man.Description, contents
+	plugin.cost[Codex] = contentsCost(contents)
+	plugin.Locations = []Location{{Path: dir, Agent: Codex}}
 
 	return append([]Extension{plugin}, pluginServers(Codex, key, dir, man)...)
 }

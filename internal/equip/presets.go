@@ -420,11 +420,11 @@ func (c presetChange) apply(chosen choice) choice {
 
 // PreviewWrite previews the write of the preset with unwritten edits. It
 // writes nothing.
-func (s *Session) PreviewWrite() Preview { return s.previewOf(s.write()) }
+func (s *Session) PreviewWrite() Preview { return s.previewOf(s.draftChange()) }
 
-// write is the write of the preset with unwritten edits. With none, it
-// changes no preset.
-func (s *Session) write() presetChange {
+// draftChange is the change a write of the preset with unwritten edits makes.
+// With none, it changes no preset.
+func (s *Session) draftChange() presetChange {
 	if s.draft == nil {
 		return presetChange{id: "", members: nil, deleted: false}
 	}
@@ -468,7 +468,7 @@ func (s *Session) WritePreset() error {
 	}
 	// Opened before the write, so each reads the preset as its record saved
 	// it; kept from a failed write, which may have written the preset.
-	written, others := s.write(), s.unfinished
+	written, others := s.draftChange(), s.unfinished
 	if others == nil {
 		others = s.affected(written)
 	}

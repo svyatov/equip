@@ -77,6 +77,16 @@ type Extension struct {
 	builtIn     bool // built into Claude Code, so read from no Location
 }
 
+// newExtension is the extension of kind with key, before anything is read of
+// it.
+func newExtension(kind Kind, key string) Extension {
+	return Extension{
+		Kind: kind, Key: key, Description: "", cost: map[Agent]int{}, fallback: map[Agent]State{},
+		config: map[Agent]json.RawMessage{}, Locations: nil, contents: nil, hooks: false,
+		lists: mcpLists{on: "", off: "", settings: false}, builtIn: false, plugin: "", server: "", listed: "",
+	}
+}
+
 // has reports whether agent loads the extension.
 func (e Extension) has(agent Agent) bool {
 	return e.builtIn && agent == ClaudeCode ||
@@ -126,12 +136,17 @@ func discover(machine Machine, project Project, dir string, codex codexConfig) (
 		return nil, inv.err
 	}
 
-	exts, err := discoverPlugins(machine, project)
+	sharedSettings, err := readSharedSettings(machine, project)
 	if err != nil {
 		return nil, err
 	}
 
-	servers, err := discoverServers(machine, project)
+	exts, err := discoverPlugins(machine, project, sharedSettings)
+	if err != nil {
+		return nil, err
+	}
+
+	servers, err := discoverServers(machine, project, sharedSettings)
 	if err != nil {
 		return nil, err
 	}
@@ -190,12 +205,8 @@ func (inv *inventory) add(agent Agent, root string) int {
 
 		ext := inv.byKey[entry.Name()]
 		if ext == nil {
-			ext = &Extension{
-				Kind: Skill, Key: entry.Name(), Description: "", Locations: nil, cost: map[Agent]int{},
-				fallback: map[Agent]State{}, config: nil,
-				contents: nil, hooks: false, lists: mcpLists{on: "", off: "", settings: false}, builtIn: false,
-				plugin: "", server: "", listed: "",
-			}
+			skill := newExtension(Skill, entry.Name())
+			ext = &skill
 			inv.byKey[entry.Name()] = ext
 		}
 

@@ -140,14 +140,9 @@ func (m *Machine) Worktree(repo, name string) string {
 // Skill writes a skill named name into the skills dir and returns its dir.
 func (m *Machine) Skill(skills, name string) string {
 	m.t.Helper()
-	dir := m.Mkdir(filepath.Join(skills, name))
 
-	body := "---\nname: " + name + "\ndescription: The " + name + " skill.\n---\n"
-
-	err := os.WriteFile(filepath.Join(dir, "SKILL.md"), []byte(body), fileMode)
-	if err != nil {
-		m.t.Fatal(err)
-	}
+	dir := filepath.Join(skills, name)
+	m.WriteFile(filepath.Join(dir, "SKILL.md"), "---\nname: "+name+"\ndescription: The "+name+" skill.\n---\n")
 
 	return dir
 }
@@ -187,11 +182,7 @@ func (m *Machine) CodexSkills() string { return filepath.Join(m.Home, ".agents",
 func (m *Machine) Plugin(key, scope, projectPath string) string {
 	m.t.Helper()
 
-	name, marketplace, _ := strings.Cut(key, "@")
-	dir := m.Mkdir(filepath.Join(m.Home, ".claude", "plugins", "cache", marketplace, name, "1.0.0"))
-	m.WriteFile(filepath.Join(dir, ".claude-plugin", "plugin.json"),
-		`{"name": "`+name+`", "description": "The `+name+` plugin."}`)
-
+	dir := m.cachedPlugin(filepath.Join(m.Home, ".claude"), ".claude-plugin", key)
 	path := filepath.Join(m.Home, ".claude", "plugins", "installed_plugins.json")
 	installed := map[string]any{"plugins": map[string]any{}}
 
@@ -267,10 +258,18 @@ func (m *Machine) CodexConfig() string { return filepath.Join(m.CodexHome, "conf
 func (m *Machine) CodexPlugin(key string) string {
 	m.t.Helper()
 
+	return m.cachedPlugin(m.CodexHome, ".codex-plugin", key)
+}
+
+// cachedPlugin writes the plugin key, "name@marketplace", with its manifest
+// in the sub dir its agent reads, into the plugin cache under base and
+// returns its dir there.
+func (m *Machine) cachedPlugin(base, sub, key string) string {
+	m.t.Helper()
+
 	name, marketplace, _ := strings.Cut(key, "@")
-	dir := m.Mkdir(filepath.Join(m.CodexHome, "plugins", "cache", marketplace, name, "1.0.0"))
-	m.WriteFile(filepath.Join(dir, ".codex-plugin", "plugin.json"),
-		`{"name": "`+name+`", "description": "The `+name+` plugin."}`)
+	dir := filepath.Join(base, "plugins", "cache", marketplace, name, "1.0.0")
+	m.WriteFile(filepath.Join(dir, sub, "plugin.json"), `{"name": "`+name+`", "description": "The `+name+` plugin."}`)
 
 	return dir
 }
