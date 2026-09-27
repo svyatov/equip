@@ -4,8 +4,6 @@ import (
 	"bytes"
 	"cmp"
 	"crypto/rand"
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
 	"io/fs"
@@ -143,9 +141,9 @@ func (s *Session) Presets() []Preset {
 
 		return errors.Is(err, fs.ErrNotExist)
 	})
-	library := slices.Clone(s.library)
+	library := slices.Clone(s.pending.library)
 	// A missing preset shows while the record or the pending choice has it.
-	for _, id := range s.missing(slices.Concat(ids(s.recorded), s.active)) {
+	for _, id := range s.missing(slices.Concat(ids(s.recorded), s.pending.active)) {
 		library = append(library, Preset{
 			ID: id, Name: id, Members: nil, Projects: nil, Active: false, New: false, Missing: true, Unwritten: false,
 		})
@@ -156,7 +154,7 @@ func (s *Session) Presets() []Preset {
 	out := make([]Preset, 0, len(library))
 
 	for _, preset := range library {
-		preset.Active = slices.Contains(s.active, preset.ID)
+		preset.Active = slices.Contains(s.pending.active, preset.ID)
 		preset.Members = slices.Clone(preset.Members)
 
 		if s.draft != nil && s.draft.ID == preset.ID {
@@ -188,13 +186,13 @@ func (s *Session) Presets() []Preset {
 // Project.
 func (s *Session) SetPresets(active []string) {
 	// Sorted, so the same presets in another order are no change.
-	s.active = slices.Compact(slices.Sorted(slices.Values(active)))
+	s.pending.active = slices.Compact(slices.Sorted(slices.Values(active)))
 }
 
 // TogglePreset makes the preset with id active in the Project, or no longer
 // active. The other active presets stay, a missing one too.
 func (s *Session) TogglePreset(id string) {
-	active := slices.Clone(s.active)
+	active := slices.Clone(s.pending.active)
 	if i := slices.Index(active, id); i >= 0 {
 		s.SetPresets(slices.Delete(active, i, i+1))
 	} else {
@@ -227,30 +225,6 @@ func ids(presets []recordPreset) []string {
 	return out
 }
 
-// recordPresets are the active presets with ids as a record keeps them, each
-// with a hash of its members.
-func (s *Session) recordPresets(ids []string) []recordPreset {
-	out := make([]recordPreset, 0, len(ids))
-
-	for _, active := range ids {
-		sum := sha256.New()
-
-		for _, preset := range s.library {
-			if preset.ID != active {
-				continue
-			}
-
-			for _, member := range preset.Members {
-				_, _ = sum.Write([]byte(member.Key + "\n")) // a hash never fails to write
-			}
-		}
-
-		out = append(out, recordPreset{ID: active, Hash: hex.EncodeToString(sum.Sum(nil)[:8])})
-	}
-
-	return out
-}
-
 // CreatePreset creates the preset name, with no members and unwritten, and
 // returns its id.
 func (s *Session) CreatePreset(name string) (string, error) {
@@ -268,8 +242,8 @@ func (s *Session) CreatePreset(name string) (string, error) {
 		return "", err
 	}
 
-	s.library = append(s.library, preset)
-	slices.SortFunc(s.library, byName)
+	s.pending.library = append(s.pending.library, preset)
+	slices.SortFunc(s.pending.library, byName)
 	s.draft = &preset
 
 	return preset.ID, nil
@@ -303,7 +277,7 @@ func (s *Session) edit(presetID string, change func([]Member) []Member) error {
 		return fmt.Errorf("%w: %s", errNoPreset, presetID)
 	}
 
-	written := s.library[at]
+	written := s.pending.library[at]
 	if s.draft == nil {
 		draft := written
 		draft.Members = slices.Clone(written.Members)
@@ -335,15 +309,15 @@ func (s *Session) RenamePreset(presetID, name string) error {
 		return err
 	}
 
-	if !s.library[index].New {
-		err := os.Rename(presetPath(s.machine, s.library[index].Name), presetPath(s.machine, name))
+	if !s.pending.library[index].New {
+		err := os.Rename(presetPath(s.machine, s.pending.library[index].Name), presetPath(s.machine, name))
 		if err != nil {
 			return fmt.Errorf("rename preset: %w", err)
 		}
 	}
 
-	s.library[index].Name = name
-	slices.SortFunc(s.library, byName)
+	s.pending.library[index].Name = name
+	slices.SortFunc(s.pending.library, byName)
 
 	return nil
 }
@@ -354,7 +328,7 @@ func (s *Session) RenamePreset(presetID, name string) error {
 func (s *Session) checkName(id, name string) error {
 	if name == "" || strings.TrimSpace(name) != name || strings.HasPrefix(name, ".") ||
 		strings.ContainsAny(name, `/\`) ||
-		slices.ContainsFunc(s.library, func(p Preset) bool { return p.ID != id && strings.EqualFold(p.Name, name) }) {
+		slices.ContainsFunc(s.pending.library, func(p Preset) bool { return p.ID != id && strings.EqualFold(p.Name, name) }) {
 		return fmt.Errorf("%w: %q", ErrPresetName, name)
 	}
 
@@ -363,7 +337,7 @@ func (s *Session) checkName(id, name string) error {
 
 // presetIndex is the index of the preset with id in the library, or -1.
 func (s *Session) presetIndex(id string) int {
-	return slices.IndexFunc(s.library, func(p Preset) bool { return p.ID == id })
+	return slices.IndexFunc(s.pending.library, func(p Preset) bool { return p.ID == id })
 }
 
 // presetPath is the file of the preset name.
@@ -376,7 +350,7 @@ func byName(a, b Preset) int { return cmp.Compare(a.Name, b.Name) }
 
 // DiscardPreset drops the unwritten edits, and a preset not written yet.
 func (s *Session) DiscardPreset() {
-	s.library = slices.DeleteFunc(s.library, func(p Preset) bool { return p.New })
+	s.pending.library = slices.DeleteFunc(s.pending.library, func(p Preset) bool { return p.New })
 	s.draft, s.unfinished = nil, nil
 }
 
@@ -424,10 +398,10 @@ type presetChange struct {
 	deleted bool
 }
 
-// apply returns library with the change made. A library without the preset
-// stays as it is.
-func (c presetChange) apply(library []Preset) []Preset {
-	library = slices.Clone(library)
+// apply returns chosen with the change made: to its library, which stays as it
+// is without the preset, and to its active presets, which a delete leaves.
+func (c presetChange) apply(chosen choice) choice {
+	library := slices.Clone(chosen.library)
 	index := slices.IndexFunc(library, func(p Preset) bool { return p.ID == c.id })
 
 	switch {
@@ -438,12 +412,10 @@ func (c presetChange) apply(library []Preset) []Preset {
 		library[index].Members = c.members
 	}
 
-	return library
-}
+	chosen.library = library
+	chosen.active = slices.DeleteFunc(slices.Clone(chosen.active), func(id string) bool { return c.deleted && id == c.id })
 
-// active returns the ids of the active presets once the change is made.
-func (c presetChange) active(ids []string) []string {
-	return slices.DeleteFunc(slices.Clone(ids), func(id string) bool { return c.deleted && id == c.id })
+	return chosen
 }
 
 // PreviewWrite previews the write of the preset with unwritten edits. It
@@ -470,12 +442,12 @@ func (s *Session) previewOf(change presetChange) Preview {
 
 // preview returns the views of the saved states before and after change.
 func (s *Session) preview(change presetChange) (View, View) {
-	overrides, active, was := s.overrides, s.active, s.library
-	defer func() { s.overrides, s.active, s.library = overrides, active, was }()
+	pending := s.pending
+	defer func() { s.pending = pending }()
 
-	s.overrides, s.active = s.saved, ids(s.recorded)
+	s.pending = s.lastSave()
 	before := s.View()
-	s.library, s.active = change.apply(was), change.active(s.active)
+	s.pending = change.apply(s.pending)
 
 	return before, s.View()
 }
@@ -503,7 +475,7 @@ func (s *Session) WritePreset() error {
 
 	err = s.writeDraft()
 	if err == nil && here {
-		err = s.rewriteHere(ids(s.recorded))
+		err = s.rewriteHere(s.lastSave())
 	}
 	// Kept until the preset and this Project are written, so a failed write
 	// can run again.
@@ -549,7 +521,7 @@ func (s *Session) DeletePreset(presetID string) error {
 		return fmt.Errorf("%w: %s", errNoPreset, presetID)
 	}
 	// Only the preset with unwritten edits can be new.
-	if s.library[index].New {
+	if s.pending.library[index].New {
 		s.DiscardPreset()
 
 		return nil
@@ -563,19 +535,19 @@ func (s *Session) DeletePreset(presetID string) error {
 	deleted := presetChange{id: presetID, members: nil, deleted: true}
 	others := s.affected(deleted)
 
-	err = os.Remove(presetPath(s.machine, s.library[index].Name))
+	err = os.Remove(presetPath(s.machine, s.pending.library[index].Name))
 	if err != nil {
 		return fmt.Errorf("delete preset: %w", err)
 	}
 
-	s.library, s.active = deleted.apply(s.library), deleted.active(s.active)
+	s.pending = deleted.apply(s.pending)
 
 	if s.draft != nil && s.draft.ID == presetID {
 		s.draft, s.unfinished = nil, nil
 	}
 
 	if here {
-		err = s.rewriteHere(deleted.active(ids(s.recorded)))
+		err = s.rewriteHere(deleted.apply(s.lastSave()))
 	}
 
 	return errors.Join(err, s.rewrite(others, deleted))
@@ -655,24 +627,23 @@ func (s *Session) rewrite(others []Affected, change presetChange) error {
 			continue
 		}
 
-		other.library = change.apply(other.library)
-		errs = append(errs, other.rewriteHere(change.active(ids(other.recorded))))
+		errs = append(errs, other.rewriteHere(change.apply(other.lastSave())))
 	}
 
 	return errors.Join(errs...)
 }
 
-// rewriteHere writes the saved states, with the presets as written, into the
-// Project's agent config, and the record with the active presets with ids.
-func (s *Session) rewriteHere(active []string) error {
-	err := s.writeAgents(s.saved, active)
+// rewriteHere writes saved, a choice of the saved Overrides, into the
+// Project's agent config and record.
+func (s *Session) rewriteHere(saved choice) error {
+	err := s.writeAgents(saved)
 	if err != nil {
 		return err
 	}
 
-	presets := s.recordPresets(active)
+	presets := saved.record()
 
-	err = writeRecord(s.machine, s.project, s.saved, presets)
+	err = writeRecord(s.machine, s.project, saved.overrides, presets)
 	if err != nil {
 		return err
 	}
@@ -697,7 +668,7 @@ func (s *Session) writeDraft() error {
 		return fmt.Errorf("encode preset: %w", err)
 	}
 
-	written := &s.library[s.presetIndex(s.draft.ID)]
+	written := &s.pending.library[s.presetIndex(s.draft.ID)]
 
 	err = writeFile(presetPath(s.machine, written.Name), data)
 	if err != nil {
@@ -712,22 +683,3 @@ func (s *Session) writeDraft() error {
 
 // Unwritten reports whether a preset has unwritten edits.
 func (s *Session) Unwritten() bool { return s.draft != nil }
-
-// base is the state ext has in agent without an Override. With active
-// presets, it is on for a member of one of them and off for everything else;
-// with none, and for an MCP server that follows its plugin, it is agent's
-// default.
-func (s *Session) base(agent Agent, ext Extension, active []string) State {
-	if len(active) == 0 || ext.plugin != "" {
-		return ext.fallback[agent]
-	}
-
-	for _, preset := range s.library {
-		if slices.Contains(active, preset.ID) &&
-			slices.ContainsFunc(preset.Members, func(m Member) bool { return m.Key == ext.Key }) {
-			return On
-		}
-	}
-
-	return Off
-}
