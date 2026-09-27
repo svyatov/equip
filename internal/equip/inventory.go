@@ -48,6 +48,16 @@ func (k Kind) String() string {
 	return [...]string{Skill: "skill", Plugin: "plugin", MCPServer: "MCP server"}[k]
 }
 
+// states are the states the user can pick for an extension of kind k. Only a
+// skill is manual-only: a plugin and an MCP server are all or nothing.
+func (k Kind) states() []State {
+	if k == Skill {
+		return States()
+	}
+
+	return []State{On, Off}
+}
+
 // Extension is one skill, plugin or MCP server, the same in every agent that
 // has it.
 type Extension struct {
