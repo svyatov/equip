@@ -3,10 +3,7 @@ package equip
 import (
 	"cmp"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -34,17 +31,9 @@ type jsonObject map[string]json.RawMessage
 func readJSONObject(path string) (jsonObject, error) {
 	obj := jsonObject{}
 
-	data, err := os.ReadFile(path) //nolint:gosec // equip builds the path
-	if errors.Is(err, fs.ErrNotExist) {
-		return obj, nil
-	}
-
-	if err == nil {
-		err = json.Unmarshal(data, &obj)
-	}
-
+	_, err := readDoc(path, json.Unmarshal, &obj)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
+		return nil, err
 	}
 
 	return obj, nil
@@ -201,8 +190,8 @@ func writeClaudeJSON(machine Machine, project Project, exts []Extension, overrid
 func claudeJSONPath(machine Machine) string { return filepath.Join(machine.Home, ".claude.json") }
 
 // discoverServers finds the MCP servers Claude Code has for the Project,
-// without starting any.
-func discoverServers(machine Machine, project Project) ([]Extension, error) {
+// without starting any, with its sharedSettings.
+func discoverServers(machine Machine, project Project, sharedSettings []settingsFile) ([]Extension, error) {
 	path := claudeJSONPath(machine)
 	// A ~/.claude.json equip cannot read lists no servers, so skills and
 	// plugins still open. A save reads it again and writes nothing.
@@ -222,18 +211,12 @@ func discoverServers(machine Machine, project Project) ([]Extension, error) {
 	addServers(byName, mcpJSON.object("mcpServers"), mcpJSONPath, mcpJSONLists())
 	addServers(byName, config.object("projects").object(project.Path).object("mcpServers"), path, claudeJSONLists(On))
 
-	err = rejectMCPJSONServers(byName, machine, project)
-	if err != nil {
-		return nil, err
-	}
+	rejectMCPJSONServers(byName, sharedSettings)
 
 	for name, fallback := range machine.ClaudeBuiltins {
-		byName[name] = &Extension{
-			Kind: MCPServer, Key: mcpPrefix + name, Description: "", cost: map[Agent]int{},
-			fallback: map[Agent]State{ClaudeCode: fallback}, config: map[Agent]json.RawMessage{},
-			Locations: nil, contents: nil, hooks: false, lists: claudeJSONLists(fallback), builtIn: true,
-			plugin: "", server: "", listed: "",
-		}
+		builtin := newExtension(MCPServer, mcpPrefix+name)
+		builtin.fallback[ClaudeCode], builtin.lists, builtin.builtIn = fallback, claudeJSONLists(fallback), true
+		byName[name] = &builtin
 	}
 
 	exts := make([]Extension, 0, len(byName))
@@ -244,25 +227,17 @@ func discoverServers(machine Machine, project Project) ([]Extension, error) {
 	return exts, nil
 }
 
-// rejectMCPJSONServers makes each .mcp.json server in byName that the user's
-// or the Project's shared settings reject default to off. A rejection in any
-// settings file wins in Claude Code, so the local file equip writes cannot
-// turn such a server on.
-func rejectMCPJSONServers(byName map[string]*Extension, machine Machine, project Project) error {
-	for _, dir := range []string{machine.Home, project.Path} {
-		settings, err := readSettings(filepath.Join(dir, ".claude", "settings.json"))
-		if err != nil {
-			return err
-		}
-
-		for _, name := range jsonObject(settings.keys).list(mcpJSONLists().off) {
+// rejectMCPJSONServers makes each .mcp.json server in byName that
+// sharedSettings reject default to off. A rejection in any settings file wins
+// in Claude Code, so the local file equip writes cannot turn such a server on.
+func rejectMCPJSONServers(byName map[string]*Extension, sharedSettings []settingsFile) {
+	for _, settings := range sharedSettings {
+		for _, name := range settings.keys.list(mcpJSONLists().off) {
 			if ext := byName[name]; ext != nil && ext.lists.settings {
 				ext.fallback[ClaudeCode] = Off
 			}
 		}
 	}
-
-	return nil
 }
 
 // addServers adds each server in servers, read from path, to byName, with its
@@ -271,12 +246,8 @@ func addServers(byName map[string]*Extension, servers jsonObject, path string, l
 	for name := range servers {
 		ext := byName[name]
 		if ext == nil {
-			ext = &Extension{
-				Kind: MCPServer, Key: mcpPrefix + name, Description: "", cost: map[Agent]int{},
-				fallback: map[Agent]State{}, config: map[Agent]json.RawMessage{},
-				Locations: nil, contents: nil, hooks: false, lists: lists, builtIn: false, plugin: "", server: "",
-				listed: "",
-			}
+			server := newExtension(MCPServer, mcpPrefix+name)
+			ext = &server
 			byName[name] = ext
 		}
 

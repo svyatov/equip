@@ -1,13 +1,34 @@
 package equip
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
 
 // dirMode is the mode of a directory writeFile creates: no access for others.
 const dirMode = 0o750
+
+// readDoc decodes the file at path into doc with unmarshal, reporting whether
+// the file is missing. A missing file leaves doc as it was.
+func readDoc(path string, unmarshal func([]byte, any) error, doc any) (bool, error) {
+	data, err := os.ReadFile(path) //nolint:gosec // equip builds the path
+	if errors.Is(err, fs.ErrNotExist) {
+		return true, nil
+	}
+
+	if err == nil {
+		err = unmarshal(data, doc)
+	}
+
+	if err != nil {
+		return false, fmt.Errorf("read %s: %w", path, err)
+	}
+
+	return false, nil
+}
 
 // writeFile writes data to path through a temp file and a rename, so no
 // reader sees half a file. It creates the directory of path.

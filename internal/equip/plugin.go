@@ -3,9 +3,6 @@ package equip
 import (
 	"cmp"
 	"encoding/json"
-	"errors"
-	"fmt"
-	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
@@ -50,34 +47,23 @@ func keyKind(key string) Kind {
 	return Skill
 }
 
-// discoverPlugins finds the Claude Code plugins installed for the Project.
-func discoverPlugins(machine Machine, project Project) ([]Extension, error) {
+// discoverPlugins finds the Claude Code plugins installed for the Project,
+// with its sharedSettings.
+func discoverPlugins(machine Machine, project Project, sharedSettings []settingsFile) ([]Extension, error) {
 	path := filepath.Join(machine.Home, ".claude", "plugins", "installed_plugins.json")
 
-	data, err := os.ReadFile(path) //nolint:gosec // equip builds the path
-	if errors.Is(err, fs.ErrNotExist) {
-		return nil, nil
-	}
-
 	var installed installedPlugins
-	if err == nil {
-		err = json.Unmarshal(data, &installed)
-	}
 
-	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", path, err)
+	missing, err := readDoc(path, json.Unmarshal, &installed)
+	if missing || err != nil {
+		return nil, err
 	}
 
 	// Claude Code merges enabledPlugins key by key; the project's shared
 	// settings win over the user's. The local file is equip's to write.
 	defaults := map[string]json.RawMessage{}
 
-	for _, dir := range []string{machine.Home, project.Path} {
-		settings, err := readSettings(filepath.Join(dir, ".claude", "settings.json"))
-		if err != nil {
-			return nil, err
-		}
-
+	for _, settings := range sharedSettings {
 		maps.Copy(defaults, settings.entries[Plugin])
 	}
 
@@ -134,13 +120,11 @@ func readPlugin(key, dir string, setting json.RawMessage) []Extension {
 
 	_, err := os.Stat(filepath.Join(dir, "hooks", "hooks.json"))
 
-	plugin := Extension{
-		Kind: Plugin, Key: key, Description: man.Description, fallback: map[Agent]State{ClaudeCode: fallback},
-		config:    nil,
-		cost:      map[Agent]int{ClaudeCode: contentsCost(contents) + listingCost(dir, man.Name)},
-		Locations: []Location{{Path: dir, Agent: ClaudeCode}}, contents: contents, hooks: err == nil || man.Hooks != nil,
-		lists: mcpLists{on: "", off: "", settings: false}, builtIn: false, plugin: "", server: "", listed: "",
-	}
+	plugin := newExtension(Plugin, key)
+	plugin.Description, plugin.contents, plugin.hooks = man.Description, contents, err == nil || man.Hooks != nil
+	plugin.fallback[ClaudeCode] = fallback
+	plugin.cost[ClaudeCode] = contentsCost(contents) + listingCost(dir, man.Name)
+	plugin.Locations = []Location{{Path: dir, Agent: ClaudeCode}}
 
 	return append([]Extension{plugin}, pluginServers(ClaudeCode, key, dir, man)...)
 }
@@ -233,17 +217,17 @@ func pluginServers(agent Agent, key, dir string, man manifest) []Extension {
 
 	exts := make([]Extension, 0, len(mcp.Servers))
 	for name := range mcp.Servers {
-		exts = append(exts, Extension{
-			Kind: MCPServer, Key: mcpPrefix + key + ":" + name, Description: "", cost: map[Agent]int{},
-			fallback: map[Agent]State{}, config: map[Agent]json.RawMessage{agent: mcp.Servers[name]},
-			Locations: []Location{{Path: dir, Agent: agent}}, contents: nil, hooks: false,
-			// Claude Code 2.1.283 names a plugin's server by the plugin's
-			// manifest name, which falls back to its marketplace entry name.
-			// ponytail: two plugins with the same manifest name share an entry,
-			// so one's Override undoes the other's; key the lists by that name
-			// if such plugins show up.
-			lists: claudeJSONLists(On), builtIn: false, plugin: key, server: name, listed: "plugin:" + man.Name + ":" + name,
-		})
+		server := newExtension(MCPServer, mcpPrefix+key+":"+name)
+		server.config[agent] = mcp.Servers[name]
+		server.Locations = []Location{{Path: dir, Agent: agent}}
+		server.lists, server.plugin, server.server = claudeJSONLists(On), key, name
+		// Claude Code 2.1.283 names a plugin's server by the plugin's manifest
+		// name, which falls back to its marketplace entry name. ponytail: two
+		// plugins with the same manifest name share an entry, so one's Override
+		// undoes the other's; key the lists by that name if such plugins show
+		// up.
+		server.listed = "plugin:" + man.Name + ":" + name
+		exts = append(exts, server)
 	}
 
 	return exts

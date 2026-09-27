@@ -3,10 +3,7 @@ package equip
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
-	"io/fs"
-	"os"
 	"path/filepath"
 	"strconv"
 )
@@ -46,7 +43,7 @@ const settingsRel = ".claude/settings.local.json"
 
 // settingsFile is a Claude Code settings file as equip reads it.
 type settingsFile struct {
-	keys    map[string]json.RawMessage          // raw, so every other key stays exactly as it was
+	keys    jsonObject                          // raw, so every other key stays exactly as it was
 	entries map[Kind]map[string]json.RawMessage // the value of each kind's settings key
 	missing bool
 }
@@ -55,25 +52,24 @@ type settingsFile struct {
 // empty.
 func readSettings(path string) (settingsFile, error) {
 	settings := settingsFile{
-		keys:    map[string]json.RawMessage{},
+		keys:    jsonObject{},
 		entries: map[Kind]map[string]json.RawMessage{Skill: {}, Plugin: {}},
 		missing: false,
 	}
 
-	data, err := os.ReadFile(path) //nolint:gosec // equip builds the path
-	if errors.Is(err, fs.ErrNotExist) {
-		settings.missing = true
-
-		return settings, nil
+	missing, err := readDoc(path, json.Unmarshal, &settings.keys)
+	if err != nil {
+		return settingsFile{}, err
 	}
 
-	if err == nil {
-		err = json.Unmarshal(data, &settings.keys)
-	}
+	settings.missing = missing
 
 	for kind, entries := range settings.entries {
-		if raw, ok := settings.keys[kind.claude().settingsKey]; ok && err == nil {
+		if raw, ok := settings.keys[kind.claude().settingsKey]; ok {
 			err = json.Unmarshal(raw, &entries)
+			if err != nil {
+				return settingsFile{}, fmt.Errorf("read %s: %w", path, err)
+			}
 			// JSON null decodes to a nil map. A nil keys map only gets read.
 			if entries != nil {
 				settings.entries[kind] = entries
@@ -81,11 +77,25 @@ func readSettings(path string) (settingsFile, error) {
 		}
 	}
 
-	if err != nil {
-		return settingsFile{}, fmt.Errorf("read %s: %w", path, err)
+	return settings, nil
+}
+
+// readSharedSettings reads the user's and the Project's shared Claude Code
+// settings, the files equip does not write.
+func readSharedSettings(machine Machine, project Project) ([]settingsFile, error) {
+	dirs := []string{machine.Home, project.Path}
+	sharedSettings := make([]settingsFile, 0, len(dirs))
+
+	for _, dir := range dirs {
+		settings, err := readSettings(filepath.Join(dir, ".claude", "settings.json"))
+		if err != nil {
+			return nil, err
+		}
+
+		sharedSettings = append(sharedSettings, settings)
 	}
 
-	return settings, nil
+	return sharedSettings, nil
 }
 
 // readClaude reads the states Claude Code has for exts in the Project. A
