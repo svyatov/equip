@@ -95,21 +95,9 @@ func readRecord(path string, disk map[string]State) (map[string]State, []recordP
 func decodeRecord(path string) (record, error) {
 	var rec record
 
-	data, err := os.ReadFile(path) //nolint:gosec // equip builds the path
-	if errors.Is(err, fs.ErrNotExist) {
-		return rec, nil
-	}
+	_, err := readDoc(path, toml.Unmarshal, &rec)
 
-	if err != nil {
-		return rec, fmt.Errorf("read record: %w", err)
-	}
-
-	err = toml.Unmarshal(data, &rec)
-	if err != nil {
-		return rec, fmt.Errorf("read %s: %w", path, err)
-	}
-
-	return rec, nil
+	return rec, err
 }
 
 // orphans are the paths of the records project can adopt: of a repo with its

@@ -19,20 +19,19 @@ func glyph(st equip.State) string {
 	return [...]string{equip.On: "●", equip.ManualOnly: "◐", equip.Off: "○"}[st]
 }
 
-// cost shows an estimate of tokens.
-func cost(tokens int) string { return fmt.Sprintf("~%d", tokens) }
-
 // costOf shows a cost of tokens, or that it is unknown in whole or in part,
 // as an MCP server's is until it is measured.
 func costOf(unknown bool, tokens int) string {
+	text := fmt.Sprintf("~%d", tokens)
+
 	switch {
 	case unknown && tokens == 0:
 		return "unknown"
 	case unknown:
-		return cost(tokens) + " + unknown"
+		return text + " + unknown"
 	}
 
-	return cost(tokens)
+	return text
 }
 
 // totalOf shows the total of a session in an agent, marked when its skill

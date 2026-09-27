@@ -661,11 +661,8 @@ func (s *Session) probeConfig(agent Agent, ext Extension) (serverConfig, bool) {
 	}
 
 	// Codex keeps a remote server's headers and token apart.
-	headers := maps.Clone(cfg.Headers)
-	if headers == nil {
-		headers = map[string]string{}
-	}
-
+	headers := map[string]string{}
+	maps.Copy(headers, cfg.Headers)
 	maps.Copy(headers, cfg.HTTPHeaders)
 
 	if cfg.BearerToken != "" {
