@@ -2,13 +2,11 @@ package main
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/svyatov/equip/internal/equip"
 )
-
-// descriptionWidth is the width the detail pane wraps a description at.
-const descriptionWidth = 60
 
 // shortDescriptionWidth is the width the detail pane cuts the description of
 // a plugin's skill at.
@@ -74,20 +72,17 @@ func (m *model) origin(view equip.View, row equip.Row, ext equip.Detail) []strin
 	return lines
 }
 
-// detail is the detail pane of row in view: what it is, which agents have it,
-// its origin, the states to pick from, its contents with the MCP server with
-// key server highlighted, and where it comes from.
-func (m *model) detail(view equip.View, row equip.Row, ext equip.Detail, server string) string {
+// detail is the detail pane of row in view, width by height cells: what it
+// is, which agents have it, its origin, the states to pick from, its contents
+// with the MCP server with key server highlighted, and where it comes from.
+// Under the title, it scrolls to keep the highlighted MCP server in.
+func (m *model) detail(view equip.View, row equip.Row, ext equip.Detail, server string, width, height int) string {
 	agents := make([]string, 0, len(ext.Agents))
 	for _, agent := range ext.Agents {
 		agents = append(agents, agent.String())
 	}
 
-	lines := []string{
-		m.style.cur.Render(row.Name) + m.style.dim.Render("  "+row.Kind.String()),
-		m.style.dim.Width(descriptionWidth).Render(ext.Description),
-		"",
-	}
+	lines := append(strings.Split(m.style.dim.Width(width).Render(ext.Description), "\n"), "")
 
 	if ext.Marketplace != "" {
 		lines = append(lines, "Marketplace  "+ext.Marketplace)
@@ -108,16 +103,31 @@ func (m *model) detail(view equip.View, row equip.Row, ext equip.Detail, server 
 	for index, state := range ext.States {
 		radio := " "
 		if state == row.State {
-			radio = glyph(state)
+			radio = m.glyph(state)
 		}
 
-		lines = append(lines, fmt.Sprintf("  (%s) %d %s", radio, index+1, state))
+		lines = append(lines, fmt.Sprintf("  (%s) %s %s", radio, m.style.key.Render(strconv.Itoa(index+1)), state))
 	}
 
-	lines = append(lines, m.contents(ext.Contents, server)...)
+	contents, highlighted := m.contents(ext.Contents, server)
+	if highlighted >= 0 {
+		highlighted += len(lines)
+	}
+
+	lines = append(lines, contents...)
 	lines = append(lines, m.locations(ext)...)
 
-	return strings.Join(lines, "\n")
+	top := 0
+	if highlighted >= 0 {
+		top = m.detailTop
+	}
+
+	lines, top = m.window(lines, top, max(highlighted, 0), height-1)
+	if highlighted >= 0 {
+		m.detailTop = top
+	}
+
+	return m.style.cur.Render(row.Name) + m.style.dim.Render("  "+row.Kind.String()) + "\n" + strings.Join(lines, "\n")
 }
 
 // locations are the detail pane lines of where ext comes from.
@@ -151,15 +161,21 @@ func costLine(unknown bool, ext equip.Detail) string {
 }
 
 // contents are the detail pane lines of a plugin's contents, with the MCP
-// server with key highlighted.
-func (m *model) contents(contents []equip.Content, key string) []string {
+// server with key highlighted, and the index of its line; -1 with none.
+func (m *model) contents(contents []equip.Content, key string) ([]string, int) {
 	if len(contents) == 0 {
-		return nil
+		return nil, -1
 	}
 
 	lines := []string{"", "Contents  " + m.style.dim.Render("skills follow the plugin, MCP servers too unless overridden")}
+	highlighted := -1
 
 	for _, content := range contents {
+		isHighlighted := content.Key != "" && content.Key == key
+		if isHighlighted {
+			highlighted = len(lines)
+		}
+
 		name, ovr := content.Name, ""
 		if content.Unsaved {
 			name += m.style.warn.Render("*")
@@ -169,8 +185,8 @@ func (m *model) contents(contents []equip.Content, key string) []string {
 			ovr = m.style.warn.Render(" ovr")
 		}
 
-		lines = append(lines, fmt.Sprintf("%s%s %s %s %s%s %s", m.mark(content.Key != "" && content.Key == key),
-			glyph(content.State), content.Kind, name, costOf(content.CostUnknown, content.Cost), ovr,
+		lines = append(lines, fmt.Sprintf("%s%s %s %s %s%s %s", m.mark(isHighlighted),
+			m.glyph(content.State), content.Kind, name, costOf(content.CostUnknown, content.Cost), ovr,
 			m.style.dim.MaxWidth(shortDescriptionWidth).MaxHeight(1).Render(content.Description)))
 
 		if content.ChangedOutside {
@@ -178,5 +194,5 @@ func (m *model) contents(contents []equip.Content, key string) []string {
 		}
 	}
 
-	return lines
+	return lines, highlighted
 }

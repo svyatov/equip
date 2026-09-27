@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/svyatov/equip/internal/equip"
 	"github.com/svyatov/equip/internal/equiptest"
@@ -249,6 +251,71 @@ func enter() tea.KeyPressMsg { return tea.KeyPressMsg{Code: tea.KeyEnter} }
 func tab() tea.KeyPressMsg { return tea.KeyPressMsg{Code: tea.KeyTab} }
 
 func esc() tea.KeyPressMsg { return tea.KeyPressMsg{Code: tea.KeyEscape} }
+
+func TestWorkspaceFitsTheTerminalAndScrollsTheMembers(t *testing.T) {
+	t.Parallel()
+	machine := withSkills(t, 30)
+	machine.Preset("All", `id = "a1"`+"\nskills = [\"s"+strings.Join(names(30), `", "s`)+"\"]\n")
+	tui := newModel(t, machine)
+	resize(tui, 80, 20)
+
+	press(tui, key('p'), tab())
+
+	for range 29 {
+		press(tui, down())
+	}
+
+	if why := fits(tui, 80, 20); why != "" {
+		t.Errorf("workspace does not fit 80x20: %s\n%s", why, tui.View().Content)
+	}
+
+	if line(tui, "▸ ●   s29") == "" {
+		t.Errorf("highlighted s29 is off screen:\n%s", tui.View().Content)
+	}
+
+	lines := strings.Split(styleCodes.ReplaceAllString(tui.View().Content, ""), "\n")
+	if !strings.Contains(lines[len(lines)-1], "esc back") {
+		t.Errorf("last line %q does not show esc back", lines[len(lines)-1])
+	}
+}
+
+func TestLeftColumnKeepsItsWidthAcrossScreens(t *testing.T) {
+	t.Parallel()
+	tui := presetModel(t)
+
+	// leftWidth is the width of the first pane on the view's second line.
+	leftWidth := func() int {
+		lines := strings.Split(styleCodes.ReplaceAllString(tui.View().Content, ""), "\n")
+		corner := strings.Index(lines[1], "╮")
+
+		return lipgloss.Width(lines[1][:corner]) + 1
+	}
+
+	resize(tui, 160, 30)
+
+	main := leftWidth()
+
+	for _, width := range []int{160, 80} {
+		resize(tui, width, 30)
+		press(tui, key('p'))
+
+		if got := leftWidth(); got != main {
+			t.Errorf("library at width %d is %d cells, want the sidebar's %d", width, got, main)
+		}
+
+		press(tui, esc())
+	}
+}
+
+// names are the numbers 00 to count-1, two digits each.
+func names(count int) []string {
+	out := make([]string, 0, count)
+	for i := range count {
+		out = append(out, fmt.Sprintf("%02d", i))
+	}
+
+	return out
+}
 
 func TestNewPresetIsWrittenThenOfferedAsActiveHere(t *testing.T) {
 	t.Parallel()

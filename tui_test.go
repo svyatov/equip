@@ -13,6 +13,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/svyatov/equip/internal/equip"
 	"github.com/svyatov/equip/internal/equiptest"
@@ -21,12 +22,131 @@ import (
 func newModel(t *testing.T, machine *equiptest.Machine) *model {
 	t.Helper()
 
-	session, err := equip.Open(machine.Machine, machine.Root)
-	if err != nil {
-		t.Fatal(err)
+	return newModelIn(t, machine, machine.Root)
+}
+
+// resize tells tui the terminal is width by height cells.
+func resize(tui *model, width, height int) {
+	tui.Update(tea.WindowSizeMsg{Width: width, Height: height})
+}
+
+// withSkills is a machine with count Claude Code skills, s00 on.
+func withSkills(t *testing.T, count int) *equiptest.Machine {
+	t.Helper()
+
+	machine := equiptest.New(t)
+	for i := range count {
+		machine.Skill(machine.ClaudeSkills(), fmt.Sprintf("s%02d", i))
 	}
 
-	return newTUI(session)
+	return machine
+}
+
+// fits reports why the view of tui does not fill width by height cells
+// exactly, or "" when it does.
+func fits(tui *model, width, height int) string {
+	lines := strings.Split(tui.View().Content, "\n")
+	if len(lines) != height {
+		return fmt.Sprintf("%d lines, want %d", len(lines), height)
+	}
+
+	for i, text := range lines {
+		if got := lipgloss.Width(text); got > width {
+			return fmt.Sprintf("line %d is %d cells, want at most %d", i, got, width)
+		}
+	}
+
+	return ""
+}
+
+func TestViewFitsTheTerminalWithTheKeysOnTheLastLine(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withSkills(t, 40))
+	resize(tui, 80, 20)
+
+	if why := fits(tui, 80, 20); why != "" {
+		t.Errorf("view does not fit 80x20: %s\n%s", why, tui.View().Content)
+	}
+
+	lines := strings.Split(styleCodes.ReplaceAllString(tui.View().Content, ""), "\n")
+	if !strings.Contains(lines[len(lines)-1], "q quit") {
+		t.Errorf("last line %q does not show q quit", lines[len(lines)-1])
+	}
+}
+
+func TestListScrollsToKeepTheHighlightOnScreen(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withSkills(t, 40))
+	resize(tui, 80, 20)
+
+	for range 39 {
+		press(tui, down())
+	}
+
+	if got := line(tui, "▸ ● s39"); got == "" {
+		t.Errorf("highlighted s39 is off screen:\n%s", tui.View().Content)
+	}
+
+	for range 39 {
+		press(tui, tea.KeyPressMsg{Code: tea.KeyUp})
+	}
+
+	if got := line(tui, "▸ ● s00"); got == "" {
+		t.Errorf("highlighted s00 is off screen:\n%s", tui.View().Content)
+	}
+}
+
+func TestNarrowTerminalDropsTheSidebarAndNamesTheFacetKeys(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withSkills(t, 3))
+	resize(tui, 90, 20)
+
+	if line(tui, "Unsaved changes") != "" {
+		t.Errorf("sidebar still shows:\n%s", tui.View().Content)
+	}
+
+	if !strings.Contains(line(tui, "All  3"), "[ ] facet") {
+		t.Errorf("list title does not name the facet keys:\n%s", tui.View().Content)
+	}
+}
+
+func TestDetailPaneScrollsToKeepTheHighlightedMCPServerOnScreen(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	dir := machine.Plugin("github@official", "user", "")
+
+	servers := make([]string, 0, 20)
+	for i := range 20 {
+		servers = append(servers, fmt.Sprintf(`"m%02d": {"command": "m"}`, i))
+	}
+
+	machine.WriteFile(filepath.Join(dir, ".mcp.json"), `{"mcpServers": {`+strings.Join(servers, ", ")+`}}`)
+	tui := newModel(t, machine)
+	resize(tui, 120, 20)
+
+	press(tui, tea.KeyPressMsg{Code: tea.KeyTab})
+
+	for range 19 {
+		press(tui, down())
+	}
+
+	if got := line(tui, "MCP server m19"); !strings.Contains(got, "▸") {
+		t.Errorf("highlighted m19 is off screen:\n%s", tui.View().Content)
+	}
+
+	if why := fits(tui, 120, 20); why != "" {
+		t.Errorf("view does not fit 120x20: %s", why)
+	}
+}
+
+func TestTinyTerminalSaysItIsTooSmall(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withSkills(t, 3))
+	resize(tui, 30, 6)
+
+	if got := tui.View().Content; got != "terminal too small" {
+		t.Errorf("view = %q, want terminal too small", got)
+	}
 }
 
 // press feeds keys to tui and returns the last command.
@@ -77,6 +197,19 @@ func lineIndex(tui *model, from int, s string) int {
 	}
 
 	return -1
+}
+
+// rowLine returns the first line of the view that holds the list row of
+// name: its state glyph, then name. The line it returns keeps its styles.
+func rowLine(tui *model, name string) string {
+	row := regexp.MustCompile(`[●◐○] ` + regexp.QuoteMeta(name) + `[ *]`)
+	for text := range strings.SplitSeq(tui.View().Content, "\n") {
+		if row.MatchString(styleCodes.ReplaceAllString(text, "")) {
+			return text
+		}
+	}
+
+	return ""
 }
 
 // styleCodes matches the escape codes that style the view's text.
@@ -511,7 +644,7 @@ func TestMCPServerRowAndDetailPaneShowTheCostAsUnknown(t *testing.T) {
 	machine.WriteFile(filepath.Join(machine.Home, ".claude.json"), `{"mcpServers": {"github": {"command": "gh"}}}`)
 	tui := newModel(t, machine)
 
-	if got := line(tui, "github"); !strings.Contains(got, "unknown") {
+	if got := rowLine(tui, "github"); !strings.Contains(got, "unknown") {
 		t.Errorf("row line %q does not show the cost as unknown", got)
 	}
 
@@ -556,14 +689,14 @@ func TestMeasureKeyMeasuresTheHighlightedMCPServerInTheBackground(t *testing.T) 
 	tui := newModel(t, machine)
 
 	cmd := press(tui, key('m'))
-	if cmd == nil || !strings.Contains(line(tui, "github"), "unknown") || line(tui, "measuring") == "" {
+	if cmd == nil || !strings.Contains(rowLine(tui, "github"), "unknown") || line(tui, "measuring") == "" {
 		t.Fatalf("view after m:\n%s\nwant the cost unknown while measuring, with a command", tui.View().Content)
 	}
 
 	tui.Update(cmd())
 
 	// "Use fake." and mcp__github__a: 23 bytes.
-	if got := line(tui, "github"); !strings.Contains(got, "~8") || line(tui, "measuring") != "" {
+	if got := rowLine(tui, "github"); !strings.Contains(got, "~8") || line(tui, "measuring") != "" {
 		t.Errorf("view:\n%s\nwant the measured cost ~8, done measuring", tui.View().Content)
 	}
 }
@@ -593,7 +726,7 @@ func TestTopLineAndPluginRowMarkAServerNotMeasuredYet(t *testing.T) {
 		t.Errorf("top line %q does not mark the total partial", got)
 	}
 
-	if got := line(tui, "github@official"); !strings.Contains(got, "~10 + unknown") {
+	if got := rowLine(tui, "github@official"); !strings.Contains(got, "~10 + unknown") {
 		t.Errorf("row line %q does not mark the plugin's cost partial", got)
 	}
 }
@@ -628,7 +761,7 @@ func TestStateKeysSetTheHighlightedMCPServer(t *testing.T) {
 
 	press(tui, key('2'))
 
-	if got := line(tui, "github"); !strings.Contains(got, "○") {
+	if got := rowLine(tui, "github"); !strings.Contains(got, "○") {
 		t.Errorf("row line %q, want github off", got)
 	}
 }
@@ -702,8 +835,8 @@ func TestPickingAFacetNarrowsTheList(t *testing.T) {
 		t.Errorf("Plugins facet does not show the plugin alone:\n%s", view)
 	}
 
-	if got := line(tui, "Plugins"); !strings.Contains(got, "▸") {
-		t.Errorf("sidebar line %q does not mark the picked facet", got)
+	if line(tui, "▸ Plugins") == "" {
+		t.Errorf("sidebar does not mark the picked facet:\n%s", tui.View().Content)
 	}
 }
 
@@ -1024,7 +1157,11 @@ func newModelIn(t *testing.T, machine *equiptest.Machine, dir string) *model {
 		t.Fatal(err)
 	}
 
-	return newTUI(session)
+	// Wide enough for the long paths of the test's temp dirs.
+	tui := newTUI(session)
+	resize(tui, 400, 60)
+
+	return tui
 }
 
 func TestAdoptPromptAdoptsTheRecordOfAMovedRepo(t *testing.T) {

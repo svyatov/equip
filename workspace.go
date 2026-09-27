@@ -40,6 +40,7 @@ type workspace struct {
 	preview   equip.Preview // of the write or delete the right pane asks for
 	preset    int           // the highlighted preset
 	member    int           // the highlighted member, or extension in the add list
+	top       int           // the first line the members pane or the add list shows
 	open      bool
 	inMembers bool // the keys act on the members pane
 	adding    bool // the members pane lists the extensions to add
@@ -50,7 +51,7 @@ type workspace struct {
 func newWorkspace(before equip.View) workspace {
 	return workspace{
 		before: before, open: false, name: "", naming: "", asking: "", leave: "", created: "", query: "", preset: 0,
-		member: 0, inMembers: false, adding: false, searching: false,
+		member: 0, top: 0, inMembers: false, adding: false, searching: false,
 		preview: equip.Preview{Before: before, After: before, Others: nil},
 	}
 }
@@ -427,50 +428,71 @@ func (m *model) candidates(preset equip.Preset) []equip.Row {
 	return rows
 }
 
-// workspaceView is the presets workspace: the library, the highlighted
-// preset's members or the add list, and the right pane.
-func (m *model) workspaceView() string {
+const (
+	// sharing is the count of the panes right of the library, the members
+	// pane and the right pane, which share its width.
+	sharing = 2
+	// presetsLines are the lines under the extension's detail in the right
+	// pane: a blank line and its presets.
+	presetsLines = 2
+)
+
+// workspaceView is the presets workspace's top line and panes, height lines
+// tall: the library, the highlighted preset's members or the add list, and
+// the right pane.
+func (m *model) workspaceView(height int) string {
 	presets := m.s.Presets()
-	panes := []string{m.style.pane.Render(m.library(presets))}
 
-	if cur, ok := m.current(presets); ok {
-		var candidates []equip.Row
-
-		middle := m.members(cur)
-		if m.ws.adding {
-			candidates = m.candidates(cur)
-			middle = m.addList(cur, candidates)
-		}
-
-		panes = append(panes, m.style.pane.Render(middle), m.style.pane.Render(m.right(cur, presets, candidates)))
+	title := "Library\n" + m.style.dim.Render("  here name           ext proj")
+	library, _ := m.window(m.library(presets), 0, m.ws.preset, height-paneHeight-lipgloss.Height(title))
+	panes := []string{
+		m.box(title+"\n"+strings.Join(library, "\n"), leftWidth, height, !m.ws.inMembers && m.ws.asking == ""),
 	}
 
-	return m.workspaceTop() + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, panes...) + "\n" + m.workspaceFooter()
+	if cur, found := m.current(presets); found {
+		var candidates []equip.Row
+
+		title, lines, highlighted := m.members(cur)
+		if m.ws.adding {
+			candidates = m.candidates(cur)
+			title, lines, highlighted = m.addList(cur, candidates)
+		}
+
+		lines, m.ws.top = m.window(lines, m.ws.top, max(highlighted, 0), height-paneHeight-lipgloss.Height(title))
+		middle := (m.width - leftWidth) / sharing
+		right := m.width - leftWidth - middle
+		panes = append(panes,
+			m.box(title+"\n"+strings.Join(lines, "\n"), middle, height, m.ws.inMembers && m.ws.asking == ""),
+			m.box(m.right(cur, presets, candidates, right-paneWidth, height-paneHeight), right, height,
+				m.ws.asking != ""))
+	}
+
+	return fit(m.workspaceTop(), m.width) + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, panes...)
 }
 
 // workspaceFooter is the workspace's bottom line: the quit guard, the flash,
 // the name typed, or the keys.
 func (m *model) workspaceFooter() string {
-	keys := "↑↓ preset  space active here  n new  r rename  d delete  a add members  w write preset  tab members  esc back"
-
 	switch {
 	case m.quitting || m.flash != "":
 		return m.footer()
 	case m.ws.naming != "":
-		return "name: " + m.ws.name + m.style.cur.Render("▏") + m.style.dim.Render("  enter done  esc cancel")
+		return "name: " + m.ws.name + m.style.cur.Render("▏") + "  " + m.help("enter", "done", "esc", "cancel")
 	case m.ws.asking == askLeave:
-		keys = "w write  d discard  esc stay"
+		return m.help("w", "write", "d", "discard", "esc", "stay")
 	case m.ws.asking != "":
-		keys = "y yes  n no"
+		return m.help("y", "yes", "n", "no")
 	case m.ws.searching:
-		keys = "type to search  enter done  esc clear"
+		return m.help("type", "to search", "enter", "done", "esc", "clear")
 	case m.ws.adding:
-		keys = "↑↓ move  space add  / search  esc close"
+		return m.help("↑↓", "move", "space", "add", "/", "search", "esc", "close")
 	case m.ws.inMembers:
-		keys = "↑↓ member  space remove or add back  a add  w write preset  tab library  esc back"
+		return m.help("↑↓", "member", "space", "remove or add back", "a", "add", "w", "write preset", "tab", "library",
+			"esc", "back")
 	}
 
-	return m.style.dim.Render(keys)
+	return m.help("↑↓", "preset", "space", "active here", "n", "new", "r", "rename", "d", "delete", "a", "add members",
+		"w", "write preset", "tab", "members", "esc", "back")
 }
 
 // workspaceTop is the workspace's top line: the active presets, and each
@@ -514,10 +536,11 @@ func turned(rows []equip.Row) (int, int) {
 	return counts[equip.On], counts[equip.Off]
 }
 
-// library is the library pane: each preset with whether it is active here,
-// its member count and its project count. A * marks unwritten edits.
-func (m *model) library(presets []equip.Preset) string {
-	lines := []string{"Library", m.style.dim.Render("  here name            ext proj")}
+// library is the library pane's lines under its title: each preset with
+// whether it is active here, its member count and its project count. A *
+// marks unwritten edits.
+func (m *model) library(presets []equip.Preset) []string {
+	var lines []string
 	if len(presets) == 0 {
 		lines = append(lines, m.style.dim.Render("  no presets, n creates one"))
 	}
@@ -535,35 +558,44 @@ func (m *model) library(presets []equip.Preset) string {
 		members := len(slices.DeleteFunc(slices.Clone(preset.Members), func(m equip.Member) bool { return m.Removed }))
 		line := fmt.Sprintf("%s %-15s %3d %4d", check, name, members, len(preset.Projects))
 
+		// A missing preset's line says so in place of its counts.
 		if preset.Missing {
-			line = m.style.dim.Render(line + "  missing")
+			line = m.style.dim.Render(fmt.Sprintf("%s %-15s %8s", check, name, "missing"))
 		}
 
 		lines = append(lines, m.mark(index == m.ws.preset)+line)
 	}
 
-	return strings.Join(lines, "\n")
+	return lines
 }
 
-// members is the members pane of preset, grouped by kind, each with its
-// state here, cost and Override mark. + marks an unwritten addition and -
-// an unwritten removal, struck through. A member not installed here shows
-// greyed.
-func (m *model) members(preset equip.Preset) string {
-	lines := []string{"Members of " + preset.Name}
+// members is the members pane of preset: its title, and its members grouped
+// by kind, each with its state here, cost and Override mark, with the index
+// of the highlighted one's line; -1 with none. + marks an unwritten addition
+// and - an unwritten removal, struck through. A member not installed here
+// shows greyed.
+func (m *model) members(preset equip.Preset) (string, []string, int) {
+	var lines []string
 	if len(preset.Members) == 0 {
 		lines = append(lines, m.style.dim.Render("  no members yet, a adds some"))
 	}
+
+	highlighted := -1
 
 	for index, member := range preset.Members {
 		if index == 0 || member.Kind != preset.Members[index-1].Kind {
 			lines = append(lines, "", m.style.dim.Render(member.Kind.String()))
 		}
 
-		lines = append(lines, m.mark(m.ws.inMembers && index == m.ws.member)+m.memberLine(member))
+		on := m.ws.inMembers && index == m.ws.member
+		if on {
+			highlighted = len(lines)
+		}
+
+		lines = append(lines, m.mark(on)+m.memberLine(member))
 	}
 
-	return strings.Join(lines, "\n")
+	return "Members of " + preset.Name, lines, highlighted
 }
 
 // memberLine is the line of member in the members pane, after its mark.
@@ -586,36 +618,43 @@ func (m *model) memberLine(member equip.Member) string {
 		ovr = m.style.warn.Render(" ovr")
 	}
 
-	return fmt.Sprintf("%s %s %s %s%s", glyph(member.State), edit, name,
+	return fmt.Sprintf("%s %s %s %s%s", m.glyph(member.State), edit, name,
 		m.style.dim.Render(costOf(member.CostUnknown, member.Cost)), ovr)
 }
 
-// addList is the add list of preset, its candidates: the extensions that are
-// not members, grouped by kind, under the search.
-func (m *model) addList(preset equip.Preset, candidates []equip.Row) string {
+// addList is the add list of preset: its title and search, and its
+// candidates, the extensions that are not members, grouped by kind, with the
+// index of the highlighted one's line; -1 with none.
+func (m *model) addList(preset equip.Preset, candidates []equip.Row) (string, []string, int) {
 	search := m.style.dim.Render("/ searches")
 	if m.ws.searching || m.ws.query != "" {
 		search = m.style.cur.Render("/" + m.ws.query)
 	}
 
-	lines := []string{"Add to " + preset.Name, search}
+	var lines []string
+
+	highlighted := -1
 
 	for index, row := range candidates {
 		if index == 0 || row.Kind != candidates[index-1].Kind {
 			lines = append(lines, "", m.style.dim.Render(row.Kind.String()))
 		}
 
-		lines = append(lines, m.mark(index == m.ws.member)+glyph(row.State)+" "+row.Name+" "+
+		if index == m.ws.member {
+			highlighted = len(lines)
+		}
+
+		lines = append(lines, m.mark(index == m.ws.member)+m.glyph(row.State)+" "+row.Name+" "+
 			m.style.dim.Render(costOf(row.CostUnknown, row.Cost)))
 	}
 
-	return strings.Join(lines, "\n")
+	return "Add to " + preset.Name + "\n" + search, lines, highlighted
 }
 
-// right is the right pane: the question asked, else the detail of the
-// highlighted extension in the members pane or among candidates, the add
-// list, else the projects that use preset.
-func (m *model) right(preset equip.Preset, presets []equip.Preset, candidates []equip.Row) string {
+// right is the right pane, width by height cells: the question asked, else
+// the detail of the highlighted extension in the members pane or among
+// candidates, the add list, else the projects that use preset.
+func (m *model) right(preset equip.Preset, presets []equip.Preset, candidates []equip.Row, width, height int) string {
 	switch m.ws.asking {
 	case askWrite, askDelete:
 		return m.confirm(preset)
@@ -629,7 +668,7 @@ func (m *model) right(preset equip.Preset, presets []equip.Preset, candidates []
 	}
 
 	if key, name, ok := m.highlightedExtension(preset, candidates); ok {
-		return m.extension(key, name, presets)
+		return m.extension(key, name, presets, width, height)
 	}
 
 	here := m.s.View().Project.Path
@@ -667,8 +706,8 @@ func (m *model) highlightedExtension(preset equip.Preset, candidates []equip.Row
 
 // extension is the right pane of the extension with key and name: its
 // detail, as the main screen shows it, and the presets that contain it, with
-// the active ones marked.
-func (m *model) extension(key, name string, presets []equip.Preset) string {
+// the active ones marked, width by height cells.
+func (m *model) extension(key, name string, presets []equip.Preset, width, height int) string {
 	var containing []string
 
 	for _, preset := range presets {
@@ -688,7 +727,7 @@ func (m *model) extension(key, name string, presets []equip.Preset) string {
 
 	view := m.s.View()
 	if i := index(view.Rows, key); i >= 0 {
-		return m.detail(view, view.Rows[i], m.s.Detail(key), "") + "\n\n" + line
+		return m.detail(view, view.Rows[i], m.s.Detail(key), "", width, height-presetsLines) + "\n\n" + line
 	}
 
 	return name + m.style.dim.Render("  not installed") + "\n\n" + line
