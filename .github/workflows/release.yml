@@ -1,0 +1,59 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: read
+
+# A release must never be cancelled halfway through uploading its assets.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    permissions:
+      contents: write # create the release and upload assets
+      id-token: write # the short-lived OIDC token the attestation is signed with
+      attestations: write # record the provenance of each asset on the repository
+      artifact-metadata: write # write the storage record actions/attest v4 creates
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # goreleaser reads tag history for the release metadata
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+      # GoReleaser and syft at the versions mise.toml pins. No cache: a release
+      # takes its tools from their publishers, not from what another run saved.
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+        with:
+          cache: false
+
+      # The changelog section under the tag is the body. A tag whose section is
+      # missing fails here, before anything is published. Written outside the
+      # checkout, because `goreleaser release` refuses a dirty working tree.
+      - name: Cut the release notes from the changelog
+        run: scripts/release-notes.sh "${GITHUB_REF_NAME#v}" > "$RUNNER_TEMP/release-notes.md"
+
+      - name: Release
+        run: goreleaser release --clean --release-notes="$RUNNER_TEMP/release-notes.md"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # A token scoped to the tap repo: GITHUB_TOKEN cannot write to it.
+          HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+      # The signed tag covers the commit, not the files uploaded under it. A
+      # downloader verifies the archives against this with
+      # `gh attestation verify <file> --repo svyatov/equip`.
+      - uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.sbom.json
+            dist/checksums.txt

@@ -22,7 +22,7 @@ mise trust && mise install
 mise run build
 ```
 
-`mise install` fetches golangci-lint, govulncheck, and lefthook at the versions `mise.toml` pins.
+`mise install` fetches golangci-lint, govulncheck, lefthook, GoReleaser, and syft at the versions `mise.toml` pins.
 
 To run the checks on every commit, install the pre-commit hook once:
 
@@ -39,9 +39,10 @@ mise run test    # go test -race -shuffle=on ./...
 mise run cover   # the same run with coverage, fails under 88%
 mise run lint    # go.mod tidy and verified, go fix -diff, golangci-lint, the formatter, and the dash check
 mise run vuln    # govulncheck over the code paths equip calls
+mise run release-check   # goreleaser check, and the newest changelog section is not empty
 ```
 
-CI runs `build`, `cover`, `lint`, and `vuln` through these same tasks, so a local pass means what a green check means.
+CI runs `build`, `cover`, `lint`, `vuln`, and `release-check` through these same tasks, so a local pass means what a green check means.
 
 ## Tests
 

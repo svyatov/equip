@@ -14,6 +14,13 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-09-27
+
+### Added
+
+- Prebuilt binaries for macOS and Linux, on amd64 and arm64, attached to each release with an SPDX SBOM per archive and a build attestation. Verify one with `gh attestation verify <file> --repo svyatov/equip`.
+- A Homebrew cask: `brew install svyatov/tap/equip`.
+
 ## [0.1.0] - 2026-09-27
 
 ### Added
@@ -27,5 +34,6 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 - equip keeps a Record per Project and machine. On a moved repository's first open, equip offers to adopt the Record left at the old path.
 - `--help` prints the usage and `--version` prints the build version.
 
-[unreleased]: https://github.com/svyatov/equip/compare/v0.1.0...HEAD
+[unreleased]: https://github.com/svyatov/equip/compare/v0.1.1...HEAD
+[0.1.1]: https://github.com/svyatov/equip/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/svyatov/equip/releases/tag/v0.1.0

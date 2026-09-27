@@ -8,16 +8,22 @@ A terminal UI for Claude Code and Codex users that lists the skills, plugins, an
 - **Token cost per session.** Each skill shows its estimated context cost, and each agent shows the Total for the project. A Codex Total over its listing budget is flagged.
 - **macOS and Linux.** CI runs the tests on both. Windows is not tested.
 
-Install it with Go 1.27.1 or later, the version `go.mod` declares:
+Install it with Homebrew:
+
+```bash
+brew install svyatov/tap/equip
+```
+
+Or build it with Go 1.27.1 or later, the version `go.mod` declares:
 
 ```bash
 go install github.com/svyatov/equip@latest
 ```
 
-Check the install, then open equip in a project:
+Prebuilt archives for macOS and Linux are also on each [release](https://github.com/svyatov/equip/releases). Check the install, then open equip in a project:
 
 ```bash
-equip --version   # equip v0.1.0
+equip --version   # equip v0.1.1
 cd your-project
 equip             # opens the TUI on the project's extensions
 ```
