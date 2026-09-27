@@ -331,6 +331,27 @@ func TestTrackedSettingsFileIsNotWrittenAndTheDetailSaysWhy(t *testing.T) {
 	}
 }
 
+func TestTrackedSettingsFileEntriesAreClaudeCodesDefaults(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "off"}}`)
+	machine.RunGit(repo, "add", ".claude/settings.local.json")
+	writeFile(t, filepath.Join(machine.Home, ".claude.json"), `{"mcpServers": {"github": {"command": "gh"}},
+		"projects": {"`+repo+`": {"disabledMcpServers": ["github"]}}}`)
+	view := open(t, machine, repo)
+
+	if got := row(t, view, "review"); got.State != equip.Off || got.Override || got.Cost != 0 {
+		t.Errorf("review = %+v, want an off default with no Override and no cost", got)
+	}
+
+	// ~/.claude.json is equip's to write: its entry is an Override, not a default.
+	if got := row(t, view, "github"); got.Fallback != equip.On || !got.Override {
+		t.Errorf("github = %+v, want an Override over an on default", got)
+	}
+}
+
 //nolint:paralleltest // t.Chdir changes the whole process
 func TestSaveOutsideGitWritesOnlyTheSettingsFile(t *testing.T) {
 	machine := equiptest.New(t)

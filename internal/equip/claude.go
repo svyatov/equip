@@ -134,6 +134,23 @@ func (e Extension) claudeState(settings settingsFile, projectEntry jsonObject) (
 	return e.lists.state(projectEntry, e.listName())
 }
 
+// inSettings reports whether Claude Code keeps the extension's state in the
+// Project's settings.local.json.
+func (e Extension) inSettings() bool { return e.Kind != MCPServer || e.lists.settings }
+
+// takeTrackedDefaults takes the entries of a tracked settings.local.json as
+// Claude Code's defaults for exts: Claude Code reads the file, and equip
+// leaves it alone. A file equip cannot read gives no defaults.
+func takeTrackedDefaults(machine Machine, project Project, exts []Extension) {
+	states, _ := readClaude(machine, project, exts)
+
+	for _, ext := range exts {
+		if st, ok := states[ext.Key]; ok && ext.inSettings() {
+			ext.fallback[ClaudeCode] = st
+		}
+	}
+}
+
 // pluginState reads one enabledPlugins value, reporting whether equip knows it.
 func pluginState(raw json.RawMessage) (State, bool) {
 	switch string(raw) {

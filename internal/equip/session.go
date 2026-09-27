@@ -116,6 +116,10 @@ func Open(machine Machine, dir string) (*Session, error) {
 		return nil, err
 	}
 
+	if settings != "" {
+		takeTrackedDefaults(machine, project, exts)
+	}
+
 	applied := appliedExts(exts, codex, settings)
 	disk := map[Agent]map[string]State{}
 
@@ -196,7 +200,7 @@ func appliedExts(exts []Extension, codex codexConfig, settings string) map[Agent
 // .claude/settings.local.json. It is empty when equip does.
 func whyNotApplied(agent Agent, ext Extension, codex codexConfig, settings string) string {
 	switch {
-	case agent == ClaudeCode && (ext.Kind != MCPServer || ext.lists.settings):
+	case agent == ClaudeCode && ext.inSettings():
 		return settings
 	case agent == ClaudeCode:
 		return ""
