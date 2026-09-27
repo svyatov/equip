@@ -12,7 +12,8 @@ type choice struct {
 	overrides map[string]State      // by extension key
 	applied   map[Agent][]Extension // the exts whose states equip writes for each agent
 	// library is the presets by name, as written, and a new one. Every choice
-	// of a Session shares it, as a preset write goes to disk at once.
+	// of a Session starts from the same library, as a preset write goes to
+	// disk at once.
 	library []Preset
 	active  []string    // the ids of the active presets, sorted
 	exts    []Extension // installed, to find a plugin's

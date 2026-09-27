@@ -165,7 +165,7 @@ func (s *Session) Presets() []Preset {
 			m := &preset.Members[i]
 
 			var ext Extension
-			if ext, m.Installed = s.ext(m.Key); m.Installed {
+			if ext, m.Installed = s.pending.ext(m.Key); m.Installed {
 				m.Row = s.row(ext)
 			}
 		}

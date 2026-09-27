@@ -53,18 +53,16 @@ func (s State) String() string {
 
 // Session is one open Project.
 type Session struct {
-	pending  choice                     // the active presets and Overrides, pending
+	pending  choice                     // the pending active presets and Overrides, with the installed exts
 	saved    map[string]State           // the overrides at the last save
 	disk     map[Agent]map[string]State // each agent's entries for its applied exts, as last read or written
 	outside  map[string]Agent           // changed outside equip since the last save, in that agent
-	applied  map[Agent][]Extension      // the exts whose states equip writes for each agent
 	measured map[string]measurement     // the MCP servers measured, by key; guarded by mu
 	codex    codexConfig
 	machine  Machine
 	project  Project
 	orphans  []string // the paths of the records the Project can adopt
-	exts     []Extension
-	draft    *Preset // the one preset with unwritten edits, as edited; nil with none
+	draft    *Preset  // the one preset with unwritten edits, as edited; nil with none
 	// unfinished are the other Projects that use the draft, opened by a
 	// write of it that failed, before its preset file changed; nil with none.
 	unfinished []Affected
@@ -182,12 +180,10 @@ func Open(machine Machine, dir string) (*Session, error) {
 	session := &Session{
 		machine:    machine,
 		project:    project,
-		exts:       exts,
 		pending:    choice{library: library, active: nil, overrides: nil, exts: exts, applied: applied},
 		draft:      nil,
 		unfinished: nil,
 		recorded:   nil,
-		applied:    applied,
 		codex:      codex,
 		saved:      nil,
 		disk:       nil,
@@ -268,7 +264,7 @@ func (a Agent) config() adapter {
 // SetState makes st an Override for the extension with key, unless the
 // extension does not offer st.
 func (s *Session) SetState(key string, st State) {
-	if ext, ok := s.ext(key); ok && !slices.Contains(ext.Kind.states(), st) {
+	if ext, ok := s.pending.ext(key); ok && !slices.Contains(ext.Kind.states(), st) {
 		return
 	}
 
@@ -277,9 +273,9 @@ func (s *Session) SetState(key string, st State) {
 
 // View returns the current view.
 func (s *Session) View() View {
-	rows := make([]Row, 0, len(s.exts))
+	rows := make([]Row, 0, len(s.pending.exts))
 
-	for _, ext := range s.exts {
+	for _, ext := range s.pending.exts {
 		// A plugin's MCP server shows among the plugin's contents.
 		if ext.plugin == "" {
 			rows = append(rows, s.row(ext))
@@ -360,7 +356,7 @@ type Content struct {
 
 // Detail returns the detail of the extension with key.
 func (s *Session) Detail(key string) Detail {
-	ext, ok := s.ext(key)
+	ext, ok := s.pending.ext(key)
 	if !ok {
 		return Detail{
 			Description: "", Note: "", Marketplace: "", Agents: nil, Locations: nil, NotApplied: nil, Costs: nil,
@@ -400,7 +396,7 @@ func (s *Session) Detail(key string) Detail {
 // its cost. The probe may run on another goroutine: it touches the Session
 // only to record the cost.
 func (s *Session) ProbeCost(key string) func() error {
-	ext, _ := s.ext(key)
+	ext, _ := s.pending.ext(key)
 
 	for _, agent := range Agents() {
 		cfg, ok := s.probeConfig(agent, ext)
@@ -569,7 +565,7 @@ func (s *Session) facets(rows []Row) []Facet {
 			keys := map[string]bool{}
 
 			for _, row := range rows {
-				if ext, _ := s.ext(row.Key); def.has(ext, row) {
+				if ext, _ := s.pending.ext(row.Key); def.has(ext, row) {
 					keys[row.Key] = true
 				}
 			}
@@ -601,7 +597,7 @@ func (s *Session) total(agent Agent) (int, bool, bool) {
 	total, listingTokens, unknown := 0, 0, false
 	listed, plugins := false, false // a skill or plugin is on, so agent lists skills; a plugin is on
 
-	for _, ext := range s.exts {
+	for _, ext := range s.pending.exts {
 		// A plugin's MCP server counts in its plugin's cost.
 		if ext.plugin != "" {
 			continue
@@ -627,7 +623,7 @@ func (s *Session) total(agent Agent) (int, bool, bool) {
 // readMeasurements takes the cached measurement of each MCP server, from its
 // config in the first agent that has one cached.
 func (s *Session) readMeasurements() {
-	for _, ext := range s.exts {
+	for _, ext := range s.pending.exts {
 		for _, agent := range Agents() {
 			cfg, ok := s.probeConfig(agent, ext)
 			if !ok {
@@ -693,7 +689,7 @@ func (s *Session) onAndTrusted(agent Agent, ext Extension) bool {
 		state = ext.fallback[agent]
 	}
 	// A plugin's MCP server loads only while its plugin is on.
-	plugin, inPlugin := s.ext(ext.plugin)
+	plugin, inPlugin := s.pending.ext(ext.plugin)
 
 	return state == On && (!inPlugin || s.onAndTrusted(agent, plugin))
 }
@@ -733,7 +729,7 @@ func (s *Session) unknownIn(agent Agent, ext Extension) bool {
 		return !measured
 	}
 
-	return slices.ContainsFunc(s.exts, func(server Extension) bool {
+	return slices.ContainsFunc(s.pending.exts, func(server Extension) bool {
 		return server.plugin == ext.Key && s.unknownIn(agent, server)
 	})
 }
@@ -765,7 +761,7 @@ func (s *Session) contents(plugin Extension) []Content {
 		contents = append(contents, content)
 	}
 
-	for _, server := range s.exts {
+	for _, server := range s.pending.exts {
 		if server.plugin != plugin.Key {
 			continue
 		}
@@ -796,7 +792,7 @@ func (s *Session) changedOutside() (bool, error) {
 	now := map[Agent]map[string]State{}
 
 	for _, agent := range Agents() {
-		states, err := agent.config().read(s.machine, s.project, s.applied[agent])
+		states, err := agent.config().read(s.machine, s.project, s.pending.applied[agent])
 		if err != nil {
 			return false, err
 		}
@@ -815,12 +811,12 @@ func (s *Session) changedOutside() (bool, error) {
 // writeAgents writes the entries of chosen into each agent's config.
 func (s *Session) writeAgents(chosen choice) error {
 	for _, agent := range Agents() {
-		err := agent.config().write(s.machine, s.project, s.applied[agent], chosen.entries(agent))
+		err := agent.config().write(s.machine, s.project, s.pending.applied[agent], chosen.entries(agent))
 		if err != nil {
 			// A file written before the failure holds equip's own entries,
 			// which the next save must not read as changed outside.
 			for _, agent := range Agents() {
-				landed, readErr := agent.config().read(s.machine, s.project, s.applied[agent])
+				landed, readErr := agent.config().read(s.machine, s.project, s.pending.applied[agent])
 				if readErr == nil {
 					s.disk[agent] = landed
 				}
@@ -860,7 +856,7 @@ func (s *Session) costIn(agent Agent, ext Extension) int {
 
 	cost := ext.cost[agent]
 	// A plugin costs its MCP servers too.
-	for _, server := range s.exts {
+	for _, server := range s.pending.exts {
 		if server.plugin == ext.Key {
 			cost += s.costIn(agent, server)
 		}
@@ -868,9 +864,6 @@ func (s *Session) costIn(agent Agent, ext Extension) int {
 
 	return cost
 }
-
-// ext returns the extension with key, reporting whether it is installed.
-func (s *Session) ext(key string) (Extension, bool) { return s.pending.ext(key) }
 
 // take takes now, agent's entries on disk, and imports each entry that
 // changed since the last read and differs from the record as an unsaved
@@ -881,7 +874,7 @@ func (s *Session) take(agent Agent, now map[string]State) bool {
 	changed, presetChanged := false, len(s.presetsChanged()) > 0
 	recorded := s.lastSave().entries(agent)
 
-	for _, e := range s.applied[agent] {
+	for _, e := range s.pending.applied[agent] {
 		key := e.Key
 		if !differ(now, s.disk[agent], key) {
 			continue
@@ -980,7 +973,7 @@ func (s *Session) unsavedCount() int {
 // inRow reports whether has holds for a key in the row of ext: its own or,
 // for a plugin, one of its MCP servers'.
 func (s *Session) inRow(ext Extension, has func(key string) bool) bool {
-	return has(ext.Key) || slices.ContainsFunc(s.exts, func(e Extension) bool {
+	return has(ext.Key) || slices.ContainsFunc(s.pending.exts, func(e Extension) bool {
 		return e.plugin == ext.Key && has(e.Key)
 	})
 }
