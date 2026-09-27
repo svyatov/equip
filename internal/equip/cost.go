@@ -58,12 +58,8 @@ func (s *Session) unknown(ext Extension) bool {
 	_, measured := s.measurement(ext.Key)
 
 	return ext.Kind == MCPServer && !measured ||
-		slices.ContainsFunc(Agents(), func(agent Agent) bool { return s.unknownIn(agent, ext) })
+		slices.ContainsFunc(Agents(), func(agent Agent) bool { return s.unmeasuredIn(agent, ext) > 0 })
 }
-
-// unknownIn reports whether agent's cost of ext leaves out an MCP server
-// that is on in agent but not measured yet: ext, or one in plugin ext.
-func (s *Session) unknownIn(agent Agent, ext Extension) bool { return s.unmeasuredIn(agent, ext) > 0 }
 
 // unmeasuredIn counts the MCP servers that agent's cost of ext leaves out,
 // on in agent but not measured yet: ext, or those in plugin ext.

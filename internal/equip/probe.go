@@ -661,41 +661,42 @@ func decodeResponse(data []byte, request int, method string, result any) (bool, 
 func (s *Session) ProbeCost(key string) func() error {
 	ext, _ := s.pending.ext(key)
 
-	if cfg, ok := s.startable(ext); ok {
-		return func() error {
-			// An agent starts a server in the checkout the session runs in.
-			measured, err := probe(context.Background(), s.machine.Env, s.project.checkout, cfg)
-
-			var entry cacheEntry
-
-			s.mu.Lock()
-
-			switch {
-			case errors.Is(err, errNeedsLogin):
-				entry.Refused = errNeedsLogin.Error()
-			case errors.Is(err, errAnswered):
-				entry.Refused = err.Error()
-			case err == nil:
-				s.measured[key], entry.Measured = measured, measured
-			}
-
-			s.refused[key] = entry.Refused
-			s.mu.Unlock()
-
-			if err != nil && entry.Refused == "" {
-				return err
-			}
-
-			cacheErr := writeCache(s.machine, cfg, entry)
-			if err != nil {
-				return errors.Join(fmt.Errorf("%w: %w", ErrRefused, err), cacheErr)
-			}
-
-			return cacheErr
-		}
+	cfg, ok := s.startable(ext)
+	if !ok {
+		return func() error { return ErrCannotProbe }
 	}
 
-	return func() error { return ErrCannotProbe }
+	return func() error {
+		// An agent starts a server in the checkout the session runs in.
+		measured, err := probe(context.Background(), s.machine.Env, s.project.checkout, cfg)
+
+		var entry cacheEntry
+
+		s.mu.Lock()
+
+		switch {
+		case errors.Is(err, errNeedsLogin):
+			entry.Refused = errNeedsLogin.Error()
+		case errors.Is(err, errAnswered):
+			entry.Refused = err.Error()
+		case err == nil:
+			s.measured[key], entry.Measured = measured, measured
+		}
+
+		s.refused[key] = entry.Refused
+		s.mu.Unlock()
+
+		if err != nil && entry.Refused == "" {
+			return err
+		}
+
+		cacheErr := writeCache(s.machine, cfg, entry)
+		if err != nil {
+			return errors.Join(fmt.Errorf("%w: %w", ErrRefused, err), cacheErr)
+		}
+
+		return cacheErr
+	}
 }
 
 // Unmeasured are the keys of the MCP servers equip may start and has not
@@ -717,6 +718,10 @@ func (s *Session) Unmeasured() []string {
 // does. It is empty for a server equip measures, and for every other
 // extension.
 func (s *Session) unmeasurable(ext Extension) string {
+	if ext.Kind != MCPServer {
+		return ""
+	}
+
 	s.mu.Lock()
 	refused := s.refused[ext.Key]
 	s.mu.Unlock()
@@ -724,8 +729,6 @@ func (s *Session) unmeasurable(ext Extension) string {
 	_, startable := s.startable(ext)
 
 	switch {
-	case ext.Kind != MCPServer:
-		return ""
 	case refused != "":
 		return refused
 	case startable:
