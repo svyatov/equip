@@ -433,6 +433,21 @@ func TestQuitWithUnsavedChangesAsksFirst(t *testing.T) {
 	}
 }
 
+func TestSaveShowsTheError(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "review")
+	tui := newModel(t, machine)
+	settings := filepath.Join(machine.Root, ".claude", "settings.local.json")
+	machine.WriteFile(settings, `{"skillOverrides": {"review": "off"}}`)
+
+	press(tui, key('3'), key('s'))
+
+	if line(tui, "save failed: changed outside equip since open") == "" {
+		t.Errorf("s does not show the error:\n%s", tui.View().Content)
+	}
+}
+
 func TestDetailPaneShowsDescriptionAgentsLocationsAndCodexNote(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)

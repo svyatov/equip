@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"strings"
 	"testing"
 
@@ -284,6 +285,29 @@ func TestSaveExcludesAnUntrackedSettingsFileItDidNotCreate(t *testing.T) {
 	}
 }
 
+func TestSaveInAWorktreeWritesTheMainCheckoutsSettingsFile(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Commit(repo)
+	worktree := machine.Worktree(repo, "app-feature")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	session := newSession(t, machine, worktree)
+	session.SetState("review", equip.Off)
+
+	save(t, session)
+
+	got := readJSON(t, settingsLocal(repo))["skillOverrides"]
+	if want := map[string]any{"review": "off"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("skillOverrides = %v, want %v", got, want)
+	}
+
+	_, err := os.Stat(settingsLocal(worktree))
+	if err == nil {
+		t.Error("save wrote the worktree's settings.local.json")
+	}
+}
+
 func TestTrackedSettingsFileIsNotWrittenAndTheDetailSaysWhy(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
@@ -513,6 +537,10 @@ func TestOverrideForAnUninstalledSkillIsKeptAndAppliesOnceItReturns(t *testing.T
 	}
 
 	session = newSession(t, machine, repo)
+	if got := names(session.View()); !slices.Equal(got, []string{"review"}) {
+		t.Errorf("rows while gone = %q, want only review", got)
+	}
+
 	session.SetState("review", equip.Off)
 	save(t, session)
 

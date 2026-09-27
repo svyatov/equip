@@ -180,6 +180,23 @@ func TestMCPServerCostIsUnknownBeforeAnyProbe(t *testing.T) {
 	}
 }
 
+func TestOpenStartsNoMCPServer(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	started := filepath.Join(machine.Root, "started")
+	config := fakeConfig(t, "modern", "")
+	config["env"] = map[string]string{fakeMCPEnv: "modern", "EQUIP_FAKE_CWD": started}
+	writeJSON(t, claudeJSON(machine), map[string]any{"mcpServers": map[string]any{"fake": config}})
+
+	open(t, machine, repo)
+
+	_, err := os.Stat(started)
+	if err == nil {
+		t.Error("open started the MCP server")
+	}
+}
+
 func TestProbeMeasuresALegacyServerOnEveryToolsPage(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)

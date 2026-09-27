@@ -565,6 +565,22 @@ func TestSaveAppliesAPresetChangedOutside(t *testing.T) {
 	}
 }
 
+func TestExtensionInstalledSinceASaveUnderPresetsTakesTheRecordsState(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	repo := machine.Repo("app")
+	using(t, machine, repo, "r1")
+	machine.Skill(machine.ClaudeSkills(), "fmt")
+	machine.Skill(machine.ClaudeSkills(), "rspec") // a Ruby member
+
+	got := changes(newSession(t, machine, repo))
+
+	want := []string{"docs off", "fmt off unsaved", "lint on", "review off", "rspec on unsaved"}
+	if !slices.Equal(got, want) {
+		t.Errorf("rows = %q, want %q", got, want)
+	}
+}
+
 func TestHandEditAfterARenameIsImported(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)

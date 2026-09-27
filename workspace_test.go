@@ -496,6 +496,18 @@ func TestMembersPaneMarksEditsAndOverrides(t *testing.T) {
 	}
 }
 
+func TestXInTheWorkspaceKeepsTheOverride(t *testing.T) {
+	t.Parallel()
+	tui := presetModel(t)
+	tui.s.SetState("lint", equip.ManualOnly)
+
+	press(tui, key('p'), key('x'), tab(), key('x'))
+
+	if line(tui, "lint ~0 ovr") == "" {
+		t.Errorf("x dropped lint's Override in the workspace:\n%s", tui.View().Content)
+	}
+}
+
 func TestRightPaneShowsTheUsersOrTheHighlightedExtensionsPresets(t *testing.T) {
 	t.Parallel()
 	tui, machine := ruby(t)
@@ -528,6 +540,54 @@ func TestRenameAppliesAtOnce(t *testing.T) {
 
 	if line(tui, "[ ] Rails") == "" || line(tui, "Rails*") != "" || line(tui, "Members of Rails") == "" {
 		t.Errorf("r does not rename Ruby to Rails at once:\n%s", tui.View().Content)
+	}
+}
+
+// lineIndex is the index of the first line of the view, from, that has s
+// with its style codes removed; -1 with none.
+func lineIndex(tui *model, from int, s string) int {
+	lines := strings.Split(styleCodes.ReplaceAllString(tui.View().Content, ""), "\n")
+	for i := max(from, 0); i < len(lines); i++ {
+		if strings.Contains(lines[i], s) {
+			return i
+		}
+	}
+
+	return -1
+}
+
+// inKindGroups reports whether the view shows, from the line with first on,
+// each of want below the one before it.
+func inKindGroups(tui *model, first string, want ...string) bool {
+	at := lineIndex(tui, 0, first)
+	for _, s := range want {
+		at = lineIndex(tui, at+1, s)
+		if at < 0 {
+			return false
+		}
+	}
+
+	return true
+}
+
+func TestMembersAndTheAddListAreGroupedByKind(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	machine.Plugin("github@official", "user", "")
+	machine.Plugin("atlas@official", "user", "")
+	machine.Preset("Ruby", "id = \"r1\"\nskills = [\"lint\"]\nplugins = [\"github@official\"]\n")
+	tui := newModel(t, machine)
+
+	press(tui, key('p'))
+
+	if !inKindGroups(tui, "Members of Ruby", "skill", "lint", "plugin", "github@official") {
+		t.Errorf("members are not grouped by kind:\n%s", tui.View().Content)
+	}
+
+	press(tui, key('a'))
+
+	if !inKindGroups(tui, "Add to Ruby", "skill", "docs", "review", "plugin", "atlas@official") {
+		t.Errorf("the add list is not grouped by kind:\n%s", tui.View().Content)
 	}
 }
 
