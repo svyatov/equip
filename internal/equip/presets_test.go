@@ -266,7 +266,7 @@ func TestSessionTotalCountsOnlyWhatActivePresetsTurnOn(t *testing.T) {
 
 	session.SetPresets([]string{"r1"})
 
-	if got := session.View().Totals[equip.ClaudeCode]; got != lint {
+	if got := session.View().Totals[equip.ClaudeCode].Tokens; got != lint {
 		t.Errorf("Claude Code total = %d, want lint's %d", got, lint)
 	}
 }

@@ -138,7 +138,7 @@ func (m *model) View() tea.View {
 	}
 
 	for _, agent := range equip.Agents() {
-		top = append(top, agent.String()+" "+totalOf(session, agent))
+		top = append(top, agent.String()+" "+totalOf(session.Totals[agent]))
 	}
 
 	if session.Unsaved > 0 {

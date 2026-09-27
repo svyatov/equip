@@ -321,7 +321,7 @@ func TestPreviewShowsWhatTheWriteChangesInTheSavedStatesAndWritesNothing(t *test
 		t.Errorf("review = %s, then %s after the write; want off, then on", was.State, got.State)
 	}
 
-	if got, was := after.Totals[equip.ClaudeCode], before.Totals[equip.ClaudeCode]; got <= was {
+	if got, was := after.Totals[equip.ClaudeCode].Tokens, before.Totals[equip.ClaudeCode].Tokens; got <= was {
 		t.Errorf("Claude Code total after the write = %d, want more than %d", got, was)
 	}
 

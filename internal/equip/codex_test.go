@@ -597,18 +597,18 @@ func TestOffCodexPluginCostsNothingOnlyWhereCodexAppliesIt(t *testing.T) {
 	session.SetState("github@official", equip.Off)
 
 	// Codex still loads it: its skill, the skills intro and the plugins block.
-	if got := session.View(); row(t, got, "github@official").Cost != 8 || got.Totals[equip.Codex] != 958 {
+	if got := session.View(); row(t, got, "github@official").Cost != 8 || got.Totals[equip.Codex].Tokens != 958 {
 		t.Errorf("untrusted: Cost = %d, Codex total = %d, want 8 and 958",
-			row(t, got, "github@official").Cost, got.Totals[equip.Codex])
+			row(t, got, "github@official").Cost, got.Totals[equip.Codex].Tokens)
 	}
 
 	trust(t, machine, repo)
 	session = newSession(t, machine, repo)
 	session.SetState("github@official", equip.Off)
 
-	if got := session.View(); row(t, got, "github@official").Cost != 0 || got.Totals[equip.Codex] != 0 {
+	if got := session.View(); row(t, got, "github@official").Cost != 0 || got.Totals[equip.Codex].Tokens != 0 {
 		t.Errorf("trusted: Cost = %d, Codex total = %d, want 0 and 0",
-			row(t, got, "github@official").Cost, got.Totals[equip.Codex])
+			row(t, got, "github@official").Cost, got.Totals[equip.Codex].Tokens)
 	}
 }
 
@@ -619,8 +619,9 @@ func TestPluginOffInTheCodexUserConfigCostsNothingInAnUntrustedProject(t *testin
 	machine.Skill(filepath.Join(machine.CodexPlugin("github@official"), "skills"), "review")
 	writeFile(t, machine.CodexConfig(), "[plugins.\"github@official\"]\nenabled = false\n")
 
-	if got := open(t, machine, repo); row(t, got, "github@official").Cost != 0 || got.Totals[equip.Codex] != 0 {
-		t.Errorf("Cost = %d, Codex total = %d, want 0 and 0", row(t, got, "github@official").Cost, got.Totals[equip.Codex])
+	if got := open(t, machine, repo); row(t, got, "github@official").Cost != 0 || got.Totals[equip.Codex].Tokens != 0 {
+		t.Errorf("Cost = %d, Codex total = %d, want 0 and 0",
+			row(t, got, "github@official").Cost, got.Totals[equip.Codex].Tokens)
 	}
 }
 
@@ -653,7 +654,7 @@ func TestCodexTotalCountsThePluginsBlockOnce(t *testing.T) {
 
 	// The block is about 1,000 bytes: 250 tokens.
 	want := map[equip.Agent]int{equip.ClaudeCode: 0, equip.Codex: 250}
-	if got := open(t, machine, repo).Totals; !maps.Equal(got, want) {
+	if got := totalTokens(open(t, machine, repo)); !maps.Equal(got, want) {
 		t.Errorf("Totals = %v, want %v", got, want)
 	}
 }

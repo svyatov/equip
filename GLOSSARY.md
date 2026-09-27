@@ -67,6 +67,10 @@ _Avoid_: Filter, category
 The most an agent puts into a session for its skill listing. Past it, the agent shortens or drops what it lists.
 _Avoid_: Cap, limit
 
+**Total**:
+The estimated tokens an agent puts into each session of a project from the extensions that are on. It is partial while an MCP server that is on has not been measured.
+_Avoid_: Usage, context size
+
 ## Relationships
 
 - A **Plugin** contains zero or more **Skills** and **MCP servers**, its **Contents**
@@ -81,3 +85,4 @@ _Avoid_: Cap, limit
 - A **Preset** keeps its identity when renamed, so every **Project** that uses it still does
 - A **Preset** changed or deleted outside equip applies to a **Project** once the user saves there; it never becomes an **Override**
 - A **Project** keeps its **Presets** and **Overrides** when its repository moves
+- A **Project** has one **Total** per **Agent**, over its **Listing budget** when the skills that are on list past it
