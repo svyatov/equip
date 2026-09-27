@@ -1,0 +1,73 @@
+name: Bug report
+description: equip listed, measured, or saved an extension wrong
+labels: [bug, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        equip reads what Claude Code and Codex would load from their own configuration files, so most reports turn on which agent, which version, and what the file says. This form asks for all three.
+
+        For a security vulnerability, do not file here. Use [Report a vulnerability](https://github.com/svyatov/equip/security/advisories/new) instead.
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: What should have happened
+      description: What the agent itself loads or shows, if you checked it there.
+    validations:
+      required: true
+
+  - type: textarea
+    id: happened
+    attributes:
+      label: What happened instead
+      description: What equip showed or wrote. A screenshot of the TUI helps; drag it into this box.
+    validations:
+      required: true
+
+  - type: textarea
+    id: extension
+    attributes:
+      label: The extension and its configuration
+      description: The skill, plugin, or MCP server involved, the file it is configured in, and the relevant part of that file. Redact values, not structure.
+      render: text
+    validations:
+      required: true
+
+  - type: dropdown
+    id: agent
+    attributes:
+      label: Agent
+      description: Which agent's view of the extension is wrong.
+      options:
+        - Claude Code
+        - Codex
+        - Both
+    validations:
+      required: true
+
+  - type: input
+    id: agent-version
+    attributes:
+      label: Agent version
+      description: The output of `claude --version`, `codex --version`, or both. Free text, because the agents ship faster than equip releases.
+      placeholder: 2.1.282 (Claude Code)
+    validations:
+      required: true
+
+  - type: input
+    id: version
+    attributes:
+      label: equip version
+      description: The output of `equip --version`, or the commit SHA if you built from source.
+    validations:
+      required: true
+
+  - type: input
+    id: platform
+    attributes:
+      label: OS and architecture
+      description: CI covers Linux and macOS, and paths, symlinks, and permissions differ between them.
+      placeholder: macOS 15.5 arm64
+    validations:
+      required: true
