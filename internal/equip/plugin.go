@@ -3,7 +3,6 @@ package equip
 import (
 	"cmp"
 	"encoding/json"
-	"maps"
 	"os"
 	"path/filepath"
 	"slices"
@@ -59,13 +58,8 @@ func discoverPlugins(machine Machine, project Project, sharedSettings []settings
 		return nil, err
 	}
 
-	// Claude Code merges enabledPlugins key by key; the project's shared
-	// settings win over the user's. The local file is equip's to write.
-	defaults := map[string]json.RawMessage{}
-
-	for _, settings := range sharedSettings {
-		maps.Copy(defaults, settings.entries[Plugin])
-	}
+	// The local file is equip's to write.
+	defaults := sharedEntries(sharedSettings, Plugin)
 
 	exts := make([]Extension, 0, len(installed.Plugins))
 
@@ -151,13 +145,15 @@ func pluginSkills(agent Agent, dir, name string) []Content {
 	entries, _ := os.ReadDir(skills) // a plugin may have no skills
 
 	for _, entry := range entries {
-		data, err := os.ReadFile(filepath.Join(skills, entry.Name(), "SKILL.md")) //nolint:gosec // equip builds the path
+		dir := filepath.Join(skills, entry.Name())
+
+		data, err := os.ReadFile(filepath.Join(dir, "SKILL.md")) //nolint:gosec // equip builds the path
 		if err != nil {
 			continue
 		}
 
 		// Both agents list it under the plugin's name.
-		cost := skillCost(agent, name+":"+entry.Name(), data)
+		cost := skillCost(agent, dir, name+":"+entry.Name(), data)
 		contents = append(contents, Content{
 			Key: "", Name: entry.Name(), Description: field(data, "description"), Kind: Skill, State: On, Override: false,
 			Unsaved: false, ChangedOutside: false, ChangedIn: ClaudeCode, CostUnknown: false, Unmeasurable: "",
@@ -195,7 +191,7 @@ func listingCost(dir, name string) int {
 			}
 
 			data, _ := os.ReadFile(filepath.Join(dir, sub, entry.Name())) //nolint:gosec // equip builds the path
-			cost += skillCost(ClaudeCode, name+":"+stem, data)
+			cost += skillCost(ClaudeCode, "", name+":"+stem, data)
 		}
 	}
 

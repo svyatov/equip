@@ -14,9 +14,15 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 
 ## [Unreleased]
 
+### Added
+
+- Each skill of a plugin has a row of its own in the list, named by the skill with its plugin greyed after it, and the `Skills` and `By name` facets count it. It follows its plugin: the state keys say so and change nothing, `enter` moves to the plugin, and a search for the plugin's name finds its skills.
+
 ### Fixed
 
 - A legacy MCP server that quits on `server/discover` is started again for `initialize`, so it gets measured.
+- A skill whose `agents/openai.yaml` sets `allow_implicit_invocation: false` costs nothing in Codex, which leaves it out of its listing, where equip counted its tokens.
+- A skill set to `user-invocable-only` or `off` in the `skillOverrides` of `~/.claude/settings.json` or the project's `.claude/settings.json` takes that state by default, where it showed as on.
 
 - The TUI fits the terminal. The key help stays on the bottom line, the list and the detail pane scroll to keep the highlight on screen, and a line says how many more rows are below. Below 100 columns the facet sidebar hides and `[ ]` still switches facets. `pgup`, `pgdn`, `home`, and `end` move by a page or to the ends.
 - The top line wraps where it was cut, so a narrow terminal still shows each agent's total and the unsaved count, and a long project path is cut from its start.
@@ -28,7 +34,8 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 - The keys follow vim. `h`, `l`, the arrows, `tab`, and `enter` move between the facet sidebar, the list, and the detail pane, and the focused pane has a coloured border. `j` and `k` pick a facet in the sidebar, move in the list, and move among a plugin's MCP servers or scroll the detail pane. `g` and `G` jump to the ends, `ctrl+d` and `ctrl+u` move half a page, and `space` cycles the state. `?` lists every key. In the presets workspace, `h` and `l` move between the library and the members.
 - The TUI uses the Catppuccin Mocha colours, with a colour per state, per kind, and per agent.
 - The top line counts the MCP servers a total leaves out until they are measured, as in `+ 4 MCP unmeasured`, and says `skills over budget` where it said `over budget`. A cost not measured yet reads `?` in the list and `unmeasured` in the detail pane, where it read `unknown`. The project path writes the home directory as `~`.
-- A skill whose `SKILL.md` sets `disable-model-invocation` reads `by name` in place of `~0`, greyed out, and the new `By name` facet lists these skills and the plugins made only of them. The detail pane says it costs none.
+- A skill that no agent that has it calls on its own reads `by name` in place of `~0`, greyed out, and the new `By name` facet lists these skills and the plugins made only of them. The detail pane says it costs none. Claude Code reads `disable-model-invocation` in its `SKILL.md`, and Codex reads `allow_implicit_invocation` in its `agents/openai.yaml`.
+- A manual-only skill's row is greyed out too, and its cost reads `manual-only` when no agent lists it.
 - The manual-only glyph is `◉` where it was `◐`, which the common coding fonts lack, so terminals drew it wider from another font.
 - The TUI has a retro look: the logo in ANSI shades, pane titles set into the borders, key caps in the footer, and a bar of each cost's size. The list keeps the search in its border, so it shows one more row, and says how many rows are above as well as below. A plugin's `@marketplace` is dimmed and cut before its name. The sidebar counts the rows the search keeps in each facet, and a legend of the marks sits at its foot when there is room.
 - The detail pane wraps long notes, writes paths with `~`, and lines up a plugin's contents in columns.

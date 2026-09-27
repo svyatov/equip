@@ -26,13 +26,13 @@ func TestFirstOpenImportsHandSetStatesAsOverrides(t *testing.T) {
 
 	want := []equip.Row{
 		{
-			Key: "docs", Name: "docs", Kind: equip.Skill,
+			Key: "docs", Name: "docs", Plugin: "", Kind: equip.Skill,
 			Cost: 0, CostUnknown: false, ByName: false, State: equip.ManualOnly, Override: true,
 			Fallback: equip.On, Unsaved: false,
 			ChangedOutside: false,
 		},
 		{
-			Key: "review", Name: "review", Kind: equip.Skill,
+			Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 			Cost: 0, CostUnknown: false, ByName: false, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: false,
 			ChangedOutside: false,
 		},
@@ -79,7 +79,7 @@ func TestQuittingWithoutSavingLeavesHandEditsToImportAgain(t *testing.T) {
 	}
 
 	want := equip.Row{
-		Key: "review", Name: "review", Kind: equip.Skill,
+		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 		Cost: 8, CostUnknown: false, ByName: false, State: equip.On, Override: true, Fallback: equip.On, Unsaved: true,
 		ChangedOutside: true,
 	}
@@ -100,7 +100,7 @@ func TestSaveKeepsAnImportAndClearsItsNote(t *testing.T) {
 	save(t, session)
 
 	want := equip.Row{
-		Key: "review", Name: "review", Kind: equip.Skill,
+		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 		Cost: 8, CostUnknown: false, ByName: false, State: equip.On, Override: true, Fallback: equip.On, Unsaved: false,
 		ChangedOutside: false,
 	}
@@ -137,7 +137,7 @@ func TestEntryMissingOnDiskShowsTheRecordStateUnsaved(t *testing.T) {
 	view := newSession(t, machine, repo).View()
 
 	want := equip.Row{
-		Key: "review", Name: "review", Kind: equip.Skill,
+		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 		Cost: 0, CostUnknown: false, ByName: false, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true,
 		ChangedOutside: false,
 	}
@@ -173,7 +173,7 @@ func TestEntryChangedOnDiskIsImportedAsAnUnsavedOverride(t *testing.T) {
 			view := newSession(t, machine, repo).View()
 
 			want := equip.Row{
-				Key: "review", Name: "review", Kind: equip.Skill,
+				Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 				Cost: testCase.cost, CostUnknown: false, ByName: false, State: testCase.want, Override: true, Fallback: equip.On,
 				Unsaved: true, ChangedOutside: true,
 			}
@@ -217,13 +217,13 @@ func TestSaveAfterAnOutsideChangeWritesNothingAndImportsIt(t *testing.T) {
 
 	want := []equip.Row{
 		{
-			Key: "docs", Name: "docs", Kind: equip.Skill,
+			Key: "docs", Name: "docs", Plugin: "", Kind: equip.Skill,
 			Cost: 0, CostUnknown: false, ByName: false, State: equip.ManualOnly, Override: true,
 			Fallback: equip.On, Unsaved: true,
 			ChangedOutside: false,
 		},
 		{
-			Key: "review", Name: "review", Kind: equip.Skill,
+			Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 			Cost: 8, CostUnknown: false, ByName: false, State: equip.On, Override: true, Fallback: equip.On, Unsaved: true,
 			ChangedOutside: true,
 		},
@@ -263,7 +263,7 @@ func TestNameOnlyOnDiskMatchesARecordedOn(t *testing.T) {
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "name-only"}}`)
 
 	want := equip.Row{
-		Key: "review", Name: "review", Kind: equip.Skill,
+		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 		Cost: 8, CostUnknown: false, ByName: false, State: equip.On, Override: true, Fallback: equip.On, Unsaved: false,
 		ChangedOutside: false,
 	}
@@ -291,7 +291,7 @@ func TestSaveAfterAnImportIsRemovedOutsideDropsIt(t *testing.T) {
 	}
 
 	want := equip.Row{
-		Key: "review", Name: "review", Kind: equip.Skill,
+		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 		Cost: 8, CostUnknown: false, ByName: false, State: equip.On, Override: false, Fallback: equip.On, Unsaved: false,
 		ChangedOutside: false,
 	}
@@ -319,7 +319,7 @@ func TestSaveAfterAnOutsideRemovalWritesNothing(t *testing.T) {
 	}
 
 	want := equip.Row{
-		Key: "review", Name: "review", Kind: equip.Skill,
+		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 		Cost: 0, CostUnknown: false, ByName: false, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true,
 		ChangedOutside: false,
 	}
@@ -365,7 +365,7 @@ func TestSaveAfterAnOutsideChangeBackShowsTheRecordState(t *testing.T) {
 	}
 
 	want := equip.Row{
-		Key: "review", Name: "review", Kind: equip.Skill,
+		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 		Cost: 0, CostUnknown: false, ByName: false, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: false,
 		ChangedOutside: false,
 	}
@@ -390,7 +390,7 @@ func TestSaveMarksAPendingToggleReplacedByAnOutsideChange(t *testing.T) {
 	}
 
 	want := equip.Row{
-		Key: "review", Name: "review", Kind: equip.Skill,
+		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 		Cost: 0, CostUnknown: false, ByName: false, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true,
 		ChangedOutside: true,
 	}

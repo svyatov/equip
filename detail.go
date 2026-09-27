@@ -83,6 +83,10 @@ func (m *model) note(text string, style lipgloss.Style, width int) []string {
 // origin is where the state of row comes from in view, with why it changed
 // outside equip, its lines wrapped at width.
 func (m *model) origin(view equip.View, row equip.Row, ext equip.Detail, width int) []string {
+	if row.Follows() {
+		return []string{m.field("Origin", "follows "+row.Plugin)}
+	}
+
 	var lines []string
 
 	origin := "default"
@@ -162,9 +166,9 @@ func (m *model) detail(view equip.View, row equip.Row, ext equip.Detail, server 
 
 // states are the detail pane lines of the states of ext to pick from, with
 // the one of row marked. The presets workspace leaves them out, as its keys
-// do not set them.
+// do not set them, and so does a plugin's skill, which has none.
 func (m *model) states(row equip.Row, ext equip.Detail) []string {
-	if m.ws.open {
+	if m.ws.open || len(ext.States) == 0 {
 		return nil
 	}
 
@@ -266,7 +270,7 @@ func (m *model) contents(contents []equip.Content, key string, width int) ([]str
 
 	for i, content := range contents {
 		names[i] = m.contentName(content)
-		costs[i] = m.costCell(content.ByName, content.CostUnknown, content.Cost)
+		costs[i] = m.costCell(content.State, content.ByName, content.CostUnknown, content.Cost)
 		kindWidth = max(kindWidth, len(content.Kind.String()))
 		nameWidth = max(nameWidth, lipgloss.Width(names[i]))
 		costWidth = max(costWidth, lipgloss.Width(costs[i]))

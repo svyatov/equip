@@ -340,9 +340,30 @@ func merge(exts, more []Extension) []Extension {
 		maps.Copy(exts[same].cost, ext.cost)
 		maps.Copy(exts[same].fallback, ext.fallback)
 		maps.Copy(exts[same].config, ext.config)
+		exts[same].contents = mergeContents(exts[same].contents, ext.contents)
 	}
 
 	return exts
+}
+
+// mergeContents adds more, one agent's contents of a plugin, to contents,
+// another agent's. A skill both have costs the higher of its two costs, and
+// is a By-name skill only when it is one in both.
+func mergeContents(contents, more []Content) []Content {
+	for _, content := range more {
+		same := slices.IndexFunc(contents, func(c Content) bool { return c.Kind == content.Kind && c.Name == content.Name })
+		if same < 0 {
+			contents = append(contents, content)
+
+			continue
+		}
+
+		contents[same].Cost = max(contents[same].Cost, content.Cost)
+		contents[same].ByName = contents[same].ByName && content.ByName
+		contents[same].Description = cmp.Or(contents[same].Description, content.Description)
+	}
+
+	return contents
 }
 
 // codexPluginDir is the dir of the plugin key in the Codex plugin cache, or

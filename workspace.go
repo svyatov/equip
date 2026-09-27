@@ -425,8 +425,9 @@ func (m *model) current(presets []equip.Preset) (equip.Preset, bool) {
 // that is not a member, by kind, that the search keeps.
 func (m *model) candidates(preset equip.Preset) []equip.Row {
 	query := strings.ToLower(m.ws.query)
+	// A plugin's skill follows its plugin, so no preset names it.
 	rows := slices.DeleteFunc(m.s.View().Rows, func(row equip.Row) bool {
-		return !strings.Contains(strings.ToLower(row.Name), query) ||
+		return row.Follows() || !strings.Contains(strings.ToLower(row.Name), query) ||
 			slices.ContainsFunc(preset.Members, func(member equip.Member) bool {
 				return member.Key == row.Key && !member.Removed
 			})
@@ -646,7 +647,7 @@ func (m *model) memberLine(member equip.Member, width int) string {
 		name += m.style.warn.Render(" ovr")
 	}
 
-	cost := m.costCell(member.ByName, member.CostUnknown, member.Cost)
+	cost := m.costCell(member.State, member.ByName, member.CostUnknown, member.Cost)
 
 	return fit(m.glyph(member.State)+" "+edit+" "+name, width-lipgloss.Width(cost)) + cost
 }

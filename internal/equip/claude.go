@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -93,6 +94,18 @@ func readSharedSettings(machine Machine, project Project) ([]settingsFile, error
 	}
 
 	return sharedSettings, nil
+}
+
+// sharedEntries are the entries of kind in sharedSettings as Claude Code
+// merges them, key by key: the project's shared settings win over the user's.
+func sharedEntries(sharedSettings []settingsFile, kind Kind) map[string]json.RawMessage {
+	entries := map[string]json.RawMessage{}
+
+	for _, settings := range sharedSettings {
+		maps.Copy(entries, settings.entries[kind])
+	}
+
+	return entries
 }
 
 // readClaude reads the states Claude Code has for exts in the Project. A

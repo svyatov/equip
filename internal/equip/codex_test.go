@@ -589,6 +589,56 @@ func TestCodexPluginCostsItsSkillsListedUnderItsName(t *testing.T) {
 	}
 }
 
+func TestCodexPluginSkillThatDisallowsImplicitInvocationIsByName(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	skill := machine.Skill(filepath.Join(codexPlugin(t, machine, "grill-me@tk"), "skills"), "grill-me")
+	writeFile(t, filepath.Join(skill, "agents", "openai.yaml"), "policy:\n  allow_implicit_invocation: false\n")
+	session := newSession(t, machine, repo)
+
+	if got := row(t, session.View(), "grill-me@tk"); got.Cost != 0 || !got.ByName {
+		t.Errorf("Cost = %d, ByName = %v, want 0 and true", got.Cost, got.ByName)
+	}
+
+	if got := session.Detail("grill-me@tk").Contents[0].ByName; !got {
+		t.Error("the skill's ByName = false, want true")
+	}
+}
+
+func TestPluginSkillBothAgentsHaveIsByNameOnlyWhenBothCallItByName(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	claude := filepath.Join(machine.Plugin("github@official", "user", ""), "skills")
+	codex := filepath.Join(codexPlugin(t, machine, "github@official"), "skills")
+	// Claude Code only calls ship by name; Codex lists it: "github:ship" and
+	// "x", 12 bytes, 3 tokens.
+	writeFile(t, filepath.Join(claude, "ship", "SKILL.md"),
+		"---\nname: ship\ndescription: x\ndisable-model-invocation: true\n---\n")
+	writeFile(t, filepath.Join(codex, "ship", "SKILL.md"), "---\nname: ship\ndescription: x\n---\n")
+	// Both only call lint by name.
+	writeFile(t, filepath.Join(claude, "lint", "SKILL.md"),
+		"---\nname: lint\ndescription: x\ndisable-model-invocation: true\n---\n")
+	machine.Skill(codex, "lint")
+	writeFile(t, filepath.Join(codex, "lint", "agents", "openai.yaml"), "policy:\n  allow_implicit_invocation: false\n")
+	// Only Codex has scan.
+	machine.Skill(codex, "scan")
+
+	view := newSession(t, machine, repo).View()
+	if got := row(t, view, "ship"); got.ByName || got.Cost != 3 {
+		t.Errorf("ship: ByName = %v, Cost = %d, want false and Codex's 3", got.ByName, got.Cost)
+	}
+
+	if got := row(t, view, "lint"); !got.ByName {
+		t.Error("lint: ByName = false, want true")
+	}
+
+	if got := row(t, view, "scan"); got.Plugin != "github@official" {
+		t.Errorf("scan: Plugin = %q, want github@official", got.Plugin)
+	}
+}
+
 func TestOffCodexPluginCostsNothingOnlyWhereCodexAppliesIt(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)

@@ -141,6 +141,8 @@ func discover(machine Machine, project Project, dir string, codex codexConfig) (
 		return nil, err
 	}
 
+	inv.takeDefaults(sharedSettings)
+
 	exts, err := discoverPlugins(machine, project, sharedSettings)
 	if err != nil {
 		return nil, err
@@ -212,7 +214,7 @@ func (inv *inventory) add(agent Agent, root string) int {
 
 		// Claude Code loads the first Location of a skill; Codex lists every one.
 		if agent == Codex || !ext.has(agent) {
-			ext.cost[agent] += skillCost(agent, entry.Name(), data)
+			ext.cost[agent] += skillCost(agent, path, entry.Name(), data)
 		}
 
 		ext.Description = cmp.Or(ext.Description, field(data, "description"))
@@ -220,6 +222,17 @@ func (inv *inventory) add(agent Agent, root string) int {
 	}
 
 	return found
+}
+
+// takeDefaults sets each skill's Claude Code default to its skillOverrides
+// entry in sharedSettings. The local file is equip's to write.
+func (inv *inventory) takeDefaults(sharedSettings []settingsFile) {
+	defaults := sharedEntries(sharedSettings, Skill)
+	for key, skill := range inv.byKey {
+		if st, ok := skillState(defaults[key]); ok {
+			skill.fallback[ClaudeCode] = st
+		}
+	}
 }
 
 // missing reports whether root, which failed to list with err, counts as
@@ -230,11 +243,11 @@ func (inv *inventory) missing(root string, err error) bool {
 		root != inv.required && (errors.Is(err, fs.ErrPermission) || errors.Is(err, syscall.ENOTDIR))
 }
 
-// skillCost estimates the tokens the skill named name, with SKILL.md skill,
-// puts into agent's sessions when on.
-func skillCost(agent Agent, name string, skill []byte) int {
-	// Claude Code lists no skill the model cannot call.
-	if agent == ClaudeCode && field(skill, "disable-model-invocation") == "true" {
+// skillCost estimates the tokens the skill named name in dir, with SKILL.md
+// skill, puts into agent's sessions when on.
+func skillCost(agent Agent, dir, name string, skill []byte) int {
+	// Neither agent lists a skill the model cannot call.
+	if agent == ClaudeCode && field(skill, "disable-model-invocation") == "true" || agent == Codex && !implicit(dir) {
 		return 0
 	}
 
@@ -301,6 +314,18 @@ func field(skill []byte, key string) string {
 	}
 
 	return ""
+}
+
+// implicit reports whether Codex may call the skill in dir on its own, as its
+// agents/openai.yaml allows unless it says otherwise.
+// ponytail: a line match, not YAML, and blind to which table holds the key;
+// take a YAML parser once the file needs more.
+func implicit(dir string) bool {
+	data, _ := os.ReadFile(filepath.Join(dir, "agents", "openai.yaml")) //nolint:gosec // equip builds the path
+
+	return !slices.ContainsFunc(strings.Split(string(data), "\n"), func(line string) bool {
+		return strings.TrimSpace(line) == "allow_implicit_invocation: false"
+	})
 }
 
 // yamlString reads the YAML string value, followed by the lines after it.

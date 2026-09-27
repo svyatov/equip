@@ -22,7 +22,7 @@ An extension that bundles other extensions and comes from a marketplace.
 An extension that gives an agent tools over the Model Context Protocol.
 
 **Content**:
-A skill or MCP server that a plugin contains. A skill among a plugin's contents has no key of its own and follows its plugin.
+A skill or MCP server that a plugin contains. A skill among a plugin's contents has a row in the list but no state or key of its own: it follows its plugin, and no Preset or Override names it.
 _Avoid_: Component, part
 
 **Marketplace**:
@@ -44,7 +44,7 @@ The state of a skill that the user can call by name but that puts nothing into t
 _Avoid_: User-invocable-only, explicit-only
 
 **By-name skill**:
-A skill whose `SKILL.md` stops the agent from calling it on its own, so only a call by its name loads it. It puts nothing into the session's context in any state.
+A skill whose own files stop each agent that has it from calling it on its own (`SKILL.md` for Claude Code, `agents/openai.yaml` for Codex), so only a call by its name loads it. It puts nothing into the session's context in any state.
 _Avoid_: Explicit-only, manual skill
 
 **Preset**:
@@ -64,7 +64,7 @@ A Record whose path no longer exists. A Project's first open offers to adopt an 
 _Avoid_: Stale record, leftover
 
 **Facet**:
-A way to narrow the list of extensions by kind, agent, state, or change, shown with the count of extensions it keeps.
+A way to narrow the list of extensions by kind, agent, state, or change, shown with the count of rows it keeps.
 _Avoid_: Filter, category
 
 **Listing budget**:

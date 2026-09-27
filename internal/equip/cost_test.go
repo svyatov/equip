@@ -231,9 +231,15 @@ func TestSkillOnlyItsNameCallsIsByName(t *testing.T) {
 		"---\nname: both\ndescription: x\ndisable-model-invocation: true\n---\n")
 	writeFile(t, filepath.Join(machine.ClaudeSkills(), "both", "SKILL.md"),
 		"---\nname: both\ndescription: x\ndisable-model-invocation: true\n---\n")
+	// Each agent's own file keeps it from calling this one.
+	writeFile(t, filepath.Join(machine.ClaudeSkills(), "flagged", "SKILL.md"),
+		"---\nname: flagged\ndescription: x\ndisable-model-invocation: true\n---\n")
+	machine.Skill(machine.CodexSkills(), "flagged")
+	writeFile(t, filepath.Join(machine.CodexSkills(), "flagged", "agents", "openai.yaml"),
+		"policy:\n  allow_implicit_invocation: false\n")
 
 	view := open(t, machine, machine.Root)
-	for name, want := range map[string]bool{"abc": true, "listed": false, "both": false} {
+	for name, want := range map[string]bool{"abc": true, "listed": false, "both": false, "flagged": true} {
 		if got := row(t, view, name).ByName; got != want {
 			t.Errorf("%s: ByName = %v, want %v", name, got, want)
 		}
@@ -249,6 +255,26 @@ func TestSkillThatDisablesModelInvocationKeepsItsCostInCodex(t *testing.T) {
 
 	if got := row(t, open(t, machine, machine.Root), "abc").Cost; got != 8 {
 		t.Errorf("Cost = %d, want 8", got)
+	}
+}
+
+func TestCodexSkillThatDisallowsImplicitInvocationIsByName(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.CodexSkills(), "quiet")
+	writeFile(t, filepath.Join(machine.CodexSkills(), "quiet", "agents", "openai.yaml"),
+		"interface:\n  display_name: \"Quiet\"\npolicy:\n  allow_implicit_invocation: false\n")
+	machine.Skill(machine.CodexSkills(), "loud")
+	writeFile(t, filepath.Join(machine.CodexSkills(), "loud", "agents", "openai.yaml"),
+		"policy:\n  allow_implicit_invocation: true\n")
+
+	view := open(t, machine, machine.Root)
+	if got := row(t, view, "quiet"); got.Cost != 0 || !got.ByName {
+		t.Errorf("quiet: Cost = %d, ByName = %v, want 0 and true", got.Cost, got.ByName)
+	}
+
+	if got := row(t, view, "loud"); got.Cost == 0 || got.ByName {
+		t.Errorf("loud: Cost = %d, ByName = %v, want a cost and false", got.Cost, got.ByName)
 	}
 }
 

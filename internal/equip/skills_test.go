@@ -156,6 +156,56 @@ func TestSaveWritesNoClaudeCodeEntryForACodexOnlySkill(t *testing.T) {
 	}
 }
 
+func TestSkillDefaultsToItsStateInUserSettings(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+
+	for _, name := range []string{"review", "lint", "odd"} {
+		machine.Skill(machine.ClaudeSkills(), name)
+	}
+
+	writeFile(t, filepath.Join(machine.Home, ".claude", "settings.json"),
+		`{"skillOverrides": {"review": "user-invocable-only", "lint": "off", "odd": "bogus"}}`)
+
+	view := open(t, machine, repo)
+	for name, want := range map[string]equip.State{"review": equip.ManualOnly, "lint": equip.Off, "odd": equip.On} {
+		if got := row(t, view, name); got.State != want || got.Fallback != want || got.Override {
+			t.Errorf("%s: row = %+v, want %v with no Override", name, got, want)
+		}
+	}
+
+	if view.Unsaved != 0 {
+		t.Errorf("Unsaved = %d, want 0", view.Unsaved)
+	}
+}
+
+func TestSkillDefaultsToItsStateInProjectSettingsOverUserSettings(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	writeFile(t, filepath.Join(machine.Home, ".claude", "settings.json"), `{"skillOverrides": {"review": "off"}}`)
+	writeFile(t, filepath.Join(repo, ".claude", "settings.json"), `{"skillOverrides": {"review": "on"}}`)
+
+	if got := row(t, open(t, machine, repo), "review"); got.State != equip.On || got.Override {
+		t.Errorf("row = %+v, want on with no Override", got)
+	}
+}
+
+func TestSkillLocalSettingsWinOverSharedSettings(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	writeFile(t, filepath.Join(machine.Home, ".claude", "settings.json"), `{"skillOverrides": {"review": "off"}}`)
+	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "on"}}`)
+
+	if got := row(t, open(t, machine, repo), "review"); got.State != equip.On || got.Fallback != equip.Off {
+		t.Errorf("row = %+v, want on over an off default", got)
+	}
+}
+
 func TestSkillDirReachedTwiceIsOneLocation(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
