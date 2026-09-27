@@ -28,11 +28,15 @@ cd your-project
 equip             # opens the TUI on the project's extensions
 ```
 
-Each row shows a state glyph (`●` on, `◐` manual-only, `○` off), the extension's name, and its estimated tokens. The footer of the TUI lists the keys:
+Each row shows a state glyph (`●` on, `◉` manual-only, `○` off), the extension's name, and its estimated tokens, then a bar of their size (`▂▄▆█`). `?` marks an MCP server not measured yet. `by name` marks a skill whose `SKILL.md` sets `disable-model-invocation`: only a call by its name loads it, so it costs no tokens, and its row is greyed out. The `By name` facet lists them. The footer of the TUI lists the keys:
 
 ```text
-↑↓ move  [ ] facet  / search  1-3 set state  x drop override  m measure  tab MCP servers  p presets  s save  q quit
+j/k  move   h/l  pane   space  cycle state   m  measure   /  search   p  presets   s  save   ?  keys   q  quit
 ```
+
+The keys follow vim: `h` and `l` move between the facets, the list, and the detail pane, `g` and `G` jump to the ends, and `ctrl+d` and `ctrl+u` move half a page. `?` lists every key.
+
+The top line shows each agent's estimated tokens per session. On open, equip measures each MCP server you configured or installed with a plugin, and each project server you approved, by starting it in the background, and caches the result until its config changes. `+ 4 MCP unmeasured` says how many servers that are on the total still leaves out. equip does not start a server it would have to guess about: one built into the agent, or one whose command or `cwd` is a relative path. A server that refuses equip, for want of a login or because it runs only inside its agent, is not tried again until its config changes. The detail pane says why a server is not measured, and `m` tries one again. `skills over budget` means Codex's skill listing passes its budget, so Codex shortens or drops some skills.
 
 Changes stay unsaved until you press `s`. `equip --help` prints the usage.
 

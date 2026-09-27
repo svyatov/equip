@@ -579,7 +579,9 @@ func TestCodexPluginCostsItsSkillsListedUnderItsName(t *testing.T) {
 	want := []equip.Content{
 		{
 			Key: "", Name: "review", Description: "The review skill.", Kind: equip.Skill, State: equip.On, Cost: 8,
-			CostUnknown: false, Override: false, Unsaved: false, ChangedOutside: false, ChangedIn: equip.ClaudeCode,
+			CostUnknown: false, ByName: false, Override: false, Unsaved: false, ChangedOutside: false,
+			ChangedIn:    equip.ClaudeCode,
+			Unmeasurable: "",
 		},
 	}
 	if got := session.Detail("github@official").Contents; !slices.Equal(got, want) {

@@ -156,11 +156,12 @@ func pluginSkills(agent Agent, dir, name string) []Content {
 			continue
 		}
 
+		// Both agents list it under the plugin's name.
+		cost := skillCost(agent, name+":"+entry.Name(), data)
 		contents = append(contents, Content{
 			Key: "", Name: entry.Name(), Description: field(data, "description"), Kind: Skill, State: On, Override: false,
-			Unsaved: false, ChangedOutside: false, ChangedIn: ClaudeCode, CostUnknown: false,
-			// Both agents list it under the plugin's name.
-			Cost: skillCost(agent, name+":"+entry.Name(), data),
+			Unsaved: false, ChangedOutside: false, ChangedIn: ClaudeCode, CostUnknown: false, Unmeasurable: "",
+			Cost: cost, ByName: cost == 0, // a skill costs nothing only when its name alone calls it
 		})
 	}
 

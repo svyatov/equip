@@ -64,7 +64,7 @@ func run(args []string, stdout io.Writer) error {
 		return err
 	}
 
-	_, err = tea.NewProgram(newTUI(session)).Run()
+	_, err = tea.NewProgram(newTUI(session, machine.Home)).Run()
 	if err != nil {
 		return fmt.Errorf("run the TUI: %w", err)
 	}

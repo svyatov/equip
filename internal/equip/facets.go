@@ -44,6 +44,7 @@ func (s *Session) facets(rows []Row) []Facet {
 		{
 			{name: "All", has: func(Extension, Row) bool { return true }},
 			kindFacet("Skills", Skill), kindFacet("Plugins", Plugin), kindFacet("MCP servers", MCPServer),
+			{name: "By name", has: func(_ Extension, row Row) bool { return row.ByName }},
 		},
 		{onlyFacet(ClaudeCode), onlyFacet(Codex)},
 		{stateFacet("On", On), stateFacet("Manual-only", ManualOnly), stateFacet("Off", Off)},

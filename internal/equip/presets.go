@@ -55,7 +55,7 @@ type Member struct {
 // member is the member with key, as a preset file names it.
 func member(key string) Member {
 	return Member{
-		Key: key, Name: keyName(key), Kind: keyKind(key), Cost: 0, State: On, Fallback: On, CostUnknown: false,
+		Key: key, Name: keyName(key), Kind: keyKind(key), Cost: 0, State: On, Fallback: On, CostUnknown: false, ByName: false,
 		Override: false, Unsaved: false, ChangedOutside: false,
 		Installed: false, Added: false, Removed: false,
 	}

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -8,6 +9,7 @@ import (
 	"testing"
 
 	tea "charm.land/bubbletea/v2"
+	"charm.land/lipgloss/v2"
 
 	"github.com/svyatov/equip/internal/equip"
 	"github.com/svyatov/equip/internal/equiptest"
@@ -22,7 +24,7 @@ func presetModel(t *testing.T) *model {
 
 // topLine is the first line of the view.
 func topLine(tui *model) string {
-	top, _, _ := strings.Cut(tui.View().Content, "\n")
+	top, _, _ := strings.Cut(plain(tui), "\n")
 
 	return top
 }
@@ -46,13 +48,13 @@ func TestWorkspaceTopLineMarksTheSideOverBudget(t *testing.T) {
 	// Ruby turns the plugin off: its skill, 8, and the plugins block, 250.
 	press(tui, key('p'), key(' '))
 
-	if top := topLine(tui); !strings.Contains(top, "Codex ~6398 over budget → ~6140") {
+	if top := topLine(tui); !strings.Contains(top, "Codex ~6398, skills over budget → ~6140") {
 		t.Errorf("top line %q does not mark the total before over budget", top)
 	}
 
 	press(tui, esc(), key('s'), key('p'), key(' '))
 
-	if top := topLine(tui); !strings.Contains(top, "Codex ~6140 → ~6398 over budget") {
+	if top := topLine(tui); !strings.Contains(top, "Codex ~6140 → ~6398, skills over budget") {
 		t.Errorf("top line %q does not mark the total after over budget", top)
 	}
 }
@@ -68,14 +70,14 @@ func TestWriteConfirmMarksTheSideOverBudget(t *testing.T) {
 	press(tui, typed("github")...)
 	press(tui, enter(), key(' '), esc(), key('w'))
 
-	if line(tui, "Codex ~6140 → ~6398 over budget") == "" {
+	if line(tui, "Codex ~6140 → ~6398, skills over budget") == "" {
 		t.Errorf("confirm does not mark the total after over budget:\n%s", tui.View().Content)
 	}
 
 	// The members pane keeps lint highlighted; the plugin is two rows down.
 	press(tui, key('y'), down(), down(), key(' '), key('w'))
 
-	if line(tui, "Codex ~6398 over budget → ~6140") == "" {
+	if line(tui, "Codex ~6398, skills over budget → ~6140") == "" {
 		t.Errorf("confirm does not mark the total before over budget:\n%s", tui.View().Content)
 	}
 }
@@ -86,7 +88,7 @@ func TestPresetsKeyOpensTheLibrary(t *testing.T) {
 
 	press(tui, key('p'))
 
-	for _, want := range []string{"[ ] Ruby", "[ ] Writing", "rspec", "not installed"} {
+	for _, want := range []string{"○ Ruby", "○ Writing", "rspec", "not installed"} {
 		if line(tui, want) == "" {
 			t.Errorf("workspace does not show %q:\n%s", want, tui.View().Content)
 		}
@@ -103,7 +105,7 @@ func TestSpaceActivatesThePresetAndTheTopLineShowsTheEffect(t *testing.T) {
 
 	press(tui, key('p'), key(' '))
 
-	if line(tui, "[x] Ruby") == "" {
+	if line(tui, "● Ruby") == "" {
 		t.Errorf("workspace does not check Ruby:\n%s", tui.View().Content)
 	}
 
@@ -185,7 +187,7 @@ func TestMissingPresetShowsMissingAndCanOnlyBeToggled(t *testing.T) {
 	tui := newModel(t, machine)
 	press(tui, key('p'), key('d'))
 
-	if got := line(tui, "[x] Old"); !strings.Contains(got, "missing") {
+	if got := line(tui, "● Old"); !strings.Contains(got, "missing") {
 		t.Errorf("Old line %q, want it checked and missing:\n%s", got, tui.View().Content)
 	}
 
@@ -195,7 +197,7 @@ func TestMissingPresetShowsMissingAndCanOnlyBeToggled(t *testing.T) {
 
 	press(tui, key(' '))
 
-	if got := line(tui, "[ ] Old"); !strings.Contains(got, "missing") {
+	if got := line(tui, "○ Old"); !strings.Contains(got, "missing") {
 		t.Errorf("space on a missing preset did not uncheck it:\n%s", tui.View().Content)
 	}
 }
@@ -229,7 +231,7 @@ func TestSpaceRemovesOnlyTheHighlightedPreset(t *testing.T) {
 
 	press(tui, key('p'), key(' '), down(), key(' '), key('k'), key(' '))
 
-	if line(tui, "[ ] Ruby") == "" || line(tui, "[x] Writing") == "" {
+	if line(tui, "○ Ruby") == "" || line(tui, "● Writing") == "" {
 		t.Errorf("want only Writing active:\n%s", tui.View().Content)
 	}
 }
@@ -249,6 +251,89 @@ func enter() tea.KeyPressMsg { return tea.KeyPressMsg{Code: tea.KeyEnter} }
 func tab() tea.KeyPressMsg { return tea.KeyPressMsg{Code: tea.KeyTab} }
 
 func esc() tea.KeyPressMsg { return tea.KeyPressMsg{Code: tea.KeyEscape} }
+
+func TestWorkspaceFitsTheTerminalAndScrollsTheMembers(t *testing.T) {
+	t.Parallel()
+	machine := withSkills(t, 30)
+	machine.Preset("All", `id = "a1"`+"\nskills = [\"s"+strings.Join(names(30), `", "s`)+"\"]\n")
+	tui := newModel(t, machine)
+	resize(tui, 80, 20)
+
+	press(tui, key('p'), tab())
+
+	for range 29 {
+		press(tui, down())
+	}
+
+	if why := fits(tui, 80, 20); why != "" {
+		t.Errorf("workspace does not fit 80x20: %s\n%s", why, tui.View().Content)
+	}
+
+	if line(tui, "▸ ●   s29") == "" {
+		t.Errorf("highlighted s29 is off screen:\n%s", tui.View().Content)
+	}
+
+	lines := strings.Split(styleCodes.ReplaceAllString(tui.View().Content, ""), "\n")
+	if !strings.Contains(lines[len(lines)-1], "esc  back") {
+		t.Errorf("last line %q does not show esc back", lines[len(lines)-1])
+	}
+}
+
+func TestHAndLMoveTheKeysBetweenTheLibraryAndTheMembers(t *testing.T) {
+	t.Parallel()
+	tui := presetModel(t)
+
+	press(tui, key('p'), key('l'))
+
+	if !tui.ws.inMembers {
+		t.Error("l did not move the keys to the members")
+	}
+
+	press(tui, key('h'))
+
+	if tui.ws.inMembers {
+		t.Error("h did not move the keys back to the library")
+	}
+}
+
+func TestLeftColumnKeepsItsWidthAcrossScreens(t *testing.T) {
+	t.Parallel()
+	tui := presetModel(t)
+
+	// leftWidth is the width of the first pane, on the view's first border
+	// line.
+	leftWidth := func() int {
+		top := strings.Split(plain(tui), "\n")[lineIndex(tui, 0, "╭")]
+		before, _, _ := strings.Cut(top, "╮")
+
+		return lipgloss.Width(before) + 1
+	}
+
+	resize(tui, 160, 30)
+
+	main := leftWidth()
+
+	for _, width := range []int{160, 80} {
+		resize(tui, width, 30)
+		press(tui, key('p'))
+
+		if got := leftWidth(); got != main {
+			t.Errorf("library at width %d is %d cells, want the sidebar's %d", width, got, main)
+		}
+
+		press(tui, esc())
+	}
+}
+
+// names are the numbers 00 to count-1, two digits each.
+func names(count int) []string {
+	out := make([]string, 0, count)
+	for i := range count {
+		out = append(out, fmt.Sprintf("%02d", i))
+	}
+
+	return out
+}
 
 func TestNewPresetIsWrittenThenOfferedAsActiveHere(t *testing.T) {
 	t.Parallel()
@@ -276,7 +361,7 @@ func TestNewPresetIsWrittenThenOfferedAsActiveHere(t *testing.T) {
 
 	press(tui, key('y'))
 
-	if line(tui, "[x] Docs") == "" || !strings.Contains(topLine(tui), "active here: Docs") {
+	if line(tui, "● Docs") == "" || !strings.Contains(topLine(tui), "active here: Docs") {
 		t.Errorf("Docs is not active here:\n%s", tui.View().Content)
 	}
 }
@@ -293,7 +378,7 @@ func TestMovingOffAPresetWithUnwrittenEditsAsksToWriteOrDiscard(t *testing.T) {
 
 	press(tui, key('d'))
 
-	if line(tui, "Members of Writing") == "" || line(tui, "Ruby*") != "" || line(tui, "[ ] Ruby ") == "" {
+	if line(tui, "Members of Writing") == "" || line(tui, "Ruby*") != "" || line(tui, "○ Ruby ") == "" {
 		t.Errorf("d does not discard Ruby's edit and move on:\n%s", tui.View().Content)
 	}
 
@@ -427,7 +512,7 @@ func TestDeleteShowsTheError(t *testing.T) {
 
 	press(tui, key('d'), key('y'))
 
-	if line(tui, "delete failed: changed outside equip since open") == "" || line(tui, "[x] Ruby") == "" {
+	if line(tui, "delete failed: changed outside equip since open") == "" || line(tui, "● Ruby") == "" {
 		t.Errorf("view does not show the failed delete:\n%s", tui.View().Content)
 	}
 }
@@ -457,7 +542,8 @@ func TestMembersPaneMarksEditsAndOverrides(t *testing.T) {
 	}
 
 	// lint has an Override, and is removed: marked and struck through.
-	if lint := line(tui, "- lint ~0 ovr"); !strings.Contains(lint, "\x1b[9m") {
+	at := lineIndex(tui, 0, "- lint ovr")
+	if at < 0 || !strings.Contains(strings.Split(tui.View().Content, "\n")[at], "\x1b[9m") {
 		t.Errorf("members pane does not strike lint through:\n%s", tui.View().Content)
 	}
 }
@@ -469,7 +555,7 @@ func TestXInTheWorkspaceKeepsTheOverride(t *testing.T) {
 
 	press(tui, key('p'), key('x'), tab(), key('x'))
 
-	if line(tui, "lint ~0 ovr") == "" {
+	if line(tui, "lint ovr") == "" {
 		t.Errorf("x dropped lint's Override in the workspace:\n%s", tui.View().Content)
 	}
 }
@@ -504,7 +590,7 @@ func TestRenameAppliesAtOnce(t *testing.T) {
 	press(tui, typed("Rails")...)
 	press(tui, enter())
 
-	if line(tui, "[ ] Rails") == "" || line(tui, "Rails*") != "" || line(tui, "Members of Rails") == "" {
+	if line(tui, "○ Rails") == "" || line(tui, "Rails*") != "" || line(tui, "Members of Rails") == "" {
 		t.Errorf("r does not rename Ruby to Rails at once:\n%s", tui.View().Content)
 	}
 }
@@ -568,7 +654,7 @@ func TestANewPresetIsWrittenBeforeItCanBeActive(t *testing.T) {
 	press(tui, typed("Docs")...)
 	press(tui, enter(), key(' '))
 
-	if line(tui, "write the new preset first") == "" || line(tui, "[ ] Docs") == "" {
+	if line(tui, "write the new preset first") == "" || line(tui, "○ Docs") == "" {
 		t.Errorf("space makes a new preset active:\n%s", tui.View().Content)
 	}
 }
@@ -609,6 +695,17 @@ func TestSpaceAddsBackAMemberItRemoved(t *testing.T) {
 
 	if line(tui, "Ruby*") != "" || line(tui, "- ") != "" {
 		t.Errorf("space does not add lint back:\n%s", tui.View().Content)
+	}
+}
+
+func TestPresetsWithNoPresetSayWhatAPresetIs(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withSkills(t, 2))
+
+	press(tui, key('p'))
+
+	if line(tui, "A preset is") == "" {
+		t.Errorf("empty library does not say what a preset is:\n%s", plain(tui))
 	}
 }
 

@@ -14,6 +14,26 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 
 ## [Unreleased]
 
+### Fixed
+
+- A legacy MCP server that quits on `server/discover` is started again for `initialize`, so it gets measured.
+
+- The TUI fits the terminal. The key help stays on the bottom line, the list and the detail pane scroll to keep the highlight on screen, and a line says how many more rows are below. Below 100 columns the facet sidebar hides and `[ ]` still switches facets. `pgup`, `pgdn`, `home`, and `end` move by a page or to the ends.
+- The top line wraps where it was cut, so a narrow terminal still shows each agent's total and the unsaved count, and a long project path is cut from its start.
+- `s` says how many changes it saved.
+
+### Changed
+
+- equip measures MCP servers on open, in the background and four at a time, where it waited for `m` on each. It measures a server that is off too, as long as the user configured it or installed it with a plugin, or approved it in the project, so its cost is known before it is turned on. The top line counts the servers left, and the footer says how many could not be measured. equip skips a server it would have to guess about, one built into the agent or with a relative command or `cwd`, and does not try again a server that refused it, for want of a login or with an error of its own, until its config changes. The detail pane says why a server is not measured.
+- The keys follow vim. `h`, `l`, the arrows, `tab`, and `enter` move between the facet sidebar, the list, and the detail pane, and the focused pane has a coloured border. `j` and `k` pick a facet in the sidebar, move in the list, and move among a plugin's MCP servers or scroll the detail pane. `g` and `G` jump to the ends, `ctrl+d` and `ctrl+u` move half a page, and `space` cycles the state. `?` lists every key. In the presets workspace, `h` and `l` move between the library and the members.
+- The TUI uses the Catppuccin Mocha colours, with a colour per state, per kind, and per agent.
+- The top line counts the MCP servers a total leaves out until they are measured, as in `+ 4 MCP unmeasured`, and says `skills over budget` where it said `over budget`. A cost not measured yet reads `?` in the list and `unmeasured` in the detail pane, where it read `unknown`. The project path writes the home directory as `~`.
+- A skill whose `SKILL.md` sets `disable-model-invocation` reads `by name` in place of `~0`, greyed out, and the new `By name` facet lists these skills and the plugins made only of them. The detail pane says it costs none.
+- The manual-only glyph is `◉` where it was `◐`, which the common coding fonts lack, so terminals drew it wider from another font.
+- The TUI has a retro look: the logo in ANSI shades, pane titles set into the borders, key caps in the footer, and a bar of each cost's size. The list keeps the search in its border, so it shows one more row, and says how many rows are above as well as below. A plugin's `@marketplace` is dimmed and cut before its name. The sidebar counts the rows the search keeps in each facet, and a legend of the marks sits at its foot when there is room.
+- The detail pane wraps long notes, writes paths with `~`, and lines up a plugin's contents in columns.
+- The presets workspace says what a preset is when there are none, marks the active presets with `●`, lines up the costs of members and of the add list, and says `nothing matches` for an empty search. Its right pane no longer shows the state keys, which do nothing there.
+
 ## [0.1.1] - 2026-09-27
 
 ### Added

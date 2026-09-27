@@ -220,6 +220,26 @@ func TestSkillThatDisablesModelInvocationCostsNothingInClaudeCode(t *testing.T) 
 	}
 }
 
+func TestSkillOnlyItsNameCallsIsByName(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	writeFile(t, filepath.Join(machine.ClaudeSkills(), "abc", "SKILL.md"),
+		"---\nname: abc\ndescription: x\ndisable-model-invocation: true\n---\n")
+	machine.Skill(machine.ClaudeSkills(), "listed")
+	// Codex does not read the key, so it lists this one.
+	writeFile(t, filepath.Join(machine.CodexSkills(), "both", "SKILL.md"),
+		"---\nname: both\ndescription: x\ndisable-model-invocation: true\n---\n")
+	writeFile(t, filepath.Join(machine.ClaudeSkills(), "both", "SKILL.md"),
+		"---\nname: both\ndescription: x\ndisable-model-invocation: true\n---\n")
+
+	view := open(t, machine, machine.Root)
+	for name, want := range map[string]bool{"abc": true, "listed": false, "both": false} {
+		if got := row(t, view, name).ByName; got != want {
+			t.Errorf("%s: ByName = %v, want %v", name, got, want)
+		}
+	}
+}
+
 func TestSkillThatDisablesModelInvocationKeepsItsCostInCodex(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)

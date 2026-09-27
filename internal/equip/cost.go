@@ -23,7 +23,7 @@ func fixedCost(agent Agent, listed, plugins bool) int {
 
 // total adds up the costs in agent of what is on, with agent's fixed cost.
 func (s *Session) total(agent Agent) Total {
-	total, listingTokens, unknown := 0, 0, false
+	total, listingTokens, unmeasured := 0, 0, 0
 	listed, plugins := false, false // a skill or plugin is on, so agent lists skills; a plugin is on
 
 	for _, ext := range s.pending.exts {
@@ -41,13 +41,13 @@ func (s *Session) total(agent Agent) Total {
 		}
 
 		plugins = plugins || ext.Kind == Plugin && ext.has(agent) && s.pending.stateIn(agent, ext) == On
-		unknown = unknown || s.unknownIn(agent, ext)
+		unmeasured += s.unmeasuredIn(agent, ext)
 	}
 
 	budget := agent.listing().budget
 
 	return Total{
-		Tokens: total + fixedCost(agent, listed, plugins), Unknown: unknown,
+		Tokens: total + fixedCost(agent, listed, plugins), Unmeasured: unmeasured,
 		OverBudget: budget > 0 && listingTokens > budget,
 	}
 }
@@ -63,20 +63,32 @@ func (s *Session) unknown(ext Extension) bool {
 
 // unknownIn reports whether agent's cost of ext leaves out an MCP server
 // that is on in agent but not measured yet: ext, or one in plugin ext.
-func (s *Session) unknownIn(agent Agent, ext Extension) bool {
+func (s *Session) unknownIn(agent Agent, ext Extension) bool { return s.unmeasuredIn(agent, ext) > 0 }
+
+// unmeasuredIn counts the MCP servers that agent's cost of ext leaves out,
+// on in agent but not measured yet: ext, or those in plugin ext.
+func (s *Session) unmeasuredIn(agent Agent, ext Extension) int {
 	if !ext.has(agent) || s.pending.stateIn(agent, ext) != On {
-		return false
+		return 0
 	}
 
 	if ext.Kind == MCPServer {
-		_, measured := s.measurement(ext.Key)
+		if _, measured := s.measurement(ext.Key); measured {
+			return 0
+		}
 
-		return !measured
+		return 1
 	}
 
-	return slices.ContainsFunc(s.pending.exts, func(server Extension) bool {
-		return server.plugin == ext.Key && s.unknownIn(agent, server)
-	})
+	count := 0
+
+	for _, server := range s.pending.exts {
+		if server.plugin == ext.Key {
+			count += s.unmeasuredIn(agent, server)
+		}
+	}
+
+	return count
 }
 
 // measurement returns the measurement of the MCP server with key, reporting
