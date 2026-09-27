@@ -878,14 +878,20 @@ func TestOpeningMeasuresEveryServerInTheBackground(t *testing.T) {
 
 	server := httptest.NewServer(http.HandlerFunc(serveMCP))
 	t.Cleanup(server.Close)
+
+	locked := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(locked.Close)
 	machine := equiptest.New(t)
+	// The locked server refuses equip for good, which is no failure to count.
 	machine.WriteFile(filepath.Join(machine.Home, ".claude.json"), `{"mcpServers": {"github": {"type": "http", "url": "`+
-		server.URL+`"}, "broken": {"command": "no-such-command"}}}`)
+		server.URL+`"}, "locked": {"type": "http", "url": "`+locked.URL+`"}, "broken": {"command": "no-such-command"}}}`)
 	tui := newModel(t, machine)
 
 	cmd := tui.Init()
-	if line(tui, "measuring 2") == "" {
-		t.Errorf("top line does not say it measures 2 servers:\n%s", plain(tui))
+	if line(tui, "measuring 3") == "" {
+		t.Errorf("top line does not say it measures 3 servers:\n%s", plain(tui))
 	}
 
 	drain(tui, cmd)
@@ -982,6 +988,16 @@ func TestDetailPaneSaysABuiltInServerIsBuiltIntoClaudeCode(t *testing.T) {
 
 	if line(newModel(t, machine), "built into Claude Code") == "" {
 		t.Error("detail pane does not say the server is built into Claude Code")
+	}
+}
+
+func TestDetailPaneSaysWhyEquipDoesNotMeasureAServer(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.ClaudeBuiltins = map[string]equip.State{"computer-use": equip.On}
+
+	if line(newModel(t, machine), "not measured: built into Claude Code") == "" {
+		t.Error("detail pane does not say why the server is not measured")
 	}
 }
 

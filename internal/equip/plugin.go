@@ -158,7 +158,7 @@ func pluginSkills(agent Agent, dir, name string) []Content {
 
 		contents = append(contents, Content{
 			Key: "", Name: entry.Name(), Description: field(data, "description"), Kind: Skill, State: On, Override: false,
-			Unsaved: false, ChangedOutside: false, ChangedIn: ClaudeCode, CostUnknown: false,
+			Unsaved: false, ChangedOutside: false, ChangedIn: ClaudeCode, CostUnknown: false, Unmeasurable: "",
 			// Both agents list it under the plugin's name.
 			Cost: skillCost(agent, name+":"+entry.Name(), data),
 		})

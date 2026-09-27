@@ -112,6 +112,10 @@ func (m *model) detail(view equip.View, row equip.Row, ext equip.Detail, server 
 	}
 
 	lines = append(lines, m.costLine(row.CostUnknown, ext))
+	if ext.Unmeasurable != "" {
+		lines = append(lines, "        "+m.style.dim.Render("not measured: "+ext.Unmeasurable))
+	}
+
 	lines = append(lines, m.origin(view, row, ext)...)
 	lines = append(lines, "", m.style.head.Render("State"))
 
@@ -224,6 +228,10 @@ func (m *model) contents(contents []equip.Content, key string) ([]string, int) {
 
 		if content.ChangedOutside {
 			lines = append(lines, "    "+m.style.warn.Render("changed outside equip in "+content.ChangedIn.String()))
+		}
+
+		if content.Unmeasurable != "" {
+			lines = append(lines, "    "+m.style.dim.Render("not measured: "+content.Unmeasurable))
 		}
 	}
 

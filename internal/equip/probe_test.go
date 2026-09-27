@@ -58,6 +58,7 @@ type fakeAnswer func(req fakeRequest, ttl *json.Number) map[string]any
 //     tools a and b on two pages, the last with a ttlMs of $EQUIP_FAKE_TTL
 //     when set;
 //   - quiet: legacy, but never answers server/discover;
+//   - strict: legacy, but quits on server/discover;
 //   - modern: answers server/discover with the instructions
 //     $EQUIP_FAKE_INSTRUCTIONS or "Use fake." and a ttlMs of $EQUIP_FAKE_TTL
 //     when set, lists the tool a with a ttlMs of an hour, and rejects
@@ -68,7 +69,7 @@ type fakeAnswer func(req fakeRequest, ttl *json.Number) map[string]any
 // With $EQUIP_FAKE_CWD set, it first writes its working dir to that file.
 func serveFakeMCP(mode string) {
 	answer := map[string]fakeAnswer{
-		"legacy": legacyAnswer, "quiet": legacyAnswer, "modern": modernAnswer,
+		"legacy": legacyAnswer, "quiet": legacyAnswer, "strict": legacyAnswer, "modern": modernAnswer,
 		"broken": func(fakeRequest, *json.Number) map[string]any {
 			return map[string]any{"error": map[string]any{"code": -32603, "message": "boom"}}
 		},
@@ -91,7 +92,12 @@ func serveFakeMCP(mode string) {
 		var req fakeRequest
 
 		_ = json.Unmarshal(stdin.Bytes(), &req)
-		if req.ID == nil || answer == nil || mode == "quiet" && req.Method == "server/discover" {
+		// A strict server quits on server/discover, and a quiet one skips it.
+		if req.Method == "server/discover" && mode == "strict" {
+			return
+		}
+
+		if req.ID == nil || answer == nil || silent(mode, req) {
 			continue
 		}
 
@@ -105,6 +111,11 @@ func serveFakeMCP(mode string) {
 			return
 		}
 	}
+}
+
+// silent reports whether the fake server in mode leaves req unanswered.
+func silent(mode string, req fakeRequest) bool {
+	return mode == "quiet" && req.Method == "server/discover"
 }
 
 func legacyAnswer(req fakeRequest, ttl *json.Number) map[string]any {
@@ -262,6 +273,17 @@ func TestProbeTakesAServerSilentOnServerDiscoverForALegacyOne(t *testing.T) {
 	machine := equiptest.New(t)
 	repo := machine.Repo("app")
 	fakeServer(t, machine, "quiet", "")
+
+	if got := probedRow(t, machine, repo); got.CostUnknown || got.Cost != 11 {
+		t.Errorf("row = %+v, want a cost of 11", got)
+	}
+}
+
+func TestProbeStartsAgainAServerThatQuitsOnServerDiscover(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	fakeServer(t, machine, "strict", "")
 
 	if got := probedRow(t, machine, repo); got.CostUnknown || got.Cost != 11 {
 		t.Errorf("row = %+v, want a cost of 11", got)
@@ -610,6 +632,84 @@ func TestMeasuredPluginServerAddsItsCostToThePlugin(t *testing.T) {
 
 	if got := row(t, session.View(), "github@official"); got.Cost != 7 || got.CostUnknown {
 		t.Errorf("plugin row = %+v, want a cost of 7", got)
+	}
+}
+
+func TestServersEquipWouldHaveToGuessAboutAreNotMeasuredAndSayWhy(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.ClaudeBuiltins = map[string]equip.State{"computer-use": equip.On}
+	repo := machine.Repo("app")
+	exe := fakeConfig(t, "modern", "")["command"]
+	writeJSON(t, claudeJSON(machine), map[string]any{"mcpServers": map[string]any{
+		"relcmd": map[string]any{"command": "./bin/server"},
+		"relcwd": map[string]any{"command": exe, "cwd": "."},
+	}})
+	writeJSON(t, filepath.Join(repo, ".mcp.json"), map[string]any{
+		"mcpServers": map[string]any{"stranger": fakeConfig(t, "modern", "")},
+	})
+	session := newSession(t, machine, repo)
+
+	if got := session.Unmeasured(); len(got) != 0 {
+		t.Errorf("Unmeasured = %v, want none", got)
+	}
+
+	for key, want := range map[string]string{
+		"mcp:relcmd": "relative path", "mcp:relcwd": "relative path", "mcp:stranger": "approve",
+		"mcp:computer-use": "built into",
+	} {
+		if got := session.Detail(key).Unmeasurable; !strings.Contains(got, want) {
+			t.Errorf("%s Unmeasurable = %q, want it to say %q", key, got, want)
+		}
+	}
+}
+
+func TestServerThatNeedsALoginIsNotTriedAgain(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, _ *http.Request) {
+		writer.WriteHeader(http.StatusUnauthorized)
+	}))
+	t.Cleanup(server.Close)
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	writeJSON(t, claudeJSON(machine), map[string]any{
+		"mcpServers": map[string]any{"fake": map[string]any{"type": "http", "url": server.URL}},
+	})
+
+	err := newSession(t, machine, repo).ProbeCost("mcp:fake")()
+	if err == nil {
+		t.Fatal("ProbeCost = nil, want the refusal")
+	}
+
+	session := newSession(t, machine, repo)
+	if got := session.Unmeasured(); len(got) != 0 {
+		t.Errorf("Unmeasured = %v on the next open, want none", got)
+	}
+
+	if got := session.Detail("mcp:fake").Unmeasurable; !strings.Contains(got, "login") {
+		t.Errorf("Unmeasurable = %q, want it to say it needs a login", got)
+	}
+}
+
+func TestServerThatAnswersWithAnErrorIsNotTriedAgain(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	fakeServer(t, machine, "broken", "")
+
+	err := newSession(t, machine, repo).ProbeCost("mcp:fake")()
+	if !errors.Is(err, equip.ErrRefused) {
+		t.Fatalf("ProbeCost = %v, want ErrRefused", err)
+	}
+
+	session := newSession(t, machine, repo)
+	if got := session.Unmeasured(); len(got) != 0 {
+		t.Errorf("Unmeasured = %v on the next open, want none", got)
+	}
+
+	if got := session.Detail("mcp:fake").Unmeasurable; !strings.Contains(got, "boom") {
+		t.Errorf("Unmeasurable = %q, want the server's error boom", got)
 	}
 }
 

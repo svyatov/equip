@@ -44,6 +44,7 @@ type Session struct {
 	disk       map[Agent]map[string]State // each agent's entries for its applied exts, as last read or written
 	outside    map[string]Agent           // changed outside equip since the last save, in that agent
 	measured   map[string]measurement     // the MCP servers measured, by key; guarded by mu
+	refused    map[string]string          // why each MCP server that refused equip for good did, by key; guarded by mu
 	codex      codexConfig
 	notApplied map[Agent]string // why equip does not write each agent's config; empty for one it writes
 	discovered map[string]State // the Claude Code defaults of the exts kept in settings.local.json, as discovered
@@ -135,6 +136,7 @@ func Open(machine Machine, dir string) (*Session, error) {
 		disk:       nil,
 		outside:    nil,
 		measured:   map[string]measurement{},
+		refused:    map[string]string{},
 		approvals:  approvalsCount(machine, project),
 		orphans:    orphans(machine, project),
 		mu:         sync.Mutex{},
@@ -245,13 +247,16 @@ type Detail struct {
 	// Note says why the row differs from the agent config while an active
 	// preset changed outside equip or is missing.
 	Note        string
-	Marketplace string  // a plugin's
-	Agents      []Agent // the agents that have it
-	Locations   []Location
-	States      []State   // the states the user can pick
-	Contents    []Content // a plugin's skills
-	Hooks       bool      // a plugin has hooks, whose output adds an unknown cost
-	BuiltIn     bool      // built into Claude Code, so it has no Locations
+	Marketplace string // a plugin's
+	// Unmeasurable says why equip does not measure an MCP server; empty for
+	// one it does, and for every other extension.
+	Unmeasurable string
+	Agents       []Agent // the agents that have it
+	Locations    []Location
+	States       []State   // the states the user can pick
+	Contents     []Content // a plugin's skills
+	Hooks        bool      // a plugin has hooks, whose output adds an unknown cost
+	BuiltIn      bool      // built into Claude Code, so it has no Locations
 	// ChangedIn is the agent whose config changed outside equip, when the
 	// row is ChangedOutside.
 	ChangedIn Agent
@@ -263,12 +268,15 @@ type Content struct {
 	Key         string // an MCP server's, what SetState and DropOverride take; a skill has none
 	Name        string
 	Description string
-	Kind        Kind
-	State       State
-	Cost        int  // estimated tokens in the agent the plugin was read for, Claude Code when both have it
-	CostUnknown bool // an MCP server not measured yet
-	Override    bool // an MCP server's State was set by hand in this Project
-	Unsaved     bool // a save would change an MCP server's Override or entries
+	// Unmeasurable says why equip does not measure an MCP server; empty for
+	// one it does, and for a skill.
+	Unmeasurable string
+	Kind         Kind
+	State        State
+	Cost         int  // estimated tokens in the agent the plugin was read for, Claude Code when both have it
+	CostUnknown  bool // an MCP server not measured yet
+	Override     bool // an MCP server's State was set by hand in this Project
+	Unsaved      bool // a save would change an MCP server's Override or entries
 	// ChangedOutside reports that an MCP server changed through an edit
 	// outside equip, in the agent ChangedIn.
 	ChangedOutside bool
@@ -281,7 +289,7 @@ func (s *Session) Detail(key string) Detail {
 	if !ok {
 		return Detail{
 			Description: "", Note: "", Marketplace: "", Agents: nil, Locations: nil, NotApplied: nil, Costs: nil,
-			States: nil, Contents: nil, Hooks: false, BuiltIn: false, ChangedIn: ClaudeCode,
+			States: nil, Contents: nil, Hooks: false, BuiltIn: false, ChangedIn: ClaudeCode, Unmeasurable: "",
 		}
 	}
 
@@ -289,6 +297,7 @@ func (s *Session) Detail(key string) Detail {
 		Description: ext.Description, Note: "", Marketplace: marketplaceOf(ext.Key), Agents: nil,
 		Locations: ext.Locations, NotApplied: map[Agent]string{}, Costs: map[Agent]int{}, States: ext.Kind.states(),
 		Contents: s.contents(ext), Hooks: ext.hooks, BuiltIn: ext.builtIn, ChangedIn: s.outside[key],
+		Unmeasurable: s.unmeasurable(ext),
 	}
 	// Only where the record's state differs from the agent config.
 	if s.inRow(ext, func(key string) bool {
@@ -462,6 +471,7 @@ func (s *Session) contents(plugin Extension) []Content {
 			Key: server.Key, Name: server.name(), Description: "",
 			Kind: MCPServer, State: state, Cost: cost, CostUnknown: s.unknown(server), Override: override,
 			Unsaved: s.unsaved(server.Key), ChangedOutside: changed, ChangedIn: changedIn,
+			Unmeasurable: s.unmeasurable(server),
 		})
 	}
 

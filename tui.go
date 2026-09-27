@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"path/filepath"
 	"slices"
@@ -286,8 +287,9 @@ func (m *model) probed(probed probedMsg) {
 		return
 	}
 
+	// A server that refuses equip for good says why in the detail pane.
 	m.probing--
-	if probed.err != nil {
+	if probed.err != nil && !errors.Is(probed.err, equip.ErrRefused) {
 		m.failed++
 	}
 

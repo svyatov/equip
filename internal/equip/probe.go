@@ -60,7 +60,18 @@ var (
 	// errRefused is the error of a request a remote MCP server answered
 	// with an HTTP error.
 	errRefused = errors.New("the MCP server refused")
+	// errNeedsLogin is the error of a request a remote MCP server refused
+	// for want of a login, which the agent keeps and equip does not have.
+	errNeedsLogin = errors.New("the MCP server needs a login equip does not have")
+	// errAnswered is the error of a request the MCP server answered with an
+	// error of its own.
+	errAnswered = errors.New("the MCP server answered with an error")
 )
+
+// ErrRefused is the error of a probe the MCP server refused for good, for
+// want of a login or with an error of its own, as it runs only inside its
+// agent. Opening does not try it again until its config changes.
+var ErrRefused = errors.New("the MCP server refuses equip")
 
 // mcpConn is a connection to an MCP server.
 type mcpConn interface {
@@ -190,32 +201,65 @@ func truncate(s string, n int) string {
 
 // probe starts the MCP server cfg with env, in dir unless cfg names its own,
 // and reads its instructions and tools. It tries the modern server/discover
-// first and falls back to the legacy initialize handshake.
+// first and falls back to the legacy initialize handshake, starting the
+// server again if it quit on server/discover, as some legacy servers do.
 func probe(ctx context.Context, env []string, dir string, cfg serverConfig) (measurement, error) {
 	ctx, cancel := context.WithTimeout(ctx, probeTimeout)
 	defer cancel()
 
 	var none measurement
 
-	var conn mcpConn = &httpConn{cfg: cfg, session: "", id: 0}
 	if cfg.URL == "" {
 		cfg.Dir = cmp.Or(cfg.Dir, dir)
+	}
 
-		stdio, err := dialStdio(ctx, env, cfg)
-		if err != nil {
-			return none, err
+	conn, err := dial(ctx, env, cfg)
+	if err != nil {
+		return none, err
+	}
+
+	defer func() { conn.close() }()
+
+	version := modernVersion
+
+	measured, err := openModern(ctx, conn)
+	if err != nil {
+		version = legacyVersion
+
+		if errors.Is(err, errServerClosed) {
+			conn.close()
+
+			conn, err = dial(ctx, env, cfg)
+			if err != nil {
+				return none, err
+			}
 		}
 
-		conn = stdio
+		measured, err = openLegacy(ctx, conn)
 	}
-	defer conn.close()
 
-	measured, version, err := handshake(ctx, conn)
 	if err != nil {
 		return none, err
 	}
 
 	return listTools(ctx, conn, measured, version)
+}
+
+// dial connects to the MCP server cfg: over HTTP to a remote one, else by
+// starting it with env.
+//
+//nolint:ireturn // a connection is over HTTP or stdio, which probe need not tell apart
+func dial(ctx context.Context, env []string, cfg serverConfig) (mcpConn, error) {
+	if cfg.URL != "" {
+		return &httpConn{cfg: cfg, session: "", id: 0}, nil
+	}
+
+	stdio, err := dialStdio(ctx, env, cfg)
+	if err != nil {
+		return nil, err
+	}
+
+	return stdio, nil
 }
 
 // listTools adds the tools the server on conn lists, on every page, to
@@ -250,32 +294,38 @@ func listTools(ctx context.Context, conn mcpConn, measured measurement, version 
 	}
 }
 
-// handshake opens the session with the server on conn and reads its
-// instructions. It returns the protocol version the server speaks.
-func handshake(ctx context.Context, conn mcpConn) (measurement, string, error) {
-	var info struct {
-		TTLMs        *int64 `json:"ttlMs"`
-		Instructions string `json:"instructions"`
-	}
+// serverInfo is what a server says of itself as a session opens.
+type serverInfo struct {
+	TTLMs        *int64 `json:"ttlMs"`
+	Instructions string `json:"instructions"`
+}
 
-	discoverCtx, cancel := context.WithTimeout(ctx, discoverTimeout)
+// openModern opens a modern session with the server on conn, by
+// server/discover, and reads its instructions.
+func openModern(ctx context.Context, conn mcpConn) (measurement, error) {
+	var info serverInfo
+
+	ctx, cancel := context.WithTimeout(ctx, discoverTimeout)
 	defer cancel()
 
-	version := modernVersion
+	err := conn.call(ctx, modernVersion, "server/discover", params(modernVersion), &info)
 
-	err := conn.call(discoverCtx, version, "server/discover", params(version), &info)
-	if err != nil {
-		version = legacyVersion
+	return measurement{TTLMs: info.TTLMs, Instructions: info.Instructions, Tools: nil}, err
+}
 
-		err = conn.call(ctx, version, "initialize", map[string]any{
-			"protocolVersion": version, "capabilities": map[string]any{}, "clientInfo": clientInfo(),
-		}, &info)
-		if err == nil {
-			err = conn.notify(ctx, "notifications/initialized")
-		}
+// openLegacy opens a legacy session with the server on conn, by initialize,
+// and reads its instructions.
+func openLegacy(ctx context.Context, conn mcpConn) (measurement, error) {
+	var info serverInfo
+
+	err := conn.call(ctx, legacyVersion, "initialize", map[string]any{
+		"protocolVersion": legacyVersion, "capabilities": map[string]any{}, "clientInfo": clientInfo(),
+	}, &info)
+	if err == nil {
+		err = conn.notify(ctx, "notifications/initialized")
 	}
 
-	return measurement{TTLMs: info.TTLMs, Instructions: info.Instructions, Tools: nil}, version, err
+	return measurement{TTLMs: info.TTLMs, Instructions: info.Instructions, Tools: nil}, err
 }
 
 // params are the params of a request in version with no arguments: a modern
@@ -292,9 +342,11 @@ func params(version string) map[string]any {
 	}}
 }
 
-// cacheEntry is a measurement as equip caches it.
+// cacheEntry is a measurement as equip caches it, or why the server refused
+// equip.
 type cacheEntry struct {
 	At       time.Time   `json:"at"`
+	Refused  string      `json:"refused,omitempty"`
 	Measured measurement `json:"measurement"`
 }
 
@@ -308,9 +360,11 @@ func cachePath(machine Machine, cfg serverConfig) string {
 	return filepath.Join(machine.CacheHome, "equip", "mcp-"+hex.EncodeToString(sum[:])+".json")
 }
 
-// writeCache caches m, the measurement of the MCP server cfg.
-func writeCache(machine Machine, cfg serverConfig, m measurement) error {
-	data, err := json.Marshal(cacheEntry{At: time.Now(), Measured: m})
+// writeCache caches entry, of the MCP server cfg, as of now.
+func writeCache(machine Machine, cfg serverConfig, entry cacheEntry) error {
+	entry.At = time.Now()
+
+	data, err := json.Marshal(entry)
 	if err != nil {
 		return fmt.Errorf("encode the measurement: %w", err)
 	}
@@ -318,20 +372,21 @@ func writeCache(machine Machine, cfg serverConfig, m measurement) error {
 	return writeFile(cachePath(machine, cfg), data)
 }
 
-// readCache reads the cached measurement of the MCP server cfg, reporting
-// whether there is one. A cache equip cannot read has none.
-func readCache(machine Machine, cfg serverConfig) (measurement, bool) {
+// readCache reads the cache entry of the MCP server cfg, reporting whether
+// there is a fresh one. A cache equip cannot read has none. That a server
+// refused equip stays until its config changes.
+func readCache(machine Machine, cfg serverConfig) (cacheEntry, bool) {
 	var entry cacheEntry
 
 	data, err := os.ReadFile(cachePath(machine, cfg))
 	if err != nil || json.Unmarshal(data, &entry) != nil {
-		return entry.Measured, false
+		return entry, false
 	}
 
 	ttl := entry.Measured.TTLMs
-	fresh := ttl == nil || time.Now().Before(entry.At.Add(time.Duration(*ttl)*time.Millisecond))
+	fresh := entry.Refused != "" || ttl == nil || time.Now().Before(entry.At.Add(time.Duration(*ttl)*time.Millisecond))
 
-	return entry.Measured, fresh
+	return entry, fresh
 }
 
 // notification is the notification method.
@@ -558,7 +613,12 @@ func (c *httpConn) post(
 	if resp.StatusCode < http.StatusOK || resp.StatusCode >= http.StatusMultipleChoices {
 		_ = resp.Body.Close()
 
-		return nil, fmt.Errorf("%s: %w: %s", method, errRefused, resp.Status)
+		refused := errRefused
+		if resp.StatusCode == http.StatusUnauthorized || resp.StatusCode == http.StatusForbidden {
+			refused = errNeedsLogin
+		}
+
+		return nil, fmt.Errorf("%s: %w: %s", method, refused, resp.Status)
 	}
 
 	c.session = cmp.Or(resp.Header.Get("Mcp-Session-Id"), c.session)
@@ -584,7 +644,7 @@ func decodeResponse(data []byte, request int, method string, result any) (bool, 
 	}
 
 	if resp.Error != nil {
-		return true, fmt.Errorf("%s: %s", method, resp.Error.Message) //nolint:err113 // the server's own message
+		return true, fmt.Errorf("%s: %w: %s", method, errAnswered, resp.Error.Message)
 	}
 
 	err := json.Unmarshal(resp.Result, result)
@@ -605,15 +665,33 @@ func (s *Session) ProbeCost(key string) func() error {
 		return func() error {
 			// An agent starts a server in the checkout the session runs in.
 			measured, err := probe(context.Background(), s.machine.Env, s.project.checkout, cfg)
-			if err != nil {
+
+			var entry cacheEntry
+
+			s.mu.Lock()
+
+			switch {
+			case errors.Is(err, errNeedsLogin):
+				entry.Refused = errNeedsLogin.Error()
+			case errors.Is(err, errAnswered):
+				entry.Refused = err.Error()
+			case err == nil:
+				s.measured[key], entry.Measured = measured, measured
+			}
+
+			s.refused[key] = entry.Refused
+			s.mu.Unlock()
+
+			if err != nil && entry.Refused == "" {
 				return err
 			}
 
-			s.mu.Lock()
-			s.measured[key] = measured
-			s.mu.Unlock()
+			cacheErr := writeCache(s.machine, cfg, entry)
+			if err != nil {
+				return errors.Join(fmt.Errorf("%w: %w", ErrRefused, err), cacheErr)
+			}
 
-			return writeCache(s.machine, cfg, measured)
+			return cacheErr
 		}
 	}
 
@@ -626,16 +704,57 @@ func (s *Session) Unmeasured() []string {
 	var keys []string
 
 	for _, ext := range s.pending.exts {
-		if _, measured := s.measurement(ext.Key); measured {
-			continue
-		}
-
-		if _, ok := s.startable(ext); ok {
+		if _, measured := s.measurement(ext.Key); !measured && ext.Kind == MCPServer && s.unmeasurable(ext) == "" {
 			keys = append(keys, ext.Key)
 		}
 	}
 
 	return keys
+}
+
+// unmeasurable says why equip does not measure the MCP server ext: it would
+// have to guess at how the agent starts it, or cannot reach it as the agent
+// does. It is empty for a server equip measures, and for every other
+// extension.
+func (s *Session) unmeasurable(ext Extension) string {
+	s.mu.Lock()
+	refused := s.refused[ext.Key]
+	s.mu.Unlock()
+
+	_, startable := s.startable(ext)
+
+	switch {
+	case ext.Kind != MCPServer:
+		return ""
+	case refused != "":
+		return refused
+	case startable:
+		return ""
+	case ext.builtIn:
+		return "built into Claude Code, so equip has no command to start it"
+	}
+
+	for _, agent := range Agents() {
+		if cfg, ok := s.probeConfig(agent, ext); ok && !placed(cfg) {
+			return "its command or cwd is a relative path, and equip cannot tell what the agent takes it from"
+		}
+	}
+
+	if ext.lists.settings {
+		return "a project server, which equip starts only once you approve it in Claude Code"
+	}
+
+	return "equip has no command or URL to start it the way the agent does"
+}
+
+// placed reports whether the agent's command and dir for the MCP server cfg
+// say where it runs: a command on the PATH or at an absolute path, in the
+// checkout or an absolute dir. A relative path would be a guess at what the
+// agent resolves it against.
+func placed(cfg serverConfig) bool {
+	return cfg.URL != "" ||
+		(filepath.IsAbs(cfg.Command) || filepath.Base(cfg.Command) == cfg.Command) &&
+			(cfg.Dir == "" || filepath.IsAbs(cfg.Dir))
 }
 
 // startable is how to start the MCP server ext as an agent that trusts it
@@ -644,7 +763,7 @@ func (s *Session) startable(ext Extension) (serverConfig, bool) {
 	for _, onlyOn := range []bool{true, false} {
 		for _, agent := range Agents() {
 			cfg, ok := s.probeConfig(agent, ext)
-			if ok && s.trusted(agent, ext) && (!onlyOn || s.pending.stateIn(agent, ext) == On) {
+			if ok && placed(cfg) && s.trusted(agent, ext) && (!onlyOn || s.pending.stateIn(agent, ext) == On) {
 				return cfg, true
 			}
 		}
@@ -655,8 +774,8 @@ func (s *Session) startable(ext Extension) (serverConfig, bool) {
 	return none, false
 }
 
-// readMeasurements takes the cached measurement of each MCP server, from its
-// config in the first agent that has one cached.
+// readMeasurements takes the cached measurement of each MCP server, or why
+// it refused equip, from its config in the first agent that has one cached.
 func (s *Session) readMeasurements() {
 	for _, ext := range s.pending.exts {
 		for _, agent := range Agents() {
@@ -665,8 +784,12 @@ func (s *Session) readMeasurements() {
 				continue
 			}
 
-			if measured, cached := readCache(s.machine, cfg); cached {
-				s.measured[ext.Key] = measured
+			if entry, cached := readCache(s.machine, cfg); cached {
+				if entry.Refused != "" {
+					s.refused[ext.Key] = entry.Refused
+				} else {
+					s.measured[ext.Key] = entry.Measured
+				}
 
 				break
 			}
