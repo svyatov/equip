@@ -224,6 +224,11 @@ func TestDetailPaneListsThePluginsContents(t *testing.T) {
 
 	press(tui, key('2'))
 
+	// Only its MCP servers can be overridden.
+	if line(tui, "Contents  skills follow the plugin, MCP servers too unless overridden") == "" {
+		t.Errorf("contents header does not say the skills follow the plugin:\n%s", tui.View().Content)
+	}
+
 	if got := line(tui, "○ skill review ~0"); !strings.Contains(got, "The review skill.") {
 		t.Errorf("skill line %q does not show the skill's state, cost and description", got)
 	}

@@ -66,11 +66,7 @@ func readCodexConfig(machine Machine, project Project) codexConfig {
 		return cfg
 	}
 
-	// A tracked file belongs to everyone who clones the repo.
-	if tracked(machine, project, codexConfigRel) {
-		cfg.notApplied = codexConfigRel + " is tracked by git"
-	}
-
+	cfg.notApplied = trackedReason(machine, project, codexConfigRel)
 	cfg.layers = append(cfg.layers, codexLayer{data: data, path: path, owned: cfg.notApplied == ""})
 
 	return cfg

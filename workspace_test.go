@@ -546,10 +546,14 @@ func TestRenameAppliesAtOnce(t *testing.T) {
 // inOrder reports whether the view shows, from the line with first on, each
 // of want below the one before it.
 func inOrder(tui *model, first string, want ...string) bool {
-	at := lineIndex(tui, 0, first)
+	index := lineIndex(tui, 0, first)
+	if index < 0 {
+		return false
+	}
+
 	for _, s := range want {
-		at = lineIndex(tui, at+1, s)
-		if at < 0 {
+		index = lineIndex(tui, index+1, s)
+		if index < 0 {
 			return false
 		}
 	}

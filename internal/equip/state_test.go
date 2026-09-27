@@ -2,6 +2,7 @@ package equip_test
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -379,6 +380,89 @@ func TestTrackedSettingsFileEntriesAreClaudeCodesDefaults(t *testing.T) {
 	}
 }
 
+func TestSettingsFileTrackedSinceOpenGivesClaudeCodeItsEntriesAsDefaults(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "off"}}`)
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.On)
+	machine.RunGit(repo, "add", ".claude/settings.local.json")
+
+	save(t, session)
+
+	if got := row(t, session.View(), "review"); got.Fallback != equip.Off || got.Cost != 0 {
+		t.Errorf("review = %+v, want an off default and no cost", got)
+	}
+}
+
+func TestSettingsFileUntrackedSinceOpenIsWritten(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	writeFile(t, settingsLocal(repo), `{}`)
+	machine.RunGit(repo, "add", ".claude/settings.local.json")
+	session := newSession(t, machine, repo)
+	machine.RunGit(repo, "rm", "--cached", "-q", ".claude/settings.local.json")
+	session.SetState("review", equip.Off)
+
+	save(t, session)
+
+	got := readJSON(t, settingsLocal(repo))["skillOverrides"]
+	if want := map[string]any{"review": "off"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("skillOverrides = %v, want %v", got, want)
+	}
+}
+
+func TestSettingsFileUntrackedSinceOpenHoldsNoDefaults(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "off"}}`)
+	machine.RunGit(repo, "add", ".claude/settings.local.json")
+	session := newSession(t, machine, repo)
+	machine.RunGit(repo, "rm", "--cached", "-q", ".claude/settings.local.json")
+
+	err := session.Save()
+	if !errors.Is(err, equip.ErrChangedSinceOpen) {
+		t.Fatalf("Save = %v, want ErrChangedSinceOpen", err)
+	}
+
+	if got := row(t, session.View(), "review"); got.Fallback != equip.On || got.State != equip.Off {
+		t.Errorf("review = %+v, want its entry as an Override over an on default", got)
+	}
+}
+
+func TestUnreadableTrackedSettingsFileGivesNoDefaults(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	writeFile(t, settingsLocal(repo), `{`)
+	machine.RunGit(repo, "add", ".claude/settings.local.json")
+
+	if got := row(t, open(t, machine, repo), "review"); got.Fallback != equip.On {
+		t.Errorf("review = %+v, want an on default", got)
+	}
+}
+
+func TestSaveWithNothingUnsavedExcludesAnUntrackedSettingsFile(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	writeFile(t, settingsLocal(repo), `{}`)
+
+	save(t, newSession(t, machine, repo))
+
+	if st := machine.RunGit(repo, "status", "--porcelain", "--untracked-files=all"); st != "" {
+		t.Errorf("git status shows %q, want nothing", st)
+	}
+}
+
 //nolint:paralleltest // t.Chdir changes the whole process
 func TestSaveOutsideGitWritesOnlyTheSettingsFile(t *testing.T) {
 	machine := equiptest.New(t)
@@ -613,11 +697,18 @@ func TestSaveWithNothingUnsavedWritesNothing(t *testing.T) {
 	repo := machine.Repo("app")
 	machine.Skill(machine.ClaudeSkills(), "review")
 
+	excludeFile := filepath.Join(repo, ".git", "info", "exclude")
+	before, _ := os.ReadFile(excludeFile)
+
 	save(t, newSession(t, machine, repo))
 
 	_, err := os.Stat(filepath.Join(repo, ".claude"))
 	if err == nil {
 		t.Error("save created .claude with nothing to write")
+	}
+
+	if after, _ := os.ReadFile(excludeFile); string(after) != string(before) {
+		t.Errorf("exclude changed to %q with nothing to write", after)
 	}
 
 	if files, _ := filepath.Glob(filepath.Join(machine.StateHome, "equip", "*")); len(files) != 0 {

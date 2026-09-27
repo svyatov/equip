@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 )
@@ -138,17 +139,54 @@ func (e Extension) claudeState(settings settingsFile, projectEntry jsonObject) (
 // Project's settings.local.json.
 func (e Extension) inSettings() bool { return e.Kind != MCPServer || e.lists.settings }
 
-// takeTrackedDefaults takes the entries of a tracked settings.local.json as
-// Claude Code's defaults for exts: Claude Code reads the file, and equip
-// leaves it alone. A file equip cannot read gives no defaults.
-func takeTrackedDefaults(machine Machine, project Project, exts []Extension) {
-	states, _ := readClaude(machine, project, exts)
+// claudeDefaults are the Claude Code defaults of the exts kept in
+// settings.local.json, by key.
+func claudeDefaults(exts []Extension) map[string]State {
+	defaults := map[string]State{}
 
 	for _, ext := range exts {
-		if st, ok := states[ext.Key]; ok && ext.inSettings() {
-			ext.fallback[ClaudeCode] = st
+		if ext.inSettings() {
+			defaults[ext.Key] = ext.fallback[ClaudeCode]
 		}
 	}
+
+	return defaults
+}
+
+// takeClaudeDefaults sets the Claude Code default of each of exts kept in
+// settings.local.json. While git tracks the file, it is the ext's entry
+// there: Claude Code reads the file, and equip leaves it alone. Else, and for
+// an ext with no entry, it is the one in discovered. A file equip cannot read
+// has no entries.
+func takeClaudeDefaults(machine Machine, project Project, exts []Extension, discovered map[string]State, tracked bool) {
+	entries := map[string]State{}
+	if tracked {
+		entries, _ = readClaude(machine, project, exts)
+	}
+
+	for _, ext := range exts {
+		if !ext.inSettings() {
+			continue
+		}
+
+		st, ok := entries[ext.Key]
+		if !ok {
+			st = discovered[ext.Key]
+		}
+
+		ext.fallback[ClaudeCode] = st
+	}
+}
+
+// excludeSettings keeps the Project's .claude/settings.local.json out of git
+// when it exists. git ignores the line for a file it tracks.
+func excludeSettings(machine Machine, project Project) error {
+	_, err := os.Stat(filepath.Join(project.Path, settingsRel))
+	if err != nil {
+		return nil //nolint:nilerr // no file to keep out
+	}
+
+	return exclude(machine, project, settingsRel)
 }
 
 // pluginState reads one enabledPlugins value, reporting whether equip knows it.
@@ -181,23 +219,12 @@ func skillState(raw json.RawMessage) (State, bool) {
 	return 0, false
 }
 
-// settingsNotApplied is why equip does not write the Project's
-// .claude/settings.local.json. It is empty when equip does.
-func settingsNotApplied(machine Machine, project Project) string {
-	// A tracked file belongs to everyone who clones the repo.
-	if tracked(machine, project, settingsRel) {
-		return settingsRel + " is tracked by git"
-	}
-
-	return ""
-}
-
 // writeClaude writes the states of overrides into the Project's
 // .claude/settings.local.json, keeping every key equip does not own, and into
 // ~/.claude.json. It never writes a settings.local.json git tracks.
 func writeClaude(machine Machine, project Project, exts []Extension, overrides map[string]State) error {
 	// Checked here, as the file may have become tracked since open.
-	if settingsNotApplied(machine, project) != "" {
+	if tracked(machine, project, settingsRel) {
 		return writeClaudeJSON(machine, project, exts, overrides)
 	}
 
