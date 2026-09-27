@@ -145,7 +145,8 @@ func (s *Session) Presets() []Preset {
 	// A missing preset shows while the record or the pending choice has it.
 	for _, id := range s.missing(slices.Concat(ids(s.recorded), s.pending.active)) {
 		library = append(library, Preset{
-			ID: id, Name: id, Members: nil, Projects: nil, Active: false, New: false, Missing: true, Unwritten: false,
+			ID: id, Name: s.missingName(id), Members: nil, Projects: nil, Active: false, New: false, Missing: true,
+			Unwritten: false,
 		})
 	}
 
@@ -641,7 +642,7 @@ func (s *Session) rewriteHere(saved choice) error {
 		return err
 	}
 
-	presets := saved.record()
+	presets := saved.record(s.recorded)
 
 	err = writeRecord(s.machine, s.project, saved.overrides, presets)
 	if err != nil {

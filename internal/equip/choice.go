@@ -90,27 +90,42 @@ func (c choice) entries(agent Agent) map[string]State {
 }
 
 // record is the active presets as a record keeps them, each with a hash of
-// its members.
-func (c choice) record() []recordPreset {
+// its members. A missing preset keeps its name from last, the record's.
+func (c choice) record(last []recordPreset) []recordPreset {
 	out := make([]recordPreset, 0, len(c.active))
 
 	for _, active := range c.active {
 		sum := sha256.New()
+		name := presetName(last, active)
 
 		for _, preset := range c.library {
 			if preset.ID != active {
 				continue
 			}
 
+			name = preset.Name
+
 			for _, member := range preset.Members {
 				_, _ = sum.Write([]byte(member.Key + "\n")) // a hash never fails to write
 			}
 		}
 
-		out = append(out, recordPreset{ID: active, Hash: hex.EncodeToString(sum.Sum(nil)[:8])})
+		out = append(out, recordPreset{ID: active, Name: name, Hash: hex.EncodeToString(sum.Sum(nil)[:8])})
 	}
 
 	return out
+}
+
+// presetName is the name presets, a record's, keep for the preset with id. It
+// is empty when they keep none.
+func presetName(presets []recordPreset, id string) string {
+	for _, preset := range presets {
+		if preset.ID == id {
+			return preset.Name
+		}
+	}
+
+	return ""
 }
 
 // ext returns the extension with key, reporting whether it is installed.

@@ -183,7 +183,7 @@ func TestSpaceKeepsAnActivePresetWhoseFileIsMissing(t *testing.T) {
 	}
 
 	tui := newModel(t, machine)
-	press(tui, key('p'), key(' '))
+	press(tui, key('p'), down(), key(' ')) // Old is first, Ruby second
 
 	err = tui.s.Save()
 	if err != nil {
@@ -223,13 +223,13 @@ func TestMissingPresetShowsMissingAndCannotBeDeleted(t *testing.T) {
 	}
 
 	tui := newModel(t, machine)
-	press(tui, key('p'), down(), down(), key('d'))
+	press(tui, key('p'), key('d'))
 
-	if got := line(tui, "[x] o1"); !strings.Contains(got, "missing") {
-		t.Errorf("o1 line %q, want it checked and missing:\n%s", got, tui.View().Content)
+	if got := line(tui, "[x] Old"); !strings.Contains(got, "missing") {
+		t.Errorf("Old line %q, want it checked and missing:\n%s", got, tui.View().Content)
 	}
 
-	if line(tui, "preset o1 missing: sync its file") == "" || line(tui, "Delete preset o1?") != "" {
+	if line(tui, "preset Old missing: sync its file") == "" || line(tui, "Delete preset Old?") != "" {
 		t.Errorf("d on a missing preset did not refuse:\n%s", tui.View().Content)
 	}
 }

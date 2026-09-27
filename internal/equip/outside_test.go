@@ -498,7 +498,7 @@ func TestEveryActivePresetChangedOutsideIsNoted(t *testing.T) {
 
 	got := changes(newSession(t, machine, repo))
 
-	const note = "preset Ruby changed outside equip, preset w1 missing"
+	const note = "preset Ruby changed outside equip, preset Writing missing"
 	if want := []string{"docs off unsaved " + note, "lint on", "review on unsaved " + note}; !slices.Equal(got, want) {
 		t.Errorf("rows = %q, want %q", got, want)
 	}
@@ -565,6 +565,27 @@ func TestSaveAppliesAPresetChangedOutside(t *testing.T) {
 	}
 }
 
+func TestHandEditAfterARenameIsImported(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	repo := machine.Repo("app")
+	session := newSession(t, machine, repo)
+	session.SetPresets([]string{"r1"})
+	save(t, session)
+
+	err := session.RenamePreset("r1", "Rails")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"docs": "on", "lint": "on", "review": "off"}}`)
+
+	got := changes(newSession(t, machine, repo))
+	if want := []string{"docs on unsaved override outside", "lint on", "review off"}; !slices.Equal(got, want) {
+		t.Errorf("rows = %q, want %q", got, want)
+	}
+}
+
 func TestSaveAppliesAMissingPreset(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)
@@ -580,8 +601,8 @@ func TestSaveAppliesAMissingPreset(t *testing.T) {
 	}
 
 	view := newSession(t, machine, repo).View()
-	if view.Unsaved != 0 || !slices.Equal(view.Presets, []string{"r1"}) {
-		t.Errorf("Unsaved = %d, Presets = %q, want 0 and r1 still active", view.Unsaved, view.Presets)
+	if view.Unsaved != 0 || !slices.Equal(view.Presets, []string{"Ruby"}) {
+		t.Errorf("Unsaved = %d, Presets = %q, want 0 and Ruby still active", view.Unsaved, view.Presets)
 	}
 }
 
@@ -603,14 +624,14 @@ func TestLibraryListsAMissingPresetActiveHere(t *testing.T) {
 		return out
 	}
 
-	want := []string{"Writing active=false missing=false", "r1 active=true missing=true"}
+	want := []string{"Ruby active=true missing=true", "Writing active=false missing=false"}
 	if got := missing(); !slices.Equal(got, want) {
 		t.Errorf("library = %q, want %q", got, want)
 	}
 
 	session.TogglePreset("r1")
 
-	want[1] = "r1 active=false missing=true"
+	want[0] = "Ruby active=false missing=true"
 	if got := missing(); !slices.Equal(got, want) {
 		t.Errorf("library after unchecking = %q, want %q", got, want)
 	}
@@ -631,8 +652,24 @@ func TestLibraryListsAMissingPresetByName(t *testing.T) {
 		got = append(got, preset.Name)
 	}
 
-	if want := []string{"O1", "Ruby", "Writing"}; !slices.Equal(got, want) {
+	if want := []string{"Old", "Ruby", "Writing"}; !slices.Equal(got, want) {
 		t.Errorf("library = %q, want %q", got, want)
+	}
+}
+
+func TestMissingPresetOfARecordWithoutNamesShowsItsID(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	repo := machine.Repo("app")
+	using(t, machine, repo, "r1")
+	removePreset(t, machine, "Ruby")
+
+	path := recordFile(t, machine)
+	data, _ := os.ReadFile(path)
+	writeFile(t, path, strings.Replace(string(data), "name = 'Ruby'\n", "", 1))
+
+	if got := newSession(t, machine, repo).View().Presets; !slices.Equal(got, []string{"r1"}) {
+		t.Errorf("Presets = %q, want r1", got)
 	}
 }
 
@@ -647,7 +684,7 @@ func TestMissingPresetSavedWithNoMembersImportsNoHandEdit(t *testing.T) {
 
 	got := changes(newSession(t, machine, repo))
 
-	if want := []string{"docs off unsaved preset e1 missing", "lint off", "review off"}; !slices.Equal(got, want) {
+	if want := []string{"docs off unsaved preset Empty missing", "lint off", "review off"}; !slices.Equal(got, want) {
 		t.Errorf("rows = %q, want %q", got, want)
 	}
 }
@@ -663,8 +700,8 @@ func TestMissingPresetStaysActiveWithNoMembers(t *testing.T) {
 	got := changes(newSession(t, machine, repo))
 
 	want := []string{
-		"docs off unsaved preset r1 missing", // the record's, not the hand edit
-		"lint off unsaved preset r1 missing",
+		"docs off unsaved preset Ruby missing", // the record's, not the hand edit
+		"lint off unsaved preset Ruby missing",
 		"review off",
 	}
 	if !slices.Equal(got, want) {

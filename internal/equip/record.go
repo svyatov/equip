@@ -23,10 +23,12 @@ type record struct {
 	Presets    []recordPreset               `toml:"presets,omitempty"` // the active ones
 }
 
-// recordPreset is an active preset as a record keeps it: its id and a hash
-// of its members as last saved.
+// recordPreset is an active preset as a record keeps it: its id, and its name
+// and a hash of its members as last saved. The name only names the preset
+// while it is missing; a record from before equip kept it has none.
 type recordPreset struct {
 	ID   string `toml:"id"`
+	Name string `toml:"name,omitempty"`
 	Hash string `toml:"hash"`
 }
 

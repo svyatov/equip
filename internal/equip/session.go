@@ -1,6 +1,7 @@
 package equip
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"maps"
@@ -257,7 +258,9 @@ func (s *Session) View() View {
 		}
 	}
 
-	presets = append(presets, s.missing(s.pending.active)...)
+	for _, id := range s.missing(s.pending.active) {
+		presets = append(presets, s.missingName(id))
+	}
 
 	return View{
 		Project: s.project, Rows: rows, Facets: s.facets(rows), Unsaved: s.unsavedCount(), Totals: totals,
@@ -403,7 +406,7 @@ func (s *Session) Save() error {
 		}
 	}
 
-	presets := s.pending.record()
+	presets := s.pending.record(s.recorded)
 
 	err = writeRecord(s.machine, s.project, s.pending.overrides, presets)
 	if err != nil {
@@ -591,8 +594,9 @@ func (s *Session) importEntries(agent Agent, now map[string]State) bool {
 func (s *Session) presetsChanged() []string {
 	var changed []string
 
-	for i, now := range s.lastSave().record() {
-		if s.presetIndex(now.ID) < 0 || now != s.recorded[i] {
+	// A rename changes only the name, and changes no member.
+	for i, now := range s.lastSave().record(s.recorded) {
+		if s.presetIndex(now.ID) < 0 || now.Hash != s.recorded[i].Hash {
 			changed = append(changed, now.ID)
 		}
 	}
@@ -601,8 +605,7 @@ func (s *Session) presetsChanged() []string {
 }
 
 // presetNote notes each active preset that changed since the last save, and
-// each one missing, noted by its id, as the record keeps no name. It is empty
-// with none.
+// each one missing. It is empty with none.
 func (s *Session) presetNote() string {
 	changed := s.presetsChanged()
 	notes := make([]string, 0, len(changed))
@@ -611,11 +614,17 @@ func (s *Session) presetNote() string {
 		if at := s.presetIndex(id); at >= 0 {
 			notes = append(notes, "preset "+s.pending.library[at].Name+" changed outside equip")
 		} else {
-			notes = append(notes, "preset "+id+" missing")
+			notes = append(notes, "preset "+s.missingName(id)+" missing")
 		}
 	}
 
 	return strings.Join(notes, ", ")
+}
+
+// missingName is the name of the missing preset with id: the record's, or
+// its id when the record keeps none.
+func (s *Session) missingName(id string) string {
+	return cmp.Or(presetName(s.recorded, id), id)
 }
 
 // missing are the presets with ids the library does not have, sorted.
