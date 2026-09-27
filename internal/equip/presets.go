@@ -42,6 +42,10 @@ var ErrPresetName = errors.New("a preset needs a free name that can name a file"
 // errNoPreset is the error of an edit of a preset the library does not have.
 var errNoPreset = errors.New("no such preset")
 
+// errFollows is the error of an edit that adds a plugin's skill, which
+// follows its plugin, to a preset.
+var errFollows = errors.New("a plugin's skill follows its plugin")
+
 // Member is one extension a Preset names, which may not be installed. An
 // installed one has its row here: its state, cost and Override mark.
 type Member struct {
@@ -252,8 +256,12 @@ func (s *Session) CreatePreset(name string) (string, error) {
 }
 
 // AddMember adds the extension with key to the preset with id, an unwritten
-// edit.
+// edit. A plugin's skill follows its plugin, so it joins none.
 func (s *Session) AddMember(id, key string) error {
+	if _, _, isSkill := splitSkillRowKey(key); isSkill {
+		return fmt.Errorf("%w: %s", errFollows, key)
+	}
+
 	return s.edit(id, func(members []Member) []Member {
 		return append(members, member(key))
 	})

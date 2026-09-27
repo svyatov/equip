@@ -201,14 +201,16 @@ func (a Agent) config() adapter {
 	}[a]
 }
 
-// SetState makes st an Override for the extension with key, unless the
-// extension does not offer st.
-func (s *Session) SetState(key string, st State) {
-	if ext, ok := s.pending.ext(key); ok && !slices.Contains(ext.Kind.states(), st) {
+// SetState makes state an Override for the extension with key, unless the
+// extension does not offer state. A plugin's skill follows its plugin, so it
+// takes none.
+func (s *Session) SetState(key string, state State) {
+	ext, ok := s.pending.ext(key)
+	if _, _, isSkill := splitSkillRowKey(key); isSkill || ok && !slices.Contains(ext.Kind.states(), state) {
 		return
 	}
 
-	s.pending.overrides[key] = st
+	s.pending.overrides[key] = state
 }
 
 // View returns the current view.
