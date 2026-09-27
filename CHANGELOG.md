@@ -14,6 +14,8 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-09-27
+
 ### Added
 
 - `equip` opens a TUI in the working directory's Project. It lists every skill, plugin, and MCP server that Claude Code and Codex would load there, one row per extension across both agents.
@@ -25,4 +27,5 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 - equip keeps a Record per Project and machine. On a moved repository's first open, equip offers to adopt the Record left at the old path.
 - `--help` prints the usage and `--version` prints the build version.
 
-[unreleased]: https://github.com/svyatov/equip/commits/main
+[unreleased]: https://github.com/svyatov/equip/compare/v0.1.0...HEAD
+[0.1.0]: https://github.com/svyatov/equip/releases/tag/v0.1.0
