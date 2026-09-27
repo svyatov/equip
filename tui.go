@@ -53,21 +53,23 @@ func colour(hex string) lipgloss.Style { return lipgloss.NewStyle().Foreground(l
 
 // The sizes of the layout, in cells.
 const (
-	leftWidth  = 34      // the left pane's, the facet sidebar or the presets library, which a library row fills
-	wideWidth  = 100     // the least terminal width that shows the sidebar
-	minWidth   = 60      // the least terminal width the TUI draws in
-	minPane    = 7       // the least pane height the TUI draws in, 3 rows of the list
-	listShare  = 5       // the list takes 2 of this many parts of the width left of the sidebar
-	minList    = 30      // the least width of the list's pane
-	maxList    = 64      // the most width of the list's pane, which keeps a row's cost near its name
-	pageRows   = 10      // the rows pgup and pgdown move
-	endRows    = 1 << 20 // the rows home and end move, past any list's ends
-	paneWidth  = 4       // the cells a pane's border and padding take across
-	paneHeight = 2       // the lines a pane's border takes down
-	listHead   = 2       // the list's title and search lines
-	rowMarks   = 6       // the cells of a list row's mark, glyph, unsaved marker and spaces
-	facetMarks = 6       // the cells of a sidebar line's mark and count
-	pairSize   = 2       // a key and what it does, in the key help
+	leftWidth    = 34      // the left pane's, the facet sidebar or the presets library, which a library row fills
+	wideWidth    = 100     // the least terminal width that shows the sidebar
+	minWidth     = 60      // the least terminal width the TUI draws in
+	minPane      = 7       // the least pane height the TUI draws in, 3 rows of the list
+	listShare    = 5       // the list takes 2 of this many parts of the width left of the sidebar
+	minList      = 30      // the least width of the list's pane
+	maxList      = 64      // the most width of the list's pane, which keeps a row's cost near its name
+	pageRows     = 10      // the rows pgup and pgdown move
+	halfPage     = 5       // the rows ctrl+d and ctrl+u move
+	leftSections = 2       // the sections of the key list's left column, Move and Change
+	endRows      = 1 << 20 // the rows home and end move, past any list's ends
+	paneWidth    = 4       // the cells a pane's border and padding take across
+	paneHeight   = 2       // the lines a pane's border takes down
+	listHead     = 2       // the list's title and search lines
+	rowMarks     = 6       // the cells of a list row's mark, glyph, unsaved marker and spaces
+	facetMarks   = 6       // the cells of a sidebar line's mark and count
+	pairSize     = 2       // a key and what it does, in the key help
 )
 
 // probedMsg reports that a probe of an MCP server ended, with its error.
@@ -75,26 +77,35 @@ type probedMsg struct{ err error }
 
 // model is the Bubble Tea root model over a Session.
 type model struct {
-	style      styles
-	s          *equip.Session
-	home       string // the user's home dir, which the top line writes as ~
-	flash      string
-	query      string    // the search: the list keeps the rows whose names contain it
-	key        string    // of the highlighted row, which the highlight stays on while the list has it
-	pinned     string    // of a row the keys changed, which the list keeps until the highlight leaves it
-	orphans    []string  // the records of a moved repo the first open offers, while it asks to adopt one
-	ws         workspace // the presets workspace
-	width      int       // of the terminal
-	height     int       // of the terminal
-	cur        int       // the highlighted row
-	top        int       // the first row the list shows
-	detailTop  int       // the first line under its title the detail pane shows
-	facet      int       // the picked facet
-	server     int       // the highlighted MCP server among the highlighted plugin's contents
-	inContents bool      // the keys act on the highlighted MCP server, not the row
-	quitting   bool      // asking to quit with unsaved changes
-	searching  bool      // the keys type into the search
+	style     styles
+	s         *equip.Session
+	home      string // the user's home dir, which the top line writes as ~
+	flash     string
+	query     string    // the search: the list keeps the rows whose names contain it
+	key       string    // of the highlighted row, which the highlight stays on while the list has it
+	pinned    string    // of a row the keys changed, which the list keeps until the highlight leaves it
+	orphans   []string  // the records of a moved repo the first open offers, while it asks to adopt one
+	ws        workspace // the presets workspace
+	width     int       // of the terminal
+	height    int       // of the terminal
+	cur       int       // the highlighted row
+	top       int       // the first row the list shows
+	detailTop int       // the first line under its title the detail pane shows
+	facet     int       // the picked facet
+	server    int       // the highlighted MCP server among the highlighted plugin's contents
+	focus     int       // the pane the keys are on: onFacets, onList or onDetail
+	quitting  bool      // asking to quit with unsaved changes
+	searching bool      // the keys type into the search
+	showKeys  bool      // the key list covers the screen until the next key
 }
+
+// The panes of the main screen the keys can be on, left to right. In the
+// detail pane they move among the MCP servers of a plugin, else scroll it.
+const (
+	onFacets = iota
+	onList
+	onDetail
+)
 
 // digitKeys is the count of the digit keys 1 to 9, which pick a record in
 // the adopt prompt. ponytail: a tenth record is left out; page the prompt if
@@ -111,14 +122,35 @@ const enterKey = "enter"
 // spaceKey toggles what the keys are on.
 const spaceKey = "space"
 
-// step is the move of key, reporting whether it is an arrow key, its vi key,
-// a page key, home or end.
+// step is the move of key, reporting whether it is an arrow key, a page key,
+// home or end, or the vi key of one.
 func step(key string) (int, bool) {
-	delta, ok := map[string]int{
-		"up": -1, "k": -1, "down": 1, "j": 1, "pgup": -pageRows, "pgdown": pageRows, "home": -endRows, "end": endRows,
+	delta, isStep := map[string]int{
+		"up": -1, "k": -1, "down": 1, "j": 1,
+		"ctrl+u": -halfPage, "ctrl+d": halfPage,
+		"pgup": -pageRows, "ctrl+b": -pageRows, "pgdown": pageRows, "ctrl+f": pageRows,
+		"home": -endRows, "g": -endRows, "end": endRows, "G": endRows,
 	}[key]
 
-	return delta, ok
+	return delta, isStep
+}
+
+// pane is the move of key among the panes, reporting whether it moves: h and
+// l and the arrows stop at the ends, tab and shift+tab wrap around, and enter
+// goes in.
+func pane(key string) (int, bool, bool) {
+	switch key {
+	case "h", "left":
+		return -1, false, true
+	case "l", "right", enterKey:
+		return 1, false, true
+	case "shift+tab":
+		return -1, true, true
+	case "tab":
+		return 1, true, true
+	}
+
+	return 0, false, false
 }
 
 // newTUI is the model of a fresh TUI over session, for the user with home.
@@ -127,7 +159,7 @@ func newTUI(session *equip.Session, home string) *model {
 	orphans := view.Orphans
 	tui := &model{
 		s: session, home: home, style: newStyles(), width: 0, height: 0, cur: 0, top: 0, detailTop: 0, facet: 0, server: 0,
-		inContents: false, quitting: false,
+		focus: onList, quitting: false, showKeys: false,
 		searching: false, flash: "", query: "", key: "", pinned: "", orphans: orphans[:min(len(orphans), digitKeys)],
 		ws: newWorkspace(view),
 	}
@@ -141,6 +173,7 @@ func (m *model) Init() tea.Cmd { return nil }
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
 		m.width, m.height = size.Width, size.Height
+		m.focus = max(m.focus, m.leftmost())
 
 		return m, nil
 	}
@@ -192,7 +225,13 @@ func (m *model) View() tea.View {
 	height := m.height - 1 - lipgloss.Height(footer)
 
 	content := "terminal too small"
-	if m.width >= minWidth && height >= minPane {
+
+	switch {
+	case m.width < minWidth || height < minPane:
+	case m.showKeys:
+		content = block(lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
+			m.style.focused.Render(m.keyList())), m.width, m.height)
+	default:
 		content = screen(height) + "\n" + block(footer, m.width, lipgloss.Height(footer))
 	}
 
@@ -224,27 +263,27 @@ func (m *model) mainView(height int) string {
 	var panes []string
 
 	rest := m.width
-	if m.width >= wideWidth {
-		panes = append(panes, m.box(m.sidebar(session.Facets), leftWidth, height, false))
+	if m.leftmost() == onFacets {
+		panes = append(panes, m.box(m.sidebar(session.Facets), leftWidth, height, m.focus == onFacets))
 		rest -= leftWidth
 	}
 
 	listWidth := min(max(minList, rest*2/listShare), maxList)
 	panes = append(panes, m.box(m.list(rows, session.Facets[m.facet].Name, listWidth-paneWidth, height-paneHeight),
-		listWidth, height, !m.inContents))
+		listWidth, height, m.focus == onList))
 
 	detail := ""
 
 	if m.cur < len(rows) {
 		row, server := rows[m.cur], ""
-		if m.inContents {
-			server, _ = m.target(rows, m.servers(rows))
+		if servers := m.servers(rows); m.focus == onDetail && len(servers) > 0 {
+			server = servers[m.server]
 		}
 
 		detail = m.detail(session, row, m.s.Detail(row.Key), server, rest-listWidth-paneWidth, height-paneHeight)
 	}
 
-	panes = append(panes, m.box(detail, rest-listWidth, height, m.inContents))
+	panes = append(panes, m.box(detail, rest-listWidth, height, m.focus == onDetail))
 
 	return fit(strings.Join(top, "  "), m.width) + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, panes...)
 }
@@ -355,8 +394,12 @@ func (m *model) dispatch(keyMsg tea.KeyPressMsg) tea.Cmd {
 	switch {
 	case key == "ctrl+c":
 		return m.quit()
+	case m.showKeys:
+		m.showKeys = false
 	case len(m.orphans) > 0:
 		m.adopt(key)
+	case key == "?" && !m.typing():
+		m.showKeys = true
 	case m.ws.open:
 		m.inWorkspace(keyMsg)
 	case m.searching:
@@ -408,13 +451,70 @@ func (m *model) footer() string {
 		return m.flash
 	case m.searching:
 		return m.help("type", "to search", "enter", "done", "esc", "clear")
-	case m.inContents:
-		return m.help("↑↓", "MCP server", "1-2", "set state", "x", "drop override", "m", "measure", "tab", "list",
-			"s", "save", "q", "quit")
+	case m.focus == onFacets:
+		return m.help("j/k", "facet", "l", "list", "/", "search", "?", "keys", "q", "quit")
+	case m.focus == onDetail && len(m.servers(m.rows(m.s.View()))) > 0:
+		return m.help("j/k", "MCP server", "space", "cycle state", "x", "drop override", "m", "measure", "h", "list",
+			"s", "save", "?", "keys", "q", "quit")
+	case m.focus == onDetail:
+		return m.help("j/k", "scroll", "space", "cycle state", "h", "list", "s", "save", "?", "keys", "q", "quit")
 	}
 
-	return m.help("↑↓", "move", "1-3", "set state", "x", "drop override", "[ ]", "facet", "/", "search",
-		"tab", "MCP servers", "m", "measure", "p", "presets", "pgup pgdn", "page", "s", "save", "q", "quit")
+	return m.help("j/k", "move", "h/l", "pane", "space", "cycle state", "m", "measure", "/", "search", "p", "presets",
+		"s", "save", "?", "keys", "q", "quit")
+}
+
+// typing reports whether the keys type text: into a search or a preset's
+// name.
+func (m *model) typing() bool { return m.searching || m.ws.searching || m.ws.naming != "" }
+
+// leftmost is the leftmost pane the keys can be on: the sidebar, unless the
+// terminal is too narrow to show it.
+func (m *model) leftmost() int {
+	if m.width < wideWidth {
+		return onList
+	}
+
+	return onFacets
+}
+
+// keyList is every key of the TUI, which ? shows.
+func (m *model) keyList() string {
+	sections := []struct {
+		head  string
+		pairs []string
+	}{
+		{"Move", []string{
+			"j k ↑ ↓", "up and down", "g G", "first and last", "ctrl+d ctrl+u", "half a page down and up",
+			"pgdn pgup", "a page down and up", "h l ← →", "pane left and right", "tab shift+tab", "next and previous pane",
+			"enter", "into the next pane",
+		}},
+		{"Change", []string{
+			"space", "cycle state", "1 2 3", "set state", "x", "drop override", "m", "measure an MCP server", "s", "save",
+		}},
+		{"Find", []string{"/", "search by name", "[ ]", "previous and next facet", "esc", "clear, back to the list"}},
+		{"Presets", []string{
+			"p", "open the presets", "space", "make active here, or add and remove", "n r d", "new, rename, delete",
+			"a w", "add members, write the preset", "esc", "back",
+		}},
+		{"Other", []string{"?", "these keys", "q", "quit"}},
+	}
+
+	blocks := make([]string, 0, len(sections))
+
+	for _, section := range sections {
+		lines := []string{m.style.head.Render(section.head)}
+
+		for pair := range slices.Chunk(section.pairs, pairSize) {
+			lines = append(lines, "  "+m.style.key.Render(fmt.Sprintf("%-14s", pair[0]))+" "+pair[len(pair)-1])
+		}
+
+		blocks = append(blocks, strings.Join(lines, "\n"))
+	}
+
+	// Move and Change go in the left column, the rest in the right.
+	return lipgloss.JoinHorizontal(lipgloss.Top, strings.Join(blocks[:leftSections], "\n\n"), "   ",
+		strings.Join(blocks[leftSections:], "\n\n")) + "\n\n" + m.style.dim.Render("any key closes")
 }
 
 // mark is the start of a list line: the highlight's when on.
@@ -507,8 +607,7 @@ func (m *model) first() { m.cur, m.top, m.key, m.pinned = 0, 0, "", "" }
 
 // clamp keeps the highlight on its row while the list has it, else at its
 // place in the list. The list drops a pinned row once the highlight leaves
-// it, and the keys leave the contents of a row the highlight leaves or that
-// has no MCP server left to highlight.
+// it, and the keys leave the detail pane of a row the highlight leaves.
 func (m *model) clamp() {
 	rows := m.rows(m.s.View())
 	if i := index(rows, m.key); i >= 0 {
@@ -529,13 +628,14 @@ func (m *model) clamp() {
 	}
 
 	if key != m.key {
-		m.inContents, m.server = false, 0
+		m.server, m.detailTop = 0, 0
+		if m.focus == onDetail {
+			m.focus = onList
+		}
 	}
 
 	m.key = key
-	servers := m.servers(rows)
-	m.server = max(min(m.server, len(servers)-1), 0)
-	m.inContents = m.inContents && len(servers) > 0
+	m.server = max(min(m.server, len(m.servers(rows))-1), 0)
 }
 
 // index is the index of the row with key among rows, or -1.
@@ -574,7 +674,13 @@ func (m *model) press(key string) tea.Cmd {
 	servers := m.servers(rows)
 
 	if delta, ok := step(key); ok {
-		m.move(delta)
+		m.move(delta, len(servers))
+
+		return nil
+	}
+
+	if delta, wraps, ok := pane(key); ok {
+		m.moveFocus(delta, wraps)
 
 		return nil
 	}
@@ -582,10 +688,7 @@ func (m *model) press(key string) tea.Cmd {
 	switch key {
 	case "q":
 		return m.quit()
-	case "tab":
-		m.inContents = !m.inContents && len(servers) > 0
-		m.server = 0
-	case "1", "2", "3", "x", "m":
+	case "1", "2", "3", "x", "m", spaceKey:
 		if target, ok := m.target(rows, servers); ok {
 			// The list keeps the row even when the key takes it out of the
 			// facet, so a second press does not act on the next row.
@@ -606,16 +709,16 @@ func (m *model) press(key string) tea.Cmd {
 }
 
 // narrow acts on key if it narrows the list: / starts the search, esc clears
-// it, and [ and ] pick the previous and next facet. It reports whether it
-// did.
+// it and puts the keys back on the list, and [ and ] pick the previous and
+// next facet. It reports whether it did.
 func (m *model) narrow(key string) bool {
 	facets := len(m.s.View().Facets)
 
 	switch key {
 	case "/":
-		m.searching = true
+		m.searching, m.focus = true, onList
 	case escKey:
-		m.query = ""
+		m.query, m.focus = "", onList
 	case "[", "]":
 		m.facet = (m.facet + map[string]int{"[": -1, "]": 1}[key] + facets) % facets
 		m.first()
@@ -626,13 +729,33 @@ func (m *model) narrow(key string) bool {
 	return true
 }
 
-// move moves the highlight by delta among the MCP servers in the contents,
-// else among the rows. clamp keeps it on them.
-func (m *model) move(delta int) {
-	if m.inContents {
-		m.server += delta
-	} else {
+// move moves the highlight by delta in the pane the keys are on: among the
+// facets, among the rows, or among the count servers of the highlighted
+// plugin, else it scrolls the detail pane. clamp keeps it on them, and the
+// detail pane keeps its scroll in its lines.
+func (m *model) move(delta, servers int) {
+	switch {
+	case m.focus == onFacets:
+		m.facet = max(min(m.facet+delta, len(m.s.View().Facets)-1), 0)
+		m.first()
+	case m.focus == onList:
 		m.cur, m.key = m.cur+delta, ""
+	case servers > 0:
+		m.server += delta
+	default:
+		m.detailTop = max(m.detailTop+delta, 0)
+	}
+}
+
+// moveFocus moves the keys by delta among the panes, wrapping around at the
+// ends when wraps.
+func (m *model) moveFocus(delta int, wraps bool) {
+	lo := m.leftmost()
+	if wraps {
+		count := onDetail - lo + 1
+		m.focus = lo + (m.focus-lo+delta+count)%count
+	} else {
+		m.focus = max(min(m.focus+delta, onDetail), lo)
 	}
 }
 
@@ -654,10 +777,11 @@ func (m *model) servers(rows []equip.Row) []string {
 	return keys
 }
 
-// target is the key the state keys act on: the highlighted MCP server in the
-// contents, else the highlighted row of rows. It reports whether there is one.
+// target is the key the state keys act on: the highlighted MCP server of
+// servers while the keys are on the detail pane, else the highlighted row of
+// rows. It reports whether there is one.
 func (m *model) target(rows []equip.Row, servers []string) (string, bool) {
-	if m.inContents {
+	if m.focus == onDetail && len(servers) > 0 {
 		return servers[m.server], true
 	}
 
@@ -669,11 +793,15 @@ func (m *model) target(rows []equip.Row, servers []string) (string, bool) {
 }
 
 // act acts on the extension with target: x drops its Override, m measures
-// its cost, and a number key sets the state it picks.
+// its cost, space sets the state after its own, and a number key sets the
+// state it picks.
 func (m *model) act(key, target string) tea.Cmd {
 	switch key {
 	case "x":
 		m.s.DropOverride(target)
+	case spaceKey:
+		states := m.s.Detail(target).States
+		m.setState(target, (slices.Index(states, m.state(target))+1)%max(len(states), 1))
 	case "m":
 		// The probe runs as a command, so the TUI stays live meanwhile.
 		probe := m.s.ProbeCost(target)
@@ -685,6 +813,19 @@ func (m *model) act(key, target string) tea.Cmd {
 	}
 
 	return nil
+}
+
+// state is the pending state of the extension with key: the highlighted row,
+// or one of its MCP servers.
+func (m *model) state(key string) equip.State {
+	rows := m.rows(m.s.View())
+	for _, content := range m.s.Detail(rows[m.cur].Key).Contents {
+		if content.Key == key {
+			return content.State
+		}
+	}
+
+	return rows[m.cur].State
 }
 
 // setState sets the extension with key to the state the key numbered i picks

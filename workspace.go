@@ -94,7 +94,8 @@ func (m *model) inWorkspace(keyMsg tea.KeyPressMsg) {
 // onPanes acts on key in the library or the members pane: the arrows move,
 // space makes the highlighted preset active here or adds or removes the
 // highlighted member, n creates a preset, r renames it, a adds members, w
-// writes it, tab moves between the panes, and esc goes back to the main
+// writes it, h, l, tab and the arrows move between the panes, and esc goes
+// back to the main
 // screen. A key that moves off the preset with unwritten edits asks first.
 func (m *model) onPanes(key string, presets []equip.Preset) {
 	if delta, isStep := step(key); isStep {
@@ -103,9 +104,16 @@ func (m *model) onPanes(key string, presets []equip.Preset) {
 		return
 	}
 
+	if inMembers, isPane := map[string]bool{
+		"tab": !m.ws.inMembers, "shift+tab": !m.ws.inMembers, "l": true, "right": true, enterKey: true,
+		"h": false, "left": false,
+	}[key]; isPane {
+		m.ws.inMembers = inMembers
+
+		return
+	}
+
 	switch {
-	case key == "tab":
-		m.ws.inMembers = !m.ws.inMembers
 	case key == escKey && !m.guard(key):
 		m.ws.open = false
 	case key == "n" && !m.guard(key):
@@ -485,14 +493,14 @@ func (m *model) workspaceFooter() string {
 	case m.ws.searching:
 		return m.help("type", "to search", "enter", "done", "esc", "clear")
 	case m.ws.adding:
-		return m.help("↑↓", "move", "space", "add", "/", "search", "esc", "close")
+		return m.help("j/k", "move", "space", "add", "/", "search", "esc", "close")
 	case m.ws.inMembers:
-		return m.help("↑↓", "member", "space", "remove or add back", "a", "add", "w", "write preset", "tab", "library",
-			"esc", "back")
+		return m.help("j/k", "member", "space", "remove or add back", "a", "add", "w", "write preset", "h", "library",
+			"?", "keys", "esc", "back")
 	}
 
-	return m.help("↑↓", "preset", "space", "active here", "n", "new", "r", "rename", "d", "delete", "a", "add members",
-		"w", "write preset", "tab", "members", "esc", "back")
+	return m.help("j/k", "preset", "space", "active here", "n", "new", "r", "rename", "d", "delete", "a", "add members",
+		"w", "write preset", "l", "members", "?", "keys", "esc", "back")
 }
 
 // workspaceTop is the workspace's top line: the active presets, and each

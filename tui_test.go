@@ -139,6 +139,140 @@ func TestDetailPaneScrollsToKeepTheHighlightedMCPServerOnScreen(t *testing.T) {
 	}
 }
 
+func ctrl(r rune) tea.KeyPressMsg { return tea.KeyPressMsg{Code: r, Mod: tea.ModCtrl} }
+
+func TestHAndLMoveTheKeysBetweenThePanes(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withSkills(t, 3))
+
+	for _, step := range []struct {
+		key  tea.KeyPressMsg
+		want int
+	}{
+		{key('l'), onDetail},
+		{key('l'), onDetail},
+		{key('h'), onList},
+		{key('h'), onFacets},
+		{key('h'), onFacets},
+		{tea.KeyPressMsg{Code: tea.KeyRight}, onList},
+		{tea.KeyPressMsg{Code: tea.KeyTab}, onDetail},
+		{tea.KeyPressMsg{Code: tea.KeyTab}, onFacets},
+		{tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}, onDetail},
+		{esc(), onList},
+	} {
+		press(tui, step.key)
+
+		if tui.focus != step.want {
+			t.Fatalf("after %s the keys are on pane %d, want %d", step.key, tui.focus, step.want)
+		}
+	}
+}
+
+func TestJOnTheSidebarPicksTheNextFacetAndEnterGoesToTheList(t *testing.T) {
+	t.Parallel()
+	machine := withSkills(t, 2)
+	machine.Plugin("github@official", "user", "")
+	tui := newModel(t, machine)
+
+	press(tui, key('h'), key('j'), key('j'))
+
+	if rowLine(tui, "s00") != "" || rowLine(tui, "github@official") == "" {
+		t.Errorf("Plugins facet does not show the plugin alone:\n%s", plain(tui))
+	}
+
+	press(tui, enter())
+
+	if tui.focus != onList {
+		t.Errorf("enter left the keys on pane %d, want the list", tui.focus)
+	}
+}
+
+func TestHDoesNotMoveOntoAHiddenSidebar(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withSkills(t, 3))
+	resize(tui, 90, 20)
+
+	press(tui, key('h'))
+
+	if tui.focus != onList {
+		t.Errorf("h put the keys on pane %d, want the list", tui.focus)
+	}
+}
+
+func TestGJumpsToTheEndsAndCtrlDMovesHalfAPage(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withSkills(t, 40))
+	resize(tui, 80, 20)
+
+	for _, step := range []struct {
+		want string
+		key  tea.KeyPressMsg
+	}{
+		{"s39", key('G')}, {"s00", key('g')}, {"s05", ctrl('d')}, {"s10", ctrl('d')}, {"s05", ctrl('u')},
+	} {
+		press(tui, step.key)
+
+		if highlighted(tui) != step.want {
+			t.Errorf("after %s highlighted %q, want %q", step.key, highlighted(tui), step.want)
+		}
+	}
+}
+
+func TestSpaceCyclesTheStateOfTheHighlightedRow(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withSkills(t, 1))
+
+	for _, want := range []equip.State{equip.ManualOnly, equip.Off, equip.On} {
+		press(tui, key(' '))
+
+		if tui.s.View().Rows[0].State != want {
+			t.Errorf("space set %v, want %v", tui.s.View().Rows[0].State, want)
+		}
+	}
+}
+
+func TestJScrollsTheDetailPaneOfARowWithNoMCPServer(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	dir := machine.Plugin("github@official", "user", "")
+
+	for i := range 20 {
+		machine.Skill(filepath.Join(dir, "skills"), fmt.Sprintf("s%02d", i))
+	}
+
+	tui := newModel(t, machine)
+	resize(tui, 120, 20)
+
+	if line(tui, "Locations") != "" {
+		t.Fatalf("Locations shows before scrolling:\n%s", plain(tui))
+	}
+
+	press(tui, key('l'), key('G'))
+
+	if line(tui, "Locations") == "" {
+		t.Errorf("G in the detail pane did not scroll to Locations:\n%s", plain(tui))
+	}
+}
+
+func TestQuestionMarkListsEveryKeyUntilTheNextKey(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withSkills(t, 1))
+
+	press(tui, key('?'))
+
+	for _, want := range []string{"ctrl+d", "cycle state", "measure", "presets"} {
+		if line(tui, want) == "" {
+			t.Errorf("key list does not show %q:\n%s", want, plain(tui))
+		}
+	}
+
+	press(tui, key('j'))
+
+	if line(tui, "ctrl+d") != "" {
+		t.Errorf("a key did not close the key list:\n%s", plain(tui))
+	}
+}
+
 func TestTildeWritesTheHomeDirAsATilde(t *testing.T) {
 	t.Parallel()
 
@@ -437,7 +571,7 @@ func TestDetailPaneMarksAPluginMCPServerChangedOutside(t *testing.T) {
 	}
 }
 
-func TestTabDoesNothingOnARowWithNoMCPServers(t *testing.T) {
+func TestStateKeyInTheDetailPaneActsOnARowWithNoMCPServers(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	machine.Skill(machine.ClaudeSkills(), "review")
@@ -897,7 +1031,7 @@ func TestPickingAFacetLeavesThePluginsContents(t *testing.T) {
 	// search off, then the Unsaved changes facet, which keeps the plugin.
 	press(tui, tab, key('2'), key('['))
 
-	if tui.inContents {
+	if tui.focus == onDetail {
 		t.Error("keys still act on the MCP server after picking a facet")
 	}
 }
@@ -913,7 +1047,7 @@ func TestKeysStayOnTheListAfterTheHighlightedPluginLeavesTheFacet(t *testing.T) 
 	tab := tea.KeyPressMsg{Code: tea.KeyTab}
 	press(tui, tab, key('2'), key('['), tab, key('s'))
 
-	if tui.inContents {
+	if tui.focus == onDetail {
 		t.Fatalf("keys still act on the MCP server of a plugin that left the facet:\n%s", tui.View().Content)
 	}
 
@@ -1073,7 +1207,7 @@ func TestHighlightLeavesTheContentsWhenAnotherRowTakesItsPlace(t *testing.T) {
 	// alpha's two highlighted, then a search that keeps beta alone.
 	press(tui, tea.KeyPressMsg{Code: tea.KeyTab}, down(), key('/'), key('b'))
 
-	if tui.inContents {
+	if tui.focus == onDetail {
 		t.Errorf("keys still act on MCP server %d, of beta now:\n%s", tui.server, tui.View().Content)
 	}
 }

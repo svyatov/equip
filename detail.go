@@ -133,18 +133,30 @@ func (m *model) detail(view equip.View, row equip.Row, ext equip.Detail, server 
 	lines = append(lines, contents...)
 	lines = append(lines, m.locations(ext)...)
 
-	top := 0
-	if highlighted >= 0 {
-		top = m.detailTop
+	return m.style.cur.Render(row.Name) + "  " + m.style.kinds[row.Kind].Render(row.Kind.String()) + "\n" +
+		strings.Join(m.scrollDetail(lines, highlighted, height-1), "\n")
+}
+
+// scrollDetail is the height of the detail pane's lines it shows: kept on
+// the line highlighted, or scrolled as the keys move it while they are on
+// it, else from the top.
+func (m *model) scrollDetail(lines []string, highlighted, height int) []string {
+	scrolls := m.focus == onDetail && !m.ws.open
+	top, cur := 0, 0
+
+	switch {
+	case highlighted >= 0:
+		top, cur = m.detailTop, highlighted
+	case scrolls:
+		top, cur = m.detailTop, m.detailTop
 	}
 
-	lines, top = m.window(lines, top, max(highlighted, 0), height-1)
-	if highlighted >= 0 {
+	lines, top = m.window(lines, top, cur, height)
+	if highlighted >= 0 || scrolls {
 		m.detailTop = top
 	}
 
-	return m.style.cur.Render(row.Name) + "  " + m.style.kinds[row.Kind].Render(row.Kind.String()) + "\n" +
-		strings.Join(lines, "\n")
+	return lines
 }
 
 // locations are the detail pane lines of where ext comes from.
