@@ -634,6 +634,19 @@ func TestMembersAndTheAddListAreGroupedByKind(t *testing.T) {
 	}
 }
 
+func TestAddListLeavesOutAPluginsSkills(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	machine.Skill(filepath.Join(machine.Plugin("atlas@official", "user", ""), "skills"), "mapper")
+	tui := newModel(t, machine)
+
+	press(tui, key('p'), key('a'))
+
+	if line(tui, "atlas@official") == "" || line(tui, "mapper") != "" {
+		t.Errorf("the add list does not offer the plugin alone:\n%s", tui.View().Content)
+	}
+}
+
 func TestAddListSearchesOnRequest(t *testing.T) {
 	t.Parallel()
 	tui := presetModel(t)

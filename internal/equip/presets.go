@@ -56,7 +56,7 @@ type Member struct {
 func member(key string) Member {
 	return Member{
 		Key: key, Name: keyName(key), Kind: keyKind(key), Cost: 0, State: On, Fallback: On, CostUnknown: false, ByName: false,
-		Override: false, Unsaved: false, ChangedOutside: false,
+		Override: false, Unsaved: false, ChangedOutside: false, Plugin: "",
 		Installed: false, Added: false, Removed: false,
 	}
 }
@@ -202,13 +202,14 @@ func (s *Session) TogglePreset(id string) {
 }
 
 // TurnedSince returns the rows whose state changed since the view before:
-// with the totals of both, the effect of the changes in between.
+// with the totals of both, the effect of the changes in between. A plugin's
+// skill turns with its plugin, so only the plugin's row counts.
 func (v View) TurnedSince(before View) []Row {
 	var turned []Row
 
 	for _, row := range v.Rows {
 		i := slices.IndexFunc(before.Rows, func(was Row) bool { return was.Key == row.Key })
-		if i >= 0 && before.Rows[i].State != row.State {
+		if row.Plugin == "" && i >= 0 && before.Rows[i].State != row.State {
 			turned = append(turned, row)
 		}
 	}

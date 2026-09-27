@@ -1543,6 +1543,77 @@ func TestManualOnlySkillReadsManualWhereNoAgentListsIt(t *testing.T) {
 	}
 }
 
+// withPluginSkill is a machine with the plugin github@official, whose skill
+// review has the second row, under its plugin's.
+func withPluginSkill(t *testing.T) *equiptest.Machine {
+	t.Helper()
+
+	machine := equiptest.New(t)
+	machine.Skill(filepath.Join(machine.Plugin("github@official", "user", ""), "skills"), "review")
+
+	return machine
+}
+
+func TestPluginSkillRowNamesItsPluginAndItsPluginsNameFindsIt(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withPluginSkill(t))
+
+	if got := rowLine(tui, "review"); !strings.Contains(got, "review  github") {
+		t.Errorf("row %q does not name its plugin", got)
+	}
+
+	press(tui, key('/'), key('g'), key('i'), key('t'))
+
+	if rowLine(tui, "review") == "" {
+		t.Errorf("a search for its plugin leaves out the plugin's skill:\n%s", plain(tui))
+	}
+}
+
+func TestStateKeysOnAPluginSkillRowChangeNothingAndSayWhatItFollows(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withPluginSkill(t))
+
+	press(tui, down(), key(' '), key('1'), key('3'), key('x'), key('m'))
+
+	if n := tui.s.View().Unsaved; n != 0 {
+		t.Errorf("Unsaved = %d, want 0", n)
+	}
+
+	if line(tui, "follows github@official, enter goes to it") == "" {
+		t.Errorf("state keys do not say what the skill follows:\n%s", plain(tui))
+	}
+}
+
+func TestEnterOnAPluginSkillRowMovesToItsPlugin(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withPluginSkill(t))
+
+	press(tui, key(']'), enter())
+
+	if tui.key != "github@official" || tui.focus != onList {
+		t.Errorf("enter left the highlight on %q in pane %d, want the plugin in the list", tui.key, tui.focus)
+	}
+
+	if got := rowLine(tui, "github@official"); !strings.Contains(got, "▸") {
+		t.Errorf("plugin row %q is not highlighted:\n%s", got, plain(tui))
+	}
+}
+
+func TestDetailPaneOfAPluginSkillSaysItFollowsItsPlugin(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withPluginSkill(t))
+
+	press(tui, down())
+
+	if got := line(tui, "Origin"); !strings.Contains(got, "follows github@official") {
+		t.Errorf("origin %q does not name the plugin", got)
+	}
+
+	if line(tui, "1 on") != "" {
+		t.Errorf("detail pane offers states:\n%s", plain(tui))
+	}
+}
+
 func TestSaveSaysHowManyChangesItWrote(t *testing.T) {
 	t.Parallel()
 	tui := newModel(t, withSkills(t, 2))

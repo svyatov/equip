@@ -88,6 +88,7 @@ type Total struct {
 type Row struct {
 	Key         string // what SetState, Detail and DropOverride take
 	Name        string
+	Plugin      string // on a plugin's skill's row, the key of the plugin it follows
 	Kind        Kind
 	Cost        int // estimated tokens: the higher of the agents' costs
 	State       State
@@ -214,7 +215,13 @@ func (s *Session) View() View {
 		if ext.plugin == "" {
 			rows = append(rows, s.row(ext))
 		}
+
+		if ext.Kind == Plugin {
+			rows = append(rows, s.skillRows(ext)...)
+		}
 	}
+
+	slices.SortStableFunc(rows, func(a, b Row) int { return cmp.Compare(a.Name, b.Name) })
 
 	totals := map[Agent]Total{}
 
@@ -288,6 +295,10 @@ type Content struct {
 // Detail returns the detail of the extension with key.
 func (s *Session) Detail(key string) Detail {
 	ext, ok := s.pending.ext(key)
+	if pluginKey, name, isSkill := strings.Cut(key, "/"); !ok && isSkill {
+		return s.skillDetail(pluginKey, name)
+	}
+
 	if !ok {
 		return Detail{
 			Description: "", Note: "", Marketplace: "", Agents: nil, Locations: nil, NotApplied: nil, Costs: nil,
@@ -401,6 +412,28 @@ func (s *Session) Save() error {
 	return nil
 }
 
+// skillDetail is the detail of the skill named name in the plugin with
+// pluginKey: the plugin's, with the skill's description and cost, and no
+// states or contents, as the skill follows its plugin.
+func (s *Session) skillDetail(pluginKey, name string) Detail {
+	detail := s.Detail(pluginKey)
+	index := slices.IndexFunc(detail.Contents, func(c Content) bool { return c.Kind == Skill && c.Name == name })
+
+	if index < 0 {
+		return s.Detail("")
+	}
+
+	skill := detail.Contents[index]
+	detail.Description, detail.States, detail.Contents, detail.Hooks = skill.Description, nil, nil, false
+	// ponytail: a plugin's contents hold one agent's estimate; keep each
+	// agent's once they drift apart.
+	for agent := range detail.Costs {
+		detail.Costs[agent] = skill.Cost
+	}
+
+	return detail
+}
+
 // row is the row of ext in the list.
 func (s *Session) row(ext Extension) Row {
 	state, override := s.pending.state(ext)
@@ -409,6 +442,7 @@ func (s *Session) row(ext Extension) Row {
 	return Row{
 		Key:            ext.Key,
 		Name:           ext.name(),
+		Plugin:         "",
 		Kind:           ext.Kind,
 		Cost:           s.cost(ext),
 		CostUnknown:    s.unknown(ext),
@@ -419,6 +453,25 @@ func (s *Session) row(ext Extension) Row {
 		Unsaved:        s.inRow(ext, s.unsaved),
 		ChangedOutside: changed,
 	}
+}
+
+// skillRows are the rows of the skills of plugin, each keyed
+// plugin-key/skill-name. A skill follows its plugin, so it is never an
+// Override and changes only with its plugin.
+func (s *Session) skillRows(plugin Extension) []Row {
+	var rows []Row
+
+	for _, content := range s.contents(plugin) {
+		if content.Kind == Skill {
+			rows = append(rows, Row{
+				Key: plugin.Key + "/" + content.Name, Name: content.Name, Plugin: plugin.Key, Kind: Skill,
+				Cost: content.Cost, State: content.State, Fallback: content.State, CostUnknown: false,
+				ByName: content.ByName, Override: false, Unsaved: false, ChangedOutside: false,
+			})
+		}
+	}
+
+	return rows
 }
 
 // byName reports whether ext is a By-name skill, or a plugin of skills that

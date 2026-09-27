@@ -644,7 +644,7 @@ func (m *model) keyList() string {
 		{"Move", []string{
 			"j k ↑ ↓", "up and down", "g G", "first and last", "ctrl+d ctrl+u", "half a page down and up",
 			"pgdn pgup", "a page down and up", "h l ← →", "pane left and right", "tab shift+tab", "next and previous pane",
-			"enter", "into the next pane",
+			"enter", "into the next pane, or to a plugin skill's plugin",
 		}},
 		{"Change", []string{
 			"space", "cycle state", "1 2 3", "set state", "x", "drop override", "m", "measure an MCP server", "s", "save",
@@ -792,7 +792,16 @@ func (m *model) entry(row equip.Row, highlighted bool, width int) string {
 		style, mark = m.style.muted, m.style.muted.Render(glyph(row.State))
 	}
 
-	name := m.name(row.Name, width-rowMarks-lipgloss.Width(cost), style)
+	base, rest, isPlugin := strings.Cut(row.Name, "@")
+	switch {
+	case isPlugin:
+		rest = "@" + rest
+	case row.Plugin != "":
+		pluginName, _, _ := strings.Cut(row.Plugin, "@")
+		rest = "  " + pluginName
+	}
+
+	name := m.name(base, rest, width-rowMarks-lipgloss.Width(cost), style)
 	if row.Unsaved {
 		name += m.style.warn.Render("*")
 	}
@@ -800,15 +809,15 @@ func (m *model) entry(row equip.Row, highlighted bool, width int) string {
 	return fit(m.mark(highlighted)+mark+" "+name, width-lipgloss.Width(cost)) + cost
 }
 
-// name is the name of a row in style, cut to width cells. A plugin's
-// @marketplace is dimmed, and cut before its name is.
-func (m *model) name(name string, width int, style lipgloss.Style) string {
-	base, market, plugin := strings.Cut(name, "@")
-	if !plugin || lipgloss.Width(base)+2 > width {
-		return style.Render(cut(name, width))
+// name is the name of a row, base in style then rest dimmed, cut to width
+// cells. The rest, a plugin's @marketplace or a plugin's skill's plugin, is
+// cut before the base is.
+func (m *model) name(base, rest string, width int, style lipgloss.Style) string {
+	if rest == "" || lipgloss.Width(base)+2 > width {
+		return style.Render(cut(base+rest, width))
 	}
 
-	return style.Render(base) + m.style.dim.Render(cut("@"+market, width-lipgloss.Width(base)))
+	return style.Render(base) + m.style.dim.Render(cut(rest, width-lipgloss.Width(base)))
 }
 
 // costCell is the cost of a row or a plugin's content, as the list and the
@@ -913,10 +922,11 @@ func (m *model) rows(session equip.View) []equip.Row {
 	return rows
 }
 
-// matches reports whether the name of row, or of one of its MCP servers,
-// contains query, in lower case.
+// matches reports whether the name of row, of the plugin a plugin's skill
+// follows, or of one of its MCP servers, contains query, in lower case.
 func (m *model) matches(row equip.Row, query string) bool {
 	return strings.Contains(strings.ToLower(row.Name), query) ||
+		strings.Contains(strings.ToLower(row.Plugin), query) ||
 		slices.ContainsFunc(m.s.Detail(row.Key).Contents, func(content equip.Content) bool {
 			return content.Kind == equip.MCPServer && strings.Contains(strings.ToLower(content.Name), query)
 		})
@@ -926,6 +936,10 @@ func (m *model) matches(row equip.Row, query string) bool {
 func (m *model) press(key string) tea.Cmd {
 	rows := m.rows(m.s.View())
 	servers := m.servers(rows)
+
+	if m.follows(rows, key) {
+		return nil
+	}
 
 	if delta, ok := step(key); ok {
 		m.move(delta, len(servers))
@@ -957,6 +971,30 @@ func (m *model) press(key string) tea.Cmd {
 	}
 
 	return nil
+}
+
+// follows acts on key when the highlighted row of rows is a plugin's skill,
+// which follows its plugin: enter in the list moves to the plugin, and a key
+// that would change the skill says what it follows. It reports whether it
+// acted.
+func (m *model) follows(rows []equip.Row, key string) bool {
+	if m.cur >= len(rows) || rows[m.cur].Plugin == "" {
+		return false
+	}
+
+	plugin := rows[m.cur].Plugin
+
+	switch {
+	case key == enterKey && m.focus == onList:
+		// Pinned, so the list shows the plugin whatever the facet and search.
+		m.key, m.pinned = plugin, plugin
+	case slices.Contains([]string{"1", "2", "3", "x", "m", spaceKey}, key):
+		m.flash = m.style.dim.Render("follows " + plugin + ", enter goes to it")
+	default:
+		return false
+	}
+
+	return true
 }
 
 // save saves the pending changes, and says how many it wrote or why it
