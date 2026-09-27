@@ -88,7 +88,7 @@ func TestPresetsKeyOpensTheLibrary(t *testing.T) {
 
 	press(tui, key('p'))
 
-	for _, want := range []string{"[ ] Ruby", "[ ] Writing", "rspec", "not installed"} {
+	for _, want := range []string{"○ Ruby", "○ Writing", "rspec", "not installed"} {
 		if line(tui, want) == "" {
 			t.Errorf("workspace does not show %q:\n%s", want, tui.View().Content)
 		}
@@ -105,7 +105,7 @@ func TestSpaceActivatesThePresetAndTheTopLineShowsTheEffect(t *testing.T) {
 
 	press(tui, key('p'), key(' '))
 
-	if line(tui, "[x] Ruby") == "" {
+	if line(tui, "● Ruby") == "" {
 		t.Errorf("workspace does not check Ruby:\n%s", tui.View().Content)
 	}
 
@@ -187,7 +187,7 @@ func TestMissingPresetShowsMissingAndCanOnlyBeToggled(t *testing.T) {
 	tui := newModel(t, machine)
 	press(tui, key('p'), key('d'))
 
-	if got := line(tui, "[x] Old"); !strings.Contains(got, "missing") {
+	if got := line(tui, "● Old"); !strings.Contains(got, "missing") {
 		t.Errorf("Old line %q, want it checked and missing:\n%s", got, tui.View().Content)
 	}
 
@@ -197,7 +197,7 @@ func TestMissingPresetShowsMissingAndCanOnlyBeToggled(t *testing.T) {
 
 	press(tui, key(' '))
 
-	if got := line(tui, "[ ] Old"); !strings.Contains(got, "missing") {
+	if got := line(tui, "○ Old"); !strings.Contains(got, "missing") {
 		t.Errorf("space on a missing preset did not uncheck it:\n%s", tui.View().Content)
 	}
 }
@@ -231,7 +231,7 @@ func TestSpaceRemovesOnlyTheHighlightedPreset(t *testing.T) {
 
 	press(tui, key('p'), key(' '), down(), key(' '), key('k'), key(' '))
 
-	if line(tui, "[ ] Ruby") == "" || line(tui, "[x] Writing") == "" {
+	if line(tui, "○ Ruby") == "" || line(tui, "● Writing") == "" {
 		t.Errorf("want only Writing active:\n%s", tui.View().Content)
 	}
 }
@@ -274,7 +274,7 @@ func TestWorkspaceFitsTheTerminalAndScrollsTheMembers(t *testing.T) {
 	}
 
 	lines := strings.Split(styleCodes.ReplaceAllString(tui.View().Content, ""), "\n")
-	if !strings.Contains(lines[len(lines)-1], "esc back") {
+	if !strings.Contains(lines[len(lines)-1], "esc  back") {
 		t.Errorf("last line %q does not show esc back", lines[len(lines)-1])
 	}
 }
@@ -300,12 +300,13 @@ func TestLeftColumnKeepsItsWidthAcrossScreens(t *testing.T) {
 	t.Parallel()
 	tui := presetModel(t)
 
-	// leftWidth is the width of the first pane on the view's second line.
+	// leftWidth is the width of the first pane, on the view's first border
+	// line.
 	leftWidth := func() int {
-		lines := strings.Split(styleCodes.ReplaceAllString(tui.View().Content, ""), "\n")
-		corner := strings.Index(lines[1], "╮")
+		top := strings.Split(plain(tui), "\n")[lineIndex(tui, 0, "╭")]
+		before, _, _ := strings.Cut(top, "╮")
 
-		return lipgloss.Width(lines[1][:corner]) + 1
+		return lipgloss.Width(before) + 1
 	}
 
 	resize(tui, 160, 30)
@@ -360,7 +361,7 @@ func TestNewPresetIsWrittenThenOfferedAsActiveHere(t *testing.T) {
 
 	press(tui, key('y'))
 
-	if line(tui, "[x] Docs") == "" || !strings.Contains(topLine(tui), "active here: Docs") {
+	if line(tui, "● Docs") == "" || !strings.Contains(topLine(tui), "active here: Docs") {
 		t.Errorf("Docs is not active here:\n%s", tui.View().Content)
 	}
 }
@@ -377,7 +378,7 @@ func TestMovingOffAPresetWithUnwrittenEditsAsksToWriteOrDiscard(t *testing.T) {
 
 	press(tui, key('d'))
 
-	if line(tui, "Members of Writing") == "" || line(tui, "Ruby*") != "" || line(tui, "[ ] Ruby ") == "" {
+	if line(tui, "Members of Writing") == "" || line(tui, "Ruby*") != "" || line(tui, "○ Ruby ") == "" {
 		t.Errorf("d does not discard Ruby's edit and move on:\n%s", tui.View().Content)
 	}
 
@@ -511,7 +512,7 @@ func TestDeleteShowsTheError(t *testing.T) {
 
 	press(tui, key('d'), key('y'))
 
-	if line(tui, "delete failed: changed outside equip since open") == "" || line(tui, "[x] Ruby") == "" {
+	if line(tui, "delete failed: changed outside equip since open") == "" || line(tui, "● Ruby") == "" {
 		t.Errorf("view does not show the failed delete:\n%s", tui.View().Content)
 	}
 }
@@ -541,7 +542,7 @@ func TestMembersPaneMarksEditsAndOverrides(t *testing.T) {
 	}
 
 	// lint has an Override, and is removed: marked and struck through.
-	at := lineIndex(tui, 0, "- lint ~0 ovr")
+	at := lineIndex(tui, 0, "- lint ovr")
 	if at < 0 || !strings.Contains(strings.Split(tui.View().Content, "\n")[at], "\x1b[9m") {
 		t.Errorf("members pane does not strike lint through:\n%s", tui.View().Content)
 	}
@@ -554,7 +555,7 @@ func TestXInTheWorkspaceKeepsTheOverride(t *testing.T) {
 
 	press(tui, key('p'), key('x'), tab(), key('x'))
 
-	if line(tui, "lint ~0 ovr") == "" {
+	if line(tui, "lint ovr") == "" {
 		t.Errorf("x dropped lint's Override in the workspace:\n%s", tui.View().Content)
 	}
 }
@@ -589,7 +590,7 @@ func TestRenameAppliesAtOnce(t *testing.T) {
 	press(tui, typed("Rails")...)
 	press(tui, enter())
 
-	if line(tui, "[ ] Rails") == "" || line(tui, "Rails*") != "" || line(tui, "Members of Rails") == "" {
+	if line(tui, "○ Rails") == "" || line(tui, "Rails*") != "" || line(tui, "Members of Rails") == "" {
 		t.Errorf("r does not rename Ruby to Rails at once:\n%s", tui.View().Content)
 	}
 }
@@ -653,7 +654,7 @@ func TestANewPresetIsWrittenBeforeItCanBeActive(t *testing.T) {
 	press(tui, typed("Docs")...)
 	press(tui, enter(), key(' '))
 
-	if line(tui, "write the new preset first") == "" || line(tui, "[ ] Docs") == "" {
+	if line(tui, "write the new preset first") == "" || line(tui, "○ Docs") == "" {
 		t.Errorf("space makes a new preset active:\n%s", tui.View().Content)
 	}
 }
@@ -694,6 +695,17 @@ func TestSpaceAddsBackAMemberItRemoved(t *testing.T) {
 
 	if line(tui, "Ruby*") != "" || line(tui, "- ") != "" {
 		t.Errorf("space does not add lint back:\n%s", tui.View().Content)
+	}
+}
+
+func TestPresetsWithNoPresetSayWhatAPresetIs(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withSkills(t, 2))
+
+	press(tui, key('p'))
+
+	if line(tui, "A preset is") == "" {
+		t.Errorf("empty library does not say what a preset is:\n%s", plain(tui))
 	}
 }
 

@@ -28,10 +28,10 @@ cd your-project
 equip             # opens the TUI on the project's extensions
 ```
 
-Each row shows a state glyph (`●` on, `◐` manual-only, `○` off), the extension's name, and its estimated tokens. The footer of the TUI lists the keys:
+Each row shows a state glyph (`●` on, `◉` manual-only, `○` off), the extension's name, and its estimated tokens after a bar of their size (`▂▄▆█`). `?` marks an MCP server not measured yet. `by name` marks a skill whose `SKILL.md` sets `disable-model-invocation`: only a call by its name loads it, so it costs no tokens, and its row is greyed out. The `By name` facet lists them. The footer of the TUI lists the keys:
 
 ```text
-j/k move  h/l pane  space cycle state  m measure  / search  p presets  s save  ? keys  q quit
+j/k  move   h/l  pane   space  cycle state   m  measure   /  search   p  presets   s  save   ?  keys   q  quit
 ```
 
 The keys follow vim: `h` and `l` move between the facets, the list, and the detail pane, `g` and `G` jump to the ends, and `ctrl+d` and `ctrl+u` move half a page. `?` lists every key.

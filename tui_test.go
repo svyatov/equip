@@ -69,7 +69,7 @@ func TestViewFitsTheTerminalWithTheKeysOnTheLastLine(t *testing.T) {
 	}
 
 	lines := strings.Split(styleCodes.ReplaceAllString(tui.View().Content, ""), "\n")
-	if !strings.Contains(lines[len(lines)-1], "q quit") {
+	if !strings.Contains(lines[len(lines)-1], "q  quit") {
 		t.Errorf("last line %q does not show q quit", lines[len(lines)-1])
 	}
 }
@@ -105,7 +105,7 @@ func TestNarrowTerminalDropsTheSidebarAndNamesTheFacetKeys(t *testing.T) {
 		t.Errorf("sidebar still shows:\n%s", tui.View().Content)
 	}
 
-	if !strings.Contains(line(tui, "All  3"), "[ ] facet") {
+	if !strings.Contains(line(tui, "All · 3"), "[ ] facet") {
 		t.Errorf("list title does not name the facet keys:\n%s", tui.View().Content)
 	}
 }
@@ -354,7 +354,7 @@ func lineIndex(tui *model, from int, s string) int {
 // rowLine returns the first line of the view that holds the list row of
 // name, its state glyph then name, styles left out.
 func rowLine(tui *model, name string) string {
-	row := regexp.MustCompile(`[●◐○] ` + regexp.QuoteMeta(name) + `[ *]`)
+	row := regexp.MustCompile(`[●◉○] ` + regexp.QuoteMeta(name) + `[ *]`)
 	for text := range strings.SplitSeq(plain(tui), "\n") {
 		if row.MatchString(text) {
 			return text
@@ -475,13 +475,13 @@ func TestDetailPaneShowsThePluginsMarketplace(t *testing.T) {
 	machine.Skill(machine.ClaudeSkills(), "review")
 	tui := newModel(t, machine)
 
-	if line(tui, "Marketplace  official") == "" {
+	if line(tui, "From    official marketplace") == "" {
 		t.Errorf("view does not show the Marketplace:\n%s", tui.View().Content)
 	}
 
 	press(tui, down())
 
-	for _, pluginOnly := range []string{"Marketplace  ", "Contents  "} {
+	for _, pluginOnly := range []string{"From    ", "Contents  "} {
 		if line(tui, pluginOnly) != "" {
 			t.Errorf("a skill shows %q:\n%s", pluginOnly, tui.View().Content)
 		}
@@ -514,11 +514,11 @@ func TestDetailPaneListsThePluginsContents(t *testing.T) {
 		t.Errorf("contents header does not say the skills follow the plugin:\n%s", tui.View().Content)
 	}
 
-	if got := line(tui, "○ skill review ~0"); !strings.Contains(got, "The review skill.") {
+	if got := line(tui, "○ skill      review ~0"); !strings.Contains(got, "The review skill.") {
 		t.Errorf("skill line %q does not show the skill's state, cost and description", got)
 	}
 
-	if line(tui, "○ MCP server search unmeasured") == "" {
+	if !strings.HasSuffix(strings.TrimRight(line(tui, "○ MCP server search"), " │"), "?") {
 		t.Errorf("view does not show the MCP server:\n%s", tui.View().Content)
 	}
 }
@@ -591,6 +591,7 @@ func TestDetailPaneCutsAPluginSkillsDescriptionShort(t *testing.T) {
 	machine.WriteFile(filepath.Join(machine.Plugin("github@official", "user", ""), "skills", "review", "SKILL.md"),
 		"---\nname: review\ndescription: |\n  "+long+"\n  second line\n---\n")
 	tui := newModel(t, machine)
+	resize(tui, 160, 30)
 
 	got := line(tui, "skill review")
 	if !strings.Contains(got, "word") || strings.Contains(got, "end") {
@@ -743,11 +744,11 @@ func TestDetailPaneShowsDescriptionAgentsLocationsAndCodexNote(t *testing.T) {
 		}
 	}
 
-	if got := line(tui, claude); !strings.Contains(got, "Claude Code") {
+	if got := line(tui, tilde(claude, machine.Home)); !strings.Contains(got, "Claude Code") {
 		t.Errorf("location line %q does not name Claude Code", got)
 	}
 
-	if got := line(tui, codex); !strings.Contains(got, "Codex") {
+	if got := line(tui, tilde(codex, machine.Home)); !strings.Contains(got, "Codex") {
 		t.Errorf("location line %q does not name Codex", got)
 	}
 }
@@ -796,7 +797,7 @@ func TestMCPServerRowAndDetailPaneShowTheCostAsUnknown(t *testing.T) {
 	machine.WriteFile(filepath.Join(machine.Home, ".claude.json"), `{"mcpServers": {"github": {"command": "gh"}}}`)
 	tui := newModel(t, machine)
 
-	if got := rowLine(tui, "github"); !strings.Contains(got, "unmeasured") {
+	if got := rowLine(tui, "github"); !strings.Contains(got, " ? │") {
 		t.Errorf("row line %q does not show the cost as unmeasured", got)
 	}
 
@@ -841,7 +842,7 @@ func TestMeasureKeyMeasuresTheHighlightedMCPServerInTheBackground(t *testing.T) 
 	tui := newModel(t, machine)
 
 	cmd := press(tui, key('m'))
-	if cmd == nil || !strings.Contains(rowLine(tui, "github"), "unmeasured") || line(tui, "measuring") == "" {
+	if cmd == nil || !strings.Contains(line(tui, "Cost  "), "unmeasured") || line(tui, "measuring") == "" {
 		t.Fatalf("view after m:\n%s\nwant the cost unmeasured while measuring, with a command", tui.View().Content)
 	}
 
@@ -930,7 +931,7 @@ func TestTopLineAndPluginRowMarkAServerNotMeasuredYet(t *testing.T) {
 		t.Errorf("top line %q does not count the unmeasured server", got)
 	}
 
-	if got := rowLine(tui, "github@official"); !strings.Contains(got, "~10 + unmeasured") {
+	if got := rowLine(tui, "github@official"); !strings.Contains(got, "~10+?") {
 		t.Errorf("row line %q does not mark the plugin's cost partial", got)
 	}
 }
@@ -1464,5 +1465,98 @@ func TestCtrlCQuitsWhileAskingToAdopt(t *testing.T) {
 
 	if !quits(press(newModelIn(t, machine, repo), tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})) {
 		t.Error("ctrl+c did not quit")
+	}
+}
+
+// status is the text above the panes, styles left out.
+func status(tui *model) string {
+	head, _, _ := strings.Cut(plain(tui), "╭")
+
+	return head
+}
+
+func TestStatusKeepsTheTotalsAndUnsavedCountInANarrowTerminal(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withSkills(t, 3))
+	resize(tui, 80, 24)
+	press(tui, key('3'))
+
+	for _, want := range []string{"Claude Code ~", "Codex ~", "1 unsaved"} {
+		if !strings.Contains(status(tui), want) {
+			t.Errorf("status %q does not show %q", status(tui), want)
+		}
+	}
+
+	if why := fits(tui, 80, 24); why != "" {
+		t.Errorf("view does not fit 80x24: %s\n%s", why, plain(tui))
+	}
+}
+
+func TestListSaysHowManyRowsAreAboveOnceScrolled(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withSkills(t, 40))
+	resize(tui, 80, 20)
+
+	if line(tui, "↑") != "" {
+		t.Errorf("list at its top shows rows above:\n%s", plain(tui))
+	}
+
+	press(tui, key('G'))
+
+	if !strings.Contains(line(tui, "↑"), "more") {
+		t.Errorf("scrolled list does not say how many rows are above:\n%s", plain(tui))
+	}
+}
+
+func TestByNameSkillShowsByNameInPlaceOfItsCost(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.WriteFile(filepath.Join(machine.ClaudeSkills(), "ship", "SKILL.md"),
+		"---\nname: ship\ndescription: x\ndisable-model-invocation: true\n---\n")
+	tui := newModel(t, machine)
+
+	if got := rowLine(tui, "ship"); !strings.Contains(got, "by name") {
+		t.Errorf("row %q does not say by name", got)
+	}
+
+	if got := line(tui, "Cost  "); !strings.Contains(got, "called by name only") {
+		t.Errorf("detail cost %q does not say called by name only", got)
+	}
+}
+
+func TestSaveSaysHowManyChangesItWrote(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withSkills(t, 2))
+
+	press(tui, key('3'), key('s'))
+
+	if line(tui, "saved 1 change") == "" {
+		t.Errorf("save does not say what it wrote:\n%s", plain(tui))
+	}
+}
+
+func TestSidebarCountsTheRowsTheSearchKeeps(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "alpha")
+	machine.Skill(machine.ClaudeSkills(), "beta")
+	tui := newModel(t, machine)
+
+	press(tui, key('/'), key('a'), key('l'))
+
+	if got := strings.Fields(line(tui, "Skills")); len(got) < 3 || got[2] != "1" {
+		t.Errorf("Skills facet line %q does not count 1 match", line(tui, "Skills"))
+	}
+}
+
+func TestPluginRowCutsItsMarketplaceBeforeItsName(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Plugin("chrome-devtools-mcp@claude-plugins-official", "user", "")
+	tui := newModel(t, machine)
+	resize(tui, 80, 20)
+
+	if line(tui, "chrome-devtools-mcp@") == "" {
+		t.Errorf("plugin row lost its name:\n%s", plain(tui))
 	}
 }

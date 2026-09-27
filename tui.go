@@ -3,6 +3,7 @@ package main
 import (
 	"errors"
 	"fmt"
+	"math"
 	"path/filepath"
 	"slices"
 	"strconv"
@@ -16,35 +17,50 @@ import (
 
 // styles are the lipgloss styles of the TUI.
 type styles struct {
-	top, dim, warn, bad, cur, key, head, agent, unmeasured, pane, focused lipgloss.Style
-	states                                                                map[equip.State]lipgloss.Style
-	kinds                                                                 map[equip.Kind]lipgloss.Style
+	dim, warn, bad, ok, cur, key, chip, head, agent, unmeasured, muted, pane, focused lipgloss.Style
+	logo                                                                              string
+	states                                                                            map[equip.State]lipgloss.Style
+	kinds                                                                             map[equip.Kind]lipgloss.Style
+	bars                                                                              []lipgloss.Style // of each of bars
 }
+
+// bars are the bars of a cost, from the least to the most tokens.
+const bars = "▁▂▃▄▅▆▇█"
 
 // newStyles are the styles in the colours of Catppuccin Mocha,
 // github.com/catppuccin/palette.
 func newStyles() styles {
-	mauve := "#cba6f7"
+	mauve, green, yellow, peach, red := "#cba6f7", "#a6e3a1", "#f9e2af", "#fab387", "#f38ba8"
 	pane := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#45475a")).
 		Padding(0, 1)
 
 	return styles{
-		top:        colour(mauve).Bold(true),
 		dim:        colour("#7f849c"),
-		warn:       colour("#fab387").Bold(true),
-		bad:        colour("#f38ba8").Bold(true),
+		warn:       colour(peach).Bold(true),
+		bad:        colour(red).Bold(true),
+		ok:         colour(green).Bold(true),
 		cur:        colour(mauve).Bold(true),
 		key:        colour(mauve),
+		chip:       colour(mauve).Bold(true).Background(lipgloss.Color("#313244")).Padding(0, 1),
 		head:       colour("#b4befe").Bold(true),
 		agent:      colour("#89b4fa"),
 		unmeasured: colour("#89dceb"),
+		muted:      colour("#585b70"),
 		pane:       pane,
 		focused:    pane.BorderForeground(lipgloss.Color(mauve)),
+		// The shades of an ANSI art logo, as on a BBS.
+		logo: colour(mauve).Render("░▒▓") +
+			colour("#1e1e2e").Background(lipgloss.Color(mauve)).Bold(true).Render(" equip ") +
+			colour(mauve).Render("▓▒░"),
 		states: map[equip.State]lipgloss.Style{
-			equip.On: colour("#a6e3a1"), equip.ManualOnly: colour("#f9e2af"), equip.Off: colour("#6c7086"),
+			equip.On: colour(green), equip.ManualOnly: colour(yellow), equip.Off: colour("#6c7086"),
 		},
 		kinds: map[equip.Kind]lipgloss.Style{
 			equip.Skill: colour("#89b4fa"), equip.Plugin: colour("#f5c2e7"), equip.MCPServer: colour("#94e2d5"),
+		},
+		bars: []lipgloss.Style{
+			colour(green), colour(green), colour(green), colour(green), colour(yellow), colour(yellow), colour(peach),
+			colour(red),
 		},
 	}
 }
@@ -67,10 +83,17 @@ const (
 	endRows      = 1 << 20 // the rows home and end move, past any list's ends
 	paneWidth    = 4       // the cells a pane's border and padding take across
 	paneHeight   = 2       // the lines a pane's border takes down
-	listHead     = 2       // the list's title and search lines
 	rowMarks     = 6       // the cells of a list row's mark, glyph, unsaved marker and spaces
 	facetMarks   = 6       // the cells of a sidebar line's mark and count
 	pairSize     = 2       // a key and what it does, in the key help
+	partGap      = 2       // the cells between two parts of the status or the key help
+	corners      = 2       // the cells of a pane's top corners
+	rightMarks   = 3       // the cells of a space each side of a pane's right title, and a line after
+	titleMarks   = 4       // the cells of a line each side of a pane's title, and a space each side
+	markWidth    = 2       // the cells of the highlight's mark
+	markers      = 2       // the lines of a window that may say how many more are above and below
+	barsPerTen   = 2       // the bars of a cost a power of ten apart
+	minPath      = 12      // the least width the status shows the project's path in
 )
 
 // probedMsg reports that a probe of an MCP server ended, with its error, and
@@ -241,16 +264,18 @@ func (m *model) View() tea.View {
 		footer = m.workspaceFooter()
 	}
 
-	// The panes take the lines between the top line and the footer.
-	height := m.height - 1 - lipgloss.Height(footer)
+	// The status and the panes take the lines above the footer.
+	height := m.height - lipgloss.Height(footer)
 
 	content := "terminal too small"
 
 	switch {
-	case m.width < minWidth || height < minPane:
+	case m.width < minWidth || height <= minPane:
 	case m.showKeys:
+		keys := m.keyList()
 		content = block(lipgloss.Place(m.width, m.height, lipgloss.Center, lipgloss.Center,
-			m.style.focused.Render(m.keyList())), m.width, m.height)
+			m.box("keys", "", keys, lipgloss.Width(keys)+paneWidth, lipgloss.Height(keys)+paneHeight, true)),
+			m.width, m.height)
 	default:
 		content = screen(height) + "\n" + block(footer, m.width, lipgloss.Height(footer))
 	}
@@ -308,42 +333,45 @@ func plural(count int, one, many string) string {
 	return many
 }
 
-// mainView is the main screen's top line and panes, height lines tall.
+// mainView is the main screen's status and panes, height lines tall.
 func (m *model) mainView(height int) string {
 	session := m.s.View()
 
-	top := []string{m.style.top.Render("equip") + "  " + tilde(session.Project.Path, m.home)}
+	var parts []string
 	if len(session.Presets) > 0 {
-		top = append(top, m.style.dim.Render("presets ")+m.style.cur.Render(strings.Join(session.Presets, " + ")))
+		parts = append(parts, m.style.dim.Render("presets ")+m.style.cur.Render(strings.Join(session.Presets, " + ")))
 	}
 
 	for _, agent := range equip.Agents() {
-		top = append(top, agentTotal(agent, session.Totals[agent], m.style))
+		parts = append(parts, agentTotal(agent, session.Totals[agent], m.style))
 	}
 
 	if m.probing > 0 {
-		top = append(top, m.style.unmeasured.Render(fmt.Sprintf("measuring %d…", m.probing)))
+		parts = append(parts, m.style.unmeasured.Render(fmt.Sprintf("measuring %d…", m.probing)))
 	}
 
 	if session.Unsaved > 0 {
-		top = append(top, m.style.warn.Render(fmt.Sprintf("%d unsaved", session.Unsaved)))
+		parts = append(parts, m.style.warn.Render(fmt.Sprintf("%d unsaved", session.Unsaved)))
 	}
 
+	top := m.status(tilde(session.Project.Path, m.home), parts...)
+	height -= lipgloss.Height(top)
 	rows := m.rows(session)
 
 	var panes []string
 
 	rest := m.width
 	if m.leftmost() == onFacets {
-		panes = append(panes, m.box(m.sidebar(session.Facets), leftWidth, height, m.focus == onFacets))
+		panes = append(panes, m.box("Facets", "", m.sidebar(session, height-paneHeight), leftWidth, height,
+			m.focus == onFacets))
 		rest -= leftWidth
 	}
 
 	listWidth := min(max(minList, rest*2/listShare), maxList)
-	panes = append(panes, m.box(m.list(rows, session.Facets[m.facet].Name, listWidth-paneWidth, height-paneHeight),
-		listWidth, height, m.focus == onList))
+	title, search, list := m.list(session, rows, listWidth-paneWidth, height-paneHeight)
+	panes = append(panes, m.box(title, search, list, listWidth, height, m.focus == onList))
 
-	detail := ""
+	title, detail := "", ""
 
 	if m.cur < len(rows) {
 		row, server := rows[m.cur], ""
@@ -351,12 +379,35 @@ func (m *model) mainView(height int) string {
 			server = servers[m.server]
 		}
 
+		title = m.detailTitle(row)
 		detail = m.detail(session, row, m.s.Detail(row.Key), server, rest-listWidth-paneWidth, height-paneHeight)
 	}
 
-	panes = append(panes, m.box(detail, rest-listWidth, height, m.focus == onDetail))
+	panes = append(panes, m.box(title, "", detail, rest-listWidth, height, m.focus == onDetail))
 
-	return fit(strings.Join(top, "  "), m.width) + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, panes...)
+	return block(top, m.width, lipgloss.Height(top)) + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, panes...)
+}
+
+// status is the lines above the panes: the logo, then parts, wrapped at the
+// terminal width, with path in what the first line has left, cut from its
+// start.
+func (m *model) status(path string, parts ...string) string {
+	lines := m.wrap(append([]string{m.style.logo}, parts...))
+	if room := m.width - lipgloss.Width(lines[0]) - partGap; path != "" && room >= minPath {
+		lines[0] = m.style.logo + "  " + cutStart(path, room) + strings.TrimPrefix(lines[0], m.style.logo)
+	}
+
+	return strings.Join(lines, "\n")
+}
+
+// cutStart is text cut with … at its start to at most width cells.
+func cutStart(text string, width int) string {
+	runes := []rune(text)
+	if len(runes) <= width {
+		return text
+	}
+
+	return "…" + string(runes[len(runes)-width+1:])
 }
 
 // tilde is path with the dir home at its start written as ~.
@@ -369,15 +420,38 @@ func tilde(path, home string) string {
 	return path
 }
 
-// box is text in a pane of width by height cells, its border in the accent
-// when focused.
-func (m *model) box(text string, width, height int, focused bool) string {
+// box is text in a pane of width by height cells, with title set into the
+// left of its top border and right into the right of it, its border in the
+// accent when focused.
+func (m *model) box(title, right, text string, width, height int, focused bool) string {
 	style := m.style.pane
 	if focused {
 		style = m.style.focused
 	}
 
-	return style.Render(block(text, width-paneWidth, height-paneHeight))
+	border := lipgloss.NewStyle().Foreground(style.GetBorderTopForeground())
+	inner := width - corners
+
+	tail := 0 // the cells of right and its marks
+	if right != "" {
+		tail = lipgloss.Width(right) + rightMarks
+	}
+
+	title = cut(title, max(inner-tail-titleMarks, 0))
+	head := 1 // the cells of the line before title, and title with a space each side
+
+	if title != "" {
+		title = " " + title + " "
+		head += lipgloss.Width(title)
+	}
+
+	top := border.Render("╭─") + title + border.Render(strings.Repeat("─", max(inner-head-tail, 0)))
+	if right != "" {
+		top += " " + right + border.Render(" ─")
+	}
+
+	return top + border.Render("╮") + "\n" +
+		style.BorderTop(false).Render(block(text, width-paneWidth, height-paneHeight))
 }
 
 // block is the lines of text cut or padded to width by height cells.
@@ -413,16 +487,19 @@ func fit(line string, width int) string {
 }
 
 // window is the at most height of lines from top, moved the least to keep
-// line cur among them, and the top it moved to. When lines go on below, the
-// last line says how many more.
+// line cur among them, and the top it moved to. When lines go on above or
+// below, the first or last line says how many more, so cur stays off them.
 func (m *model) window(lines []string, top, cur, height int) ([]string, int) {
 	if len(lines) <= height {
 		return lines, 0
 	}
 
-	above := height - 1 // the lines above the last, which may say how many more
-	top = min(max(min(top, cur), cur-above+1, 0), len(lines)-height)
+	top = min(max(min(top, cur-1), cur-height+markers, 0), len(lines)-height)
 	shown := slices.Clone(lines[top : top+height])
+
+	if top > 0 {
+		shown[0] = m.style.dim.Render(fmt.Sprintf("  ↑ %d more", top+1))
+	}
 
 	if more := len(lines) - top - height + 1; more > 1 {
 		shown[height-1] = m.style.dim.Render(fmt.Sprintf("  ↓ %d more", more))
@@ -434,13 +511,22 @@ func (m *model) window(lines []string, top, cur, height int) ([]string, int) {
 // help is the key help of pairs of a key and what it does, wrapped at the
 // terminal width.
 func (m *model) help(pairs ...string) string {
+	parts := make([]string, 0, len(pairs)/pairSize)
+	for pair := range slices.Chunk(pairs, pairSize) {
+		parts = append(parts, m.style.chip.Render(pair[0])+" "+m.style.dim.Render(pair[len(pair)-1]))
+	}
+
+	return strings.Join(m.wrap(parts), "\n")
+}
+
+// wrap is parts joined into lines, two spaces apart, wrapped at the terminal
+// width.
+func (m *model) wrap(parts []string) []string {
 	var lines []string
 
 	line := ""
 
-	for pair := range slices.Chunk(pairs, pairSize) {
-		part := m.style.key.Render(pair[0]) + " " + m.style.dim.Render(pair[len(pair)-1])
-
+	for _, part := range parts {
 		switch {
 		case line == "":
 			line = part
@@ -451,7 +537,7 @@ func (m *model) help(pairs ...string) string {
 		}
 	}
 
-	return strings.Join(append(lines, line), "\n")
+	return append(lines, line)
 }
 
 // glyph is the list mark of st in its colour.
@@ -584,8 +670,8 @@ func (m *model) keyList() string {
 	}
 
 	// Move and Change go in the left column, the rest in the right.
-	return lipgloss.JoinHorizontal(lipgloss.Top, strings.Join(blocks[:leftSections], "\n\n"), "   ",
-		strings.Join(blocks[leftSections:], "\n\n")) + "\n\n" + m.style.dim.Render("any key closes")
+	return m.style.logo + "\n\n" + lipgloss.JoinHorizontal(lipgloss.Top, strings.Join(blocks[:leftSections], "\n\n"),
+		"   ", strings.Join(blocks[leftSections:], "\n\n")) + "\n\n" + m.style.dim.Render("any key closes")
 }
 
 // mark is the start of a list line: the highlight's when on.
@@ -597,16 +683,39 @@ func (m *model) mark(on bool) string {
 	return "  "
 }
 
-// sidebar is the facet sidebar, with the picked one of facets highlighted.
-func (m *model) sidebar(facets []equip.Facet) string {
-	lines := make([]string, 0, len(facets))
+// sidebar is the facet sidebar of session, height lines tall, with the
+// picked facet highlighted, and the legend of the list's marks at its foot
+// when it has room. Each facet counts the rows the search keeps.
+func (m *model) sidebar(session equip.View, height int) string {
+	facets := m.facets(session)
+	legend := []string{
+		"  " + m.glyph(equip.On) + m.style.dim.Render(" on ") + m.glyph(equip.ManualOnly) +
+			m.style.dim.Render(" manual-only ") + m.glyph(equip.Off) + m.style.dim.Render(" off"),
+		"  " + m.style.bars[1].Render("▂") + m.style.bars[3].Render("▄") + m.style.bars[5].Render("▆") +
+			m.style.bars[7].Render("█") + m.style.dim.Render(" tokens a session"),
+		"  " + m.style.unmeasured.Render("?") + m.style.dim.Render("    not measured yet"),
+	}
 
-	for index, facet := range facets {
+	if gap := height - len(facets) - len(legend); gap > 0 {
+		facets = append(append(facets, make([]string, gap)...), legend...)
+	}
+
+	return strings.Join(facets, "\n")
+}
+
+// facets are the sidebar's lines of the facets of session, with the picked
+// one highlighted.
+func (m *model) facets(session equip.View) []string {
+	lines := make([]string, 0, len(session.Facets))
+
+	for index, facet := range session.Facets {
 		if facet.NewGroup {
 			lines = append(lines, "")
 		}
 
-		name, count := fmt.Sprintf("%-*s", leftWidth-paneWidth-facetMarks, facet.Name), fmt.Sprintf(" %3d", facet.Count())
+		name := fmt.Sprintf("%-*s", leftWidth-paneWidth-facetMarks, facet.Name)
+		count := fmt.Sprintf(" %3d", m.matching(session, facet))
+
 		if index == m.facet {
 			lines = append(lines, m.style.cur.Render("▸ "+name+count))
 		} else {
@@ -614,47 +723,117 @@ func (m *model) sidebar(facets []equip.Facet) string {
 		}
 	}
 
-	return strings.Join(lines, "\n")
+	return lines
 }
 
-// list is the list pane, width by height cells: the facet's name and row
-// count, the search, and the rows it scrolls to keep the highlight in.
-func (m *model) list(rows []equip.Row, facet string, width, height int) string {
-	title := m.style.head.Render(facet) + m.style.dim.Render(fmt.Sprintf("  %d", len(rows)))
+// list is the list pane of rows of session, width by height cells, with the
+// title and search its border shows: the facet's name and row count, and
+// the rows it scrolls to keep the highlight in.
+func (m *model) list(session equip.View, rows []equip.Row, width, height int) (string, string, string) {
+	facet := session.Facets[m.facet]
+
+	title := m.style.head.Render(facet.Name) + m.style.dim.Render(fmt.Sprintf(" · %d", len(rows)))
 	if m.width < wideWidth {
 		title += m.style.dim.Render("  [ ] facet")
 	}
 
 	search := ""
-	if m.searching || m.query != "" {
+
+	switch {
+	case m.searching:
+		search = m.style.cur.Render("/"+m.query) + m.style.key.Render("▏")
+	case m.query != "":
 		search = m.style.cur.Render("/" + m.query)
 	}
 
 	if len(rows) == 0 {
-		return title + "\n" + search + "\n" + m.style.dim.Render("  nothing matches")
+		none := "  nothing matches"
+		if all := m.matching(session, session.Facets[0]); m.facet != 0 && all > 0 {
+			none += fmt.Sprintf(", %d in All", all)
+		}
+
+		return title, search, m.style.dim.Render(none)
 	}
 
 	lines := make([]string, 0, len(rows))
-
 	for index, row := range rows {
-		cost := costOf(row.CostUnknown, row.Cost)
-		name := cut(row.Name, width-rowMarks-len(cost))
-
-		if index == m.cur {
-			name = m.style.cur.Render(name)
-		}
-
-		if row.Unsaved {
-			name += m.style.warn.Render("*")
-		}
-
-		lines = append(lines, fit(m.mark(index == m.cur)+m.glyph(row.State)+" "+name, width-len(cost))+
-			m.style.dim.Render(cost))
+		lines = append(lines, m.entry(row, index == m.cur, width))
 	}
 
-	lines, m.top = m.window(lines, m.top, m.cur, height-listHead)
+	lines, m.top = m.window(lines, m.top, m.cur, height)
 
-	return title + "\n" + search + "\n" + strings.Join(lines, "\n")
+	return title, search, strings.Join(lines, "\n")
+}
+
+// matching counts the rows of session that facet and the search keep.
+func (m *model) matching(session equip.View, facet equip.Facet) int {
+	if m.query == "" {
+		return facet.Count()
+	}
+
+	query := strings.ToLower(m.query)
+
+	return len(slices.DeleteFunc(slices.Clone(session.Rows), func(row equip.Row) bool {
+		return !facet.Has(row) || !m.matches(row, query)
+	}))
+}
+
+// entry is the list line of row, width cells: the highlight's mark when
+// highlighted, the state glyph, the name, and the cost at the right edge. A
+// By-name skill's line is muted, as it costs nothing.
+func (m *model) entry(row equip.Row, highlighted bool, width int) string {
+	cost := m.costCell(row.ByName, row.CostUnknown, row.Cost)
+	style, mark := lipgloss.NewStyle(), m.glyph(row.State)
+
+	switch {
+	case highlighted:
+		style = m.style.cur
+	case row.ByName:
+		style, mark = m.style.muted, m.style.muted.Render(glyph(row.State))
+	}
+
+	name := m.name(row.Name, width-rowMarks-lipgloss.Width(cost), style)
+	if row.Unsaved {
+		name += m.style.warn.Render("*")
+	}
+
+	return fit(m.mark(highlighted)+mark+" "+name, width-lipgloss.Width(cost)) + cost
+}
+
+// name is the name of a row in style, cut to width cells. A plugin's
+// @marketplace is dimmed, and cut before its name is.
+func (m *model) name(name string, width int, style lipgloss.Style) string {
+	base, market, plugin := strings.Cut(name, "@")
+	if !plugin || lipgloss.Width(base)+2 > width {
+		return style.Render(cut(name, width))
+	}
+
+	return style.Render(base) + m.style.dim.Render(cut("@"+market, width-lipgloss.Width(base)))
+}
+
+// costCell is the cost of a row or a plugin's content, as the list and the
+// contents show it: by name for a By-name skill, ? while unmeasured, else
+// its tokens after a bar of their size.
+func (m *model) costCell(byName, unknown bool, tokens int) string {
+	switch {
+	case byName:
+		return m.style.muted.Render("by name")
+	case unknown && tokens == 0:
+		return m.style.unmeasured.Render("?")
+	case tokens == 0:
+		return m.style.dim.Render("~0")
+	}
+
+	text := fmt.Sprintf("~%d", tokens)
+	if unknown {
+		text += m.style.unmeasured.Render("+?")
+	}
+
+	// Two bars a power of ten: 1, 10, 100 and 1,000 tokens start bars 1, 3, 5
+	// and 7.
+	level := min(int(math.Log10(float64(tokens))*barsPerTen), len(m.style.bars)-1)
+
+	return m.style.bars[level].Render(string([]rune(bars)[level])) + " " + m.style.dim.Render(text)
 }
 
 // search acts on keyMsg while the keys type into the search: enter ends it,
@@ -770,13 +949,27 @@ func (m *model) press(key string) tea.Cmd {
 	case "p":
 		m.openWorkspace()
 	case "s":
-		err := m.s.Save()
-		if err != nil {
-			m.flash = m.style.bad.Render("save failed: " + err.Error())
-		}
+		m.save()
 	}
 
 	return nil
+}
+
+// save saves the pending changes, and says how many it wrote or why it
+// failed.
+func (m *model) save() {
+	count := m.s.View().Unsaved
+
+	err := m.s.Save()
+
+	switch {
+	case err != nil:
+		m.flash = m.style.bad.Render("save failed: " + err.Error())
+	case count == 0:
+		m.flash = m.style.dim.Render("nothing to save")
+	default:
+		m.flash = m.style.ok.Render(fmt.Sprintf("saved %d %s", count, plural(count, "change", "changes")))
+	}
 }
 
 // narrow acts on key if it narrows the list: / starts the search, esc clears
