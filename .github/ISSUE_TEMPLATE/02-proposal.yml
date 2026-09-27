@@ -1,0 +1,32 @@
+name: Proposal
+description: Something equip should show or let you change, or a change to how it works
+labels: [enhancement, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        equip is pre-1.0. [`GLOSSARY.md`](https://github.com/svyatov/equip/blob/main/GLOSSARY.md) defines its terms, such as Extension, State, Preset, and Override. Using them makes a proposal quicker to read.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      description: What you tried to do with your extensions, and where equip stopped you or left you guessing.
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: What equip should do
+      description: The behavior you want, as you would see it in the TUI or in the files equip writes.
+    validations:
+      required: true
+
+  - type: checkboxes
+    id: agents
+    attributes:
+      label: Which agents this concerns
+      options:
+        - label: Claude Code
+        - label: Codex
