@@ -197,9 +197,9 @@ func (inv *inventory) add(agent Agent, root string) int {
 
 	for _, entry := range entries {
 		path := filepath.Join(root, entry.Name())
-		// ReadFile follows symlinks, as both agents do.
-		data, err := os.ReadFile(filepath.Join(path, "SKILL.md")) //nolint:gosec // equip builds the path
-		if err != nil {
+
+		data, loads := readSkill(agent, path)
+		if !loads {
 			continue
 		}
 
@@ -222,6 +222,22 @@ func (inv *inventory) add(agent Agent, root string) int {
 	}
 
 	return found
+}
+
+// readSkill reads the SKILL.md of the skill in dir, reporting whether agent
+// loads the skill. ReadFile follows symlinks, as both agents do for a skill's
+// dir, but Codex skips a SKILL.md that is itself a symlink.
+func readSkill(agent Agent, dir string) ([]byte, bool) {
+	path := filepath.Join(dir, "SKILL.md")
+
+	info, err := os.Lstat(path)
+	if err != nil || agent == Codex && info.Mode()&fs.ModeSymlink != 0 {
+		return nil, false
+	}
+
+	data, err := os.ReadFile(path) //nolint:gosec // equip builds the path
+
+	return data, err == nil
 }
 
 // takeDefaults sets each skill's Claude Code default to its skillOverrides

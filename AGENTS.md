@@ -2,6 +2,10 @@
 
 `mise run lint` and `mise run cover` run what CI runs; both pass before a commit. `mise tasks` lists the rest. Install the tools and the pre-commit hook once with `mise install && mise x -- lefthook install`.
 
+## Counts
+
+When equip's list or a facet count disagrees with what Claude Code or Codex loads, follow `docs/agents/checking-counts.md`.
+
 ## Agent skills
 
 ### Issue tracker

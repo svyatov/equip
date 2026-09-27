@@ -198,6 +198,26 @@ func TestViewFollowsSymlinkedSkillDirectories(t *testing.T) {
 	}
 }
 
+func TestOnlyClaudeCodeFollowsASymlinkedSkillFile(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	src := machine.Skill(filepath.Join(machine.Root, "repos", "tools"), "source-name")
+
+	for _, skills := range []string{machine.ClaudeSkills(), machine.CodexSkills()} {
+		machine.Mkdir(filepath.Join(skills, "linked"))
+
+		err := os.Symlink(filepath.Join(src, "SKILL.md"), filepath.Join(skills, "linked", "SKILL.md"))
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	got := newSession(t, machine, machine.Root).Detail("linked").Agents
+	if want := []equip.Agent{equip.ClaudeCode}; !slices.Equal(got, want) {
+		t.Errorf("agents = %v, want %v", got, want)
+	}
+}
+
 func TestProjectIsMainCheckoutRootFromWorktree(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)

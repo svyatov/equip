@@ -39,6 +39,31 @@ func TestViewListsACodexPluginFromTheUserConfigWithFilesInTheCache(t *testing.T)
 	}
 }
 
+func TestCodexSkipsAPluginSkillWithASymlinkedSkillFile(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	skills := filepath.Join(codexPlugin(t, machine, "github@official"), "skills")
+	src := machine.Skill(filepath.Join(machine.Root, "repos", "tools"), "source-name")
+	machine.Skill(skills, "review")
+	machine.Mkdir(filepath.Join(skills, "linked"))
+
+	err := os.Symlink(filepath.Join(src, "SKILL.md"), filepath.Join(skills, "linked", "SKILL.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	contents := newSession(t, machine, machine.Root).Detail("github@official").Contents
+
+	got := make([]string, 0, len(contents))
+	for _, content := range contents {
+		got = append(got, content.Name)
+	}
+
+	if want := []string{"review"}; !slices.Equal(got, want) {
+		t.Errorf("contents = %q, want %q", got, want)
+	}
+}
+
 // codexPlugin installs the Codex plugin key in machine's user config and
 // returns its dir in the plugin cache.
 func codexPlugin(t *testing.T, machine *equiptest.Machine, key string) string {

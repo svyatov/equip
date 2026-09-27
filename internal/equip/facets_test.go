@@ -43,7 +43,7 @@ func TestFacetsGroupIntoKindsAgentsStatesAndChanges(t *testing.T) {
 		}
 	}
 
-	if want := []string{"Claude Code only", "On", "Overrides"}; !slices.Equal(got, want) {
+	if want := []string{"Claude Code", "On", "Overrides"}; !slices.Equal(got, want) {
 		t.Errorf("facets that start a group = %q, want %q", got, want)
 	}
 }
@@ -75,7 +75,7 @@ func TestFacetsCountAPluginsSkillsAsSkills(t *testing.T) {
 	session := newSession(t, machine, repo)
 
 	wantCounts(t, session.View(), map[string]int{
-		"All": 3, "Skills": 2, "Plugins": 1, "By name": 1, "Claude Code only": 3, "Codex only": 0,
+		"All": 3, "Skills": 2, "Plugins": 1, "By name": 1, "Claude Code": 3, "Codex": 0,
 	})
 
 	session.SetState("github@official", equip.Off)
@@ -83,7 +83,7 @@ func TestFacetsCountAPluginsSkillsAsSkills(t *testing.T) {
 	wantCounts(t, session.View(), map[string]int{"Overrides": 1, "Off": 3})
 }
 
-func TestFacetsCountRowsOnlyOneAgentHas(t *testing.T) {
+func TestFacetsCountRowsEachAgentHas(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	repo := machine.Repo("app")
@@ -93,7 +93,7 @@ func TestFacetsCountRowsOnlyOneAgentHas(t *testing.T) {
 	machine.Skill(machine.ClaudeSkills(), "shared")
 	machine.Skill(machine.CodexSkills(), "shared")
 
-	wantCounts(t, open(t, machine, repo), map[string]int{"All": 4, "Claude Code only": 1, "Codex only": 2})
+	wantCounts(t, open(t, machine, repo), map[string]int{"All": 4, "Claude Code": 2, "Codex": 3})
 }
 
 func TestFacetsCountRowsByState(t *testing.T) {

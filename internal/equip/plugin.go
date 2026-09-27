@@ -147,8 +147,8 @@ func pluginSkills(agent Agent, dir, name string) []Content {
 	for _, entry := range entries {
 		dir := filepath.Join(skills, entry.Name())
 
-		data, err := os.ReadFile(filepath.Join(dir, "SKILL.md")) //nolint:gosec // equip builds the path
-		if err != nil {
+		data, loads := readSkill(agent, dir)
+		if !loads {
 			continue
 		}
 

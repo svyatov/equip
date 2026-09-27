@@ -14,6 +14,14 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 
 ## [Unreleased]
 
+### Changed
+
+- The agents' facets are `Claude Code` and `Codex`, and each counts every row its agent has, in any state. They were `Claude Code only` and `Codex only`, which left out the rows both agents have.
+
+### Fixed
+
+- A skill whose `SKILL.md` is a symlink is no longer listed for Codex, which skips it. Claude Code still loads it.
+
 ## [0.1.2] - 2026-09-27
 
 ### Added
