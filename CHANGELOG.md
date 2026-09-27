@@ -14,6 +14,8 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-09-27
+
 ### Changed
 
 - The agents' facets are `Claude Code` and `Codex`, and each counts every row its agent has, in any state. They were `Claude Code only` and `Codex only`, which left out the rows both agents have.
@@ -71,7 +73,8 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 - equip keeps a Record per Project and machine. On a moved repository's first open, equip offers to adopt the Record left at the old path.
 - `--help` prints the usage and `--version` prints the build version.
 
-[unreleased]: https://github.com/svyatov/equip/compare/v0.1.2...HEAD
+[unreleased]: https://github.com/svyatov/equip/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/svyatov/equip/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/svyatov/equip/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/svyatov/equip/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/svyatov/equip/releases/tag/v0.1.0
