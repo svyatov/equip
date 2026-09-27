@@ -17,30 +17,45 @@ func glyph(st equip.State) string {
 	return [...]string{equip.On: "●", equip.ManualOnly: "◐", equip.Off: "○"}[st]
 }
 
-// costOf shows a cost of tokens, or that it is unknown in whole or in part,
-// as an MCP server's is until it is measured.
-func costOf(unknown bool, tokens int) string {
+// costOf shows a cost of tokens, or that it is unmeasured in whole or in
+// part, as an MCP server's is until it is measured.
+func costOf(unmeasured bool, tokens int) string {
 	text := fmt.Sprintf("~%d", tokens)
 
 	switch {
-	case unknown && tokens == 0:
-		return "unknown"
-	case unknown:
-		return text + " + unknown"
+	case unmeasured && tokens == 0:
+		return "unmeasured"
+	case unmeasured:
+		return text + " + unmeasured"
 	}
 
 	return text
 }
 
-// totalOf shows the total of a session in an agent, marked when its skill
-// listing passes the agent's listing budget.
-func totalOf(total equip.Total) string {
-	text := costOf(total.Unknown, total.Tokens)
+// totalOf shows the total of a session in an agent in style, with the count
+// of MCP servers it leaves out until they are measured, and marked when its
+// skill listing passes the agent's listing budget.
+func totalOf(total equip.Total, style styles) string {
+	text := fmt.Sprintf("~%d", total.Tokens)
+	if total.Unmeasured > 0 {
+		text += style.unmeasured.Render(fmt.Sprintf(" + %d MCP unmeasured", total.Unmeasured))
+	}
+
 	if total.OverBudget {
-		text += " over budget"
+		text += style.bad.Render(", skills over budget")
 	}
 
 	return text
+}
+
+// agentTotal is agent's name and its total, in style.
+func agentTotal(agent equip.Agent, total equip.Total, style styles) string {
+	return style.agent.Render(agent.String()) + " " + totalOf(total, style)
+}
+
+// field is a detail pane line of a label and its value.
+func (m *model) field(label, value string) string {
+	return m.style.dim.Render(fmt.Sprintf("%-7s", label)) + " " + value
 }
 
 // origin is where the state of row comes from in view, with why it changed
@@ -55,10 +70,10 @@ func (m *model) origin(view equip.View, row equip.Row, ext equip.Detail) []strin
 
 	if row.Override {
 		lines = append(lines,
-			"Origin  "+m.style.warn.Render("override")+", set by hand here",
+			m.field("Origin", m.style.warn.Render("override")+", set by hand here"),
 			m.style.dim.Render("        without it: "+row.Fallback.String()+" ("+origin+")"))
 	} else {
-		lines = append(lines, "Origin  "+origin)
+		lines = append(lines, m.field("Origin", origin))
 	}
 
 	if row.ChangedOutside {
@@ -79,16 +94,16 @@ func (m *model) origin(view equip.View, row equip.Row, ext equip.Detail) []strin
 func (m *model) detail(view equip.View, row equip.Row, ext equip.Detail, server string, width, height int) string {
 	agents := make([]string, 0, len(ext.Agents))
 	for _, agent := range ext.Agents {
-		agents = append(agents, agent.String())
+		agents = append(agents, m.style.agent.Render(agent.String()))
 	}
 
 	lines := append(strings.Split(m.style.dim.Width(width).Render(ext.Description), "\n"), "")
 
 	if ext.Marketplace != "" {
-		lines = append(lines, "Marketplace  "+ext.Marketplace)
+		lines = append(lines, m.style.dim.Render("Marketplace")+"  "+ext.Marketplace)
 	}
 
-	lines = append(lines, "Agents  "+strings.Join(agents, ", "))
+	lines = append(lines, m.field("Agents", strings.Join(agents, ", ")))
 
 	for _, agent := range ext.Agents {
 		if reason, ok := ext.NotApplied[agent]; ok {
@@ -96,9 +111,9 @@ func (m *model) detail(view equip.View, row equip.Row, ext equip.Detail, server 
 		}
 	}
 
-	lines = append(lines, costLine(row.CostUnknown, ext))
+	lines = append(lines, m.costLine(row.CostUnknown, ext))
 	lines = append(lines, m.origin(view, row, ext)...)
-	lines = append(lines, "", "State")
+	lines = append(lines, "", m.style.head.Render("State"))
 
 	for index, state := range ext.States {
 		radio := " "
@@ -106,7 +121,8 @@ func (m *model) detail(view equip.View, row equip.Row, ext equip.Detail, server 
 			radio = m.glyph(state)
 		}
 
-		lines = append(lines, fmt.Sprintf("  (%s) %s %s", radio, m.style.key.Render(strconv.Itoa(index+1)), state))
+		lines = append(lines, fmt.Sprintf("  (%s) %s %s", radio, m.style.key.Render(strconv.Itoa(index+1)),
+			m.style.states[state].Render(state.String())))
 	}
 
 	contents, highlighted := m.contents(ext.Contents, server)
@@ -127,37 +143,38 @@ func (m *model) detail(view equip.View, row equip.Row, ext equip.Detail, server 
 		m.detailTop = top
 	}
 
-	return m.style.cur.Render(row.Name) + m.style.dim.Render("  "+row.Kind.String()) + "\n" + strings.Join(lines, "\n")
+	return m.style.cur.Render(row.Name) + "  " + m.style.kinds[row.Kind].Render(row.Kind.String()) + "\n" +
+		strings.Join(lines, "\n")
 }
 
 // locations are the detail pane lines of where ext comes from.
 func (m *model) locations(ext equip.Detail) []string {
-	lines := []string{"", "Locations"}
+	lines := []string{"", m.style.head.Render("Locations")}
 	if ext.BuiltIn {
 		lines = append(lines, "  "+m.style.dim.Render("built into Claude Code"))
 	}
 
 	for _, loc := range ext.Locations {
-		lines = append(lines, "  "+loc.Path+"  "+m.style.dim.Render(loc.Agent.String()))
+		lines = append(lines, "  "+loc.Path+"  "+m.style.agent.Render(loc.Agent.String()))
 	}
 
 	return lines
 }
 
 // costLine is the detail pane line of the cost in each agent of ext, which
-// may be unknown.
-func costLine(unknown bool, ext equip.Detail) string {
+// may be unmeasured.
+func (m *model) costLine(unmeasured bool, ext equip.Detail) string {
 	costs := make([]string, 0, len(ext.Agents))
 	for _, agent := range ext.Agents {
-		costs = append(costs, agent.String()+" "+costOf(unknown, ext.Costs[agent]))
+		costs = append(costs, m.style.agent.Render(agent.String())+" "+costOf(unmeasured, ext.Costs[agent]))
 	}
 
-	line := "Cost    " + strings.Join(costs, ", ")
+	line := strings.Join(costs, ", ")
 	if ext.Hooks {
 		line += " + hook output, unknown"
 	}
 
-	return line
+	return m.field("Cost", line)
 }
 
 // contents are the detail pane lines of a plugin's contents, with the MCP
@@ -167,7 +184,10 @@ func (m *model) contents(contents []equip.Content, key string) ([]string, int) {
 		return nil, -1
 	}
 
-	lines := []string{"", "Contents  " + m.style.dim.Render("skills follow the plugin, MCP servers too unless overridden")}
+	lines := []string{
+		"", m.style.head.Render("Contents") + "  " +
+			m.style.dim.Render("skills follow the plugin, MCP servers too unless overridden"),
+	}
 	highlighted := -1
 
 	for _, content := range contents {
@@ -186,7 +206,8 @@ func (m *model) contents(contents []equip.Content, key string) ([]string, int) {
 		}
 
 		lines = append(lines, fmt.Sprintf("%s%s %s %s %s%s %s", m.mark(isHighlighted),
-			m.glyph(content.State), content.Kind, name, costOf(content.CostUnknown, content.Cost), ovr,
+			m.glyph(content.State), m.style.kinds[content.Kind].Render(content.Kind.String()), name,
+			m.style.dim.Render(costOf(content.CostUnknown, content.Cost)), ovr,
 			m.style.dim.MaxWidth(shortDescriptionWidth).MaxHeight(1).Render(content.Description)))
 
 		if content.ChangedOutside {

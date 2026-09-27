@@ -535,8 +535,22 @@ func TestServerNotMeasuredYetLeavesItsPluginAndTotalPartial(t *testing.T) {
 	fakePlugin(t, machine)
 	view := open(t, machine, repo)
 
-	if got := row(t, view, "github@official"); !got.CostUnknown || !view.Totals[equip.ClaudeCode].Unknown {
+	if got := row(t, view, "github@official"); !got.CostUnknown || view.Totals[equip.ClaudeCode].Unmeasured != 1 {
 		t.Errorf("plugin row = %+v and Totals = %v, want both partial in Claude Code", got, view.Totals)
+	}
+}
+
+func TestTotalCountsTheServersNotMeasuredYetInPluginsToo(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	fakeServer(t, machine, "modern", "")
+	writeJSON(t, filepath.Join(machine.Plugin("github@official", "user", ""), ".mcp.json"), map[string]any{
+		"mcpServers": map[string]any{"a": fakeConfig(t, "modern", ""), "b": fakeConfig(t, "modern", "")},
+	})
+
+	if got := open(t, machine, repo).Totals[equip.ClaudeCode].Unmeasured; got != 3 {
+		t.Errorf("Unmeasured = %d, want 3", got)
 	}
 }
 
@@ -548,7 +562,7 @@ func TestServerThatIsOffLeavesTheTotalComplete(t *testing.T) {
 	session := newSession(t, machine, repo)
 	session.SetState("mcp:fake", equip.Off)
 
-	if got := session.View().Totals; got[equip.ClaudeCode].Unknown {
+	if got := session.View().Totals; got[equip.ClaudeCode].Unmeasured != 0 {
 		t.Errorf("Totals = %v, want Claude Code's total complete", got)
 	}
 }

@@ -139,6 +139,21 @@ func TestDetailPaneScrollsToKeepTheHighlightedMCPServerOnScreen(t *testing.T) {
 	}
 }
 
+func TestTildeWritesTheHomeDirAsATilde(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct{ path, home, want string }{
+		{"/Users/me/code/app", "/Users/me", "~/code/app"},
+		{"/Users/me", "/Users/me", "/Users/me"},
+		{"/Users/meg/app", "/Users/me", "/Users/meg/app"},
+		{"/srv/app", "", "/srv/app"},
+	} {
+		if got := tilde(testCase.path, testCase.home); got != testCase.want {
+			t.Errorf("tilde(%q, %q) = %q, want %q", testCase.path, testCase.home, got, testCase.want)
+		}
+	}
+}
+
 func TestTinyTerminalSaysItIsTooSmall(t *testing.T) {
 	t.Parallel()
 	tui := newModel(t, withSkills(t, 3))
@@ -174,17 +189,20 @@ func quits(cmd tea.Cmd) bool {
 }
 
 // line returns the first line of the view whose text, styles left out,
-// contains s. The line it returns keeps its styles. A line holds the sidebar,
-// the list and the detail pane side by side, so s can match in any of them;
-// for the highlighted row, use highlighted.
+// contains s, styles left out. A line holds the sidebar, the list and the
+// detail pane side by side, so s can match in any of them; for a list row,
+// use rowLine.
 func line(tui *model, s string) string {
 	at := lineIndex(tui, 0, s)
 	if at < 0 {
 		return ""
 	}
 
-	return strings.Split(tui.View().Content, "\n")[at]
+	return strings.Split(plain(tui), "\n")[at]
 }
+
+// plain is the view's text, styles left out.
+func plain(tui *model) string { return styleCodes.ReplaceAllString(tui.View().Content, "") }
 
 // lineIndex is the index of the first line of the view, from, whose text,
 // styles left out, contains s; -1 with none.
@@ -200,11 +218,11 @@ func lineIndex(tui *model, from int, s string) int {
 }
 
 // rowLine returns the first line of the view that holds the list row of
-// name: its state glyph, then name. The line it returns keeps its styles.
+// name, its state glyph then name, styles left out.
 func rowLine(tui *model, name string) string {
 	row := regexp.MustCompile(`[●◐○] ` + regexp.QuoteMeta(name) + `[ *]`)
-	for text := range strings.SplitSeq(tui.View().Content, "\n") {
-		if row.MatchString(styleCodes.ReplaceAllString(text, "")) {
+	for text := range strings.SplitSeq(plain(tui), "\n") {
+		if row.MatchString(text) {
 			return text
 		}
 	}
@@ -366,7 +384,7 @@ func TestDetailPaneListsThePluginsContents(t *testing.T) {
 		t.Errorf("skill line %q does not show the skill's state, cost and description", got)
 	}
 
-	if line(tui, "○ MCP server search unknown") == "" {
+	if line(tui, "○ MCP server search unmeasured") == "" {
 		t.Errorf("view does not show the MCP server:\n%s", tui.View().Content)
 	}
 }
@@ -619,7 +637,7 @@ func TestTopLineShowsTheTotalOfEachAgentAsStatesChange(t *testing.T) {
 
 	press(tui, key('3'))
 
-	top, _, _ := strings.Cut(tui.View().Content, "\n")
+	top, _, _ := strings.Cut(plain(tui), "\n")
 	for _, want := range []string{"Claude Code ~0", "Codex ~706"} {
 		if !strings.Contains(top, want) {
 			t.Errorf("top line %q does not show %q", top, want)
@@ -644,12 +662,12 @@ func TestMCPServerRowAndDetailPaneShowTheCostAsUnknown(t *testing.T) {
 	machine.WriteFile(filepath.Join(machine.Home, ".claude.json"), `{"mcpServers": {"github": {"command": "gh"}}}`)
 	tui := newModel(t, machine)
 
-	if got := rowLine(tui, "github"); !strings.Contains(got, "unknown") {
-		t.Errorf("row line %q does not show the cost as unknown", got)
+	if got := rowLine(tui, "github"); !strings.Contains(got, "unmeasured") {
+		t.Errorf("row line %q does not show the cost as unmeasured", got)
 	}
 
-	if got := line(tui, "Cost  "); !strings.Contains(got, "Claude Code unknown") {
-		t.Errorf("cost line %q does not show the cost as unknown", got)
+	if got := line(tui, "Cost  "); !strings.Contains(got, "Claude Code unmeasured") {
+		t.Errorf("cost line %q does not show the cost as unmeasured", got)
 	}
 }
 
@@ -689,8 +707,8 @@ func TestMeasureKeyMeasuresTheHighlightedMCPServerInTheBackground(t *testing.T) 
 	tui := newModel(t, machine)
 
 	cmd := press(tui, key('m'))
-	if cmd == nil || !strings.Contains(rowLine(tui, "github"), "unknown") || line(tui, "measuring") == "" {
-		t.Fatalf("view after m:\n%s\nwant the cost unknown while measuring, with a command", tui.View().Content)
+	if cmd == nil || !strings.Contains(rowLine(tui, "github"), "unmeasured") || line(tui, "measuring") == "" {
+		t.Fatalf("view after m:\n%s\nwant the cost unmeasured while measuring, with a command", tui.View().Content)
 	}
 
 	tui.Update(cmd())
@@ -722,31 +740,31 @@ func TestTopLineAndPluginRowMarkAServerNotMeasuredYet(t *testing.T) {
 	machine.WriteFile(filepath.Join(dir, ".mcp.json"), `{"mcpServers": {"search": {"command": "search"}}}`)
 	tui := newModel(t, machine)
 
-	if got := line(tui, "equip"); !strings.Contains(got, "Claude Code ~10 + unknown") {
-		t.Errorf("top line %q does not mark the total partial", got)
+	if got := line(tui, "equip"); !strings.Contains(got, "Claude Code ~10 + 1 MCP unmeasured") {
+		t.Errorf("top line %q does not count the unmeasured server", got)
 	}
 
-	if got := rowLine(tui, "github@official"); !strings.Contains(got, "~10 + unknown") {
+	if got := rowLine(tui, "github@official"); !strings.Contains(got, "~10 + unmeasured") {
 		t.Errorf("row line %q does not mark the plugin's cost partial", got)
 	}
 }
 
-func TestTotalOfMarksUnknownAndOverBudget(t *testing.T) {
+func TestTotalOfCountsTheUnmeasuredAndMarksOverBudget(t *testing.T) {
 	t.Parallel()
 
 	for _, testCase := range []struct {
 		want  string
 		total equip.Total
 	}{
-		{"unknown", equip.Total{Tokens: 0, Unknown: true, OverBudget: false}},
-		{"~10 + unknown", equip.Total{Tokens: 10, Unknown: true, OverBudget: false}},
-		{"~6146 over budget", equip.Total{Tokens: 6146, Unknown: false, OverBudget: true}},
-		{"~6146 + unknown over budget", equip.Total{Tokens: 6146, Unknown: true, OverBudget: true}},
+		{"~0 + 1 MCP unmeasured", equip.Total{Tokens: 0, Unmeasured: 1, OverBudget: false}},
+		{"~10 + 2 MCP unmeasured", equip.Total{Tokens: 10, Unmeasured: 2, OverBudget: false}},
+		{"~6146, skills over budget", equip.Total{Tokens: 6146, Unmeasured: 0, OverBudget: true}},
+		{"~6146 + 1 MCP unmeasured, skills over budget", equip.Total{Tokens: 6146, Unmeasured: 1, OverBudget: true}},
 	} {
 		t.Run(testCase.want, func(t *testing.T) {
 			t.Parallel()
 
-			if got := totalOf(testCase.total); got != testCase.want {
+			if got := styleCodes.ReplaceAllString(totalOf(testCase.total, newStyles()), ""); got != testCase.want {
 				t.Errorf("totalOf(%+v) = %q, want %q", testCase.total, got, testCase.want)
 			}
 		})
@@ -796,7 +814,7 @@ func TestSidebarCountsTheRowsOfEachFacet(t *testing.T) {
 	tui := newModel(t, machine)
 
 	for _, want := range []string{`All +3\b`, `Skills +2\b`, `Plugins +1\b`, `MCP servers +0\b`, `Unsaved changes +0\b`} {
-		if !regexp.MustCompile(want).MatchString(tui.View().Content) {
+		if !regexp.MustCompile(want).MatchString(plain(tui)) {
 			t.Errorf("sidebar does not show %q:\n%s", want, tui.View().Content)
 		}
 	}
@@ -1158,7 +1176,7 @@ func newModelIn(t *testing.T, machine *equiptest.Machine, dir string) *model {
 	}
 
 	// Wide enough for the long paths of the test's temp dirs.
-	tui := newTUI(session)
+	tui := newTUI(session, machine.Home)
 	resize(tui, 400, 60)
 
 	return tui

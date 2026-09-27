@@ -31,8 +31,10 @@ equip             # opens the TUI on the project's extensions
 Each row shows a state glyph (`●` on, `◐` manual-only, `○` off), the extension's name, and its estimated tokens. The footer of the TUI lists the keys:
 
 ```text
-↑↓ move  [ ] facet  / search  1-3 set state  x drop override  m measure  tab MCP servers  p presets  s save  q quit
+↑↓ move  1-3 set state  x drop override  [ ] facet  / search  tab MCP servers  m measure  p presets  pgup pgdn page  s save  q quit
 ```
+
+The top line shows each agent's estimated tokens per session. An MCP server's cost counts only once you measure it with `m`, which starts the server, so `+ 4 MCP unmeasured` says how many servers that are on the total still leaves out. `skills over budget` means Codex's skill listing passes its budget, so Codex shortens or drops some skills.
 
 Changes stay unsaved until you press `s`. `equip --help` prints the usage.
 

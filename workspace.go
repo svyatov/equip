@@ -381,7 +381,7 @@ func (m *model) write(presets []equip.Preset) {
 
 	switch {
 	case err != nil:
-		m.flash, m.ws.leave = m.style.warn.Render("write failed: "+err.Error()), ""
+		m.flash, m.ws.leave = m.style.bad.Render("write failed: "+err.Error()), ""
 	case cur.New:
 		m.ws.before, m.ws.asking, m.ws.created = m.s.View(), askActivate, cur.ID
 	default:
@@ -397,7 +397,7 @@ func (m *model) deletePreset(presets []equip.Preset) {
 
 	err := m.s.DeletePreset(cur.ID)
 	if err != nil {
-		m.flash = m.style.warn.Render("delete failed: " + err.Error())
+		m.flash = m.style.bad.Render("delete failed: " + err.Error())
 	}
 
 	m.ws.before = m.s.View()
@@ -443,7 +443,7 @@ const (
 func (m *model) workspaceView(height int) string {
 	presets := m.s.Presets()
 
-	title := "Library\n" + m.style.dim.Render("  here name           ext proj")
+	title := m.style.head.Render("Library") + "\n" + m.style.dim.Render("  here name           ext proj")
 	library, _ := m.window(m.library(presets), 0, m.ws.preset, height-paneHeight-lipgloss.Height(title))
 	panes := []string{
 		m.box(title+"\n"+strings.Join(library, "\n"), leftWidth, height, !m.ws.inMembers && m.ws.asking == ""),
@@ -503,20 +503,20 @@ func (m *model) workspaceTop() string {
 
 	active := m.style.dim.Render("none (agent defaults)")
 	if len(now.Presets) > 0 {
-		active = strings.Join(now.Presets, " + ")
+		active = m.style.cur.Render(strings.Join(now.Presets, " + "))
 	}
 
 	turnedOn, turnedOff := turned(now.TurnedSince(m.ws.before))
 	changed := turnedOn+turnedOff > 0
-	top := []string{m.style.top.Render("equip presets"), "active here: " + active}
+	top := []string{m.style.top.Render("equip presets"), m.style.dim.Render("active here: ") + active}
 
 	for _, agent := range equip.Agents() {
-		total := totalOf(now.Totals[agent])
+		total := agentTotal(agent, now.Totals[agent], m.style)
 		if changed {
-			total = totalOf(m.ws.before.Totals[agent]) + " → " + total
+			total = agentTotal(agent, m.ws.before.Totals[agent], m.style) + " → " + totalOf(now.Totals[agent], m.style)
 		}
 
-		top = append(top, agent.String()+" "+total)
+		top = append(top, total)
 	}
 
 	if changed {
@@ -584,7 +584,7 @@ func (m *model) members(preset equip.Preset) (string, []string, int) {
 
 	for index, member := range preset.Members {
 		if index == 0 || member.Kind != preset.Members[index-1].Kind {
-			lines = append(lines, "", m.style.dim.Render(member.Kind.String()))
+			lines = append(lines, "", m.style.kinds[member.Kind].Render(member.Kind.String()))
 		}
 
 		on := m.ws.inMembers && index == m.ws.member
@@ -595,7 +595,7 @@ func (m *model) members(preset equip.Preset) (string, []string, int) {
 		lines = append(lines, m.mark(on)+m.memberLine(member))
 	}
 
-	return "Members of " + preset.Name, lines, highlighted
+	return m.style.head.Render("Members of " + preset.Name), lines, highlighted
 }
 
 // memberLine is the line of member in the members pane, after its mark.
@@ -637,7 +637,7 @@ func (m *model) addList(preset equip.Preset, candidates []equip.Row) (string, []
 
 	for index, row := range candidates {
 		if index == 0 || row.Kind != candidates[index-1].Kind {
-			lines = append(lines, "", m.style.dim.Render(row.Kind.String()))
+			lines = append(lines, "", m.style.kinds[row.Kind].Render(row.Kind.String()))
 		}
 
 		if index == m.ws.member {
@@ -648,7 +648,7 @@ func (m *model) addList(preset equip.Preset, candidates []equip.Row) (string, []
 			m.style.dim.Render(costOf(row.CostUnknown, row.Cost)))
 	}
 
-	return "Add to " + preset.Name + "\n" + search, lines, highlighted
+	return m.style.head.Render("Add to "+preset.Name) + "\n" + search, lines, highlighted
 }
 
 // right is the right pane, width by height cells: the question asked, else
@@ -672,7 +672,7 @@ func (m *model) right(preset equip.Preset, presets []equip.Preset, candidates []
 	}
 
 	here := m.s.View().Project.Path
-	lines := []string{fmt.Sprintf("Used by %d projects", len(preset.Projects))}
+	lines := []string{m.style.head.Render(fmt.Sprintf("Used by %d projects", len(preset.Projects)))}
 
 	for _, path := range preset.Projects {
 		if path == here {
@@ -751,7 +751,7 @@ func (m *model) confirm(preset equip.Preset) string {
 	changes := after.TurnedSince(before)
 	lines := []string{m.style.warn.Render(verb + " preset " + preset.Name + "?"), ""}
 	lines = append(lines, m.others(m.ws.preview.Others)...)
-	lines = append(lines, "", "This project")
+	lines = append(lines, "", m.style.head.Render("This project"))
 
 	if len(changes) == 0 {
 		lines = append(lines, m.style.dim.Render("  no extension changes state here"))
@@ -765,7 +765,7 @@ func (m *model) confirm(preset equip.Preset) string {
 	lines = append(lines, "")
 
 	for _, agent := range equip.Agents() {
-		lines = append(lines, agent.String()+" "+totalOf(before.Totals[agent])+" → "+totalOf(after.Totals[agent]))
+		lines = append(lines, agentTotal(agent, before.Totals[agent], m.style)+" → "+totalOf(after.Totals[agent], m.style))
 	}
 
 	lines = append(lines, "", m.style.dim.Render("pending changes here stay pending"), "",
@@ -781,7 +781,7 @@ func (m *model) others(others []equip.Affected) []string {
 		return []string{m.style.dim.Render("no other project uses it")}
 	}
 
-	lines := []string{"Other projects"}
+	lines := []string{m.style.head.Render("Other projects")}
 
 	for _, project := range others {
 		if project.Skipped != "" {

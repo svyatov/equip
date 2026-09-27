@@ -18,6 +18,11 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 
 - The TUI fits the terminal. The key help stays on the bottom line, the list and the detail pane scroll to keep the highlight on screen, and a line says how many more rows are below. Below 100 columns the facet sidebar hides and `[ ]` still switches facets. `pgup`, `pgdn`, `home`, and `end` move by a page or to the ends.
 
+### Changed
+
+- The TUI uses the Catppuccin Mocha colours, with a colour per state, per kind, and per agent.
+- The top line counts the MCP servers a total leaves out until they are measured, as in `+ 4 MCP unmeasured`, and says `skills over budget` where it said `over budget`. A cost not measured yet reads `unmeasured` where it read `unknown`. The project path writes the home directory as `~`.
+
 ## [0.1.1] - 2026-09-27
 
 ### Added

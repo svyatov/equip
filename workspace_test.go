@@ -24,7 +24,7 @@ func presetModel(t *testing.T) *model {
 
 // topLine is the first line of the view.
 func topLine(tui *model) string {
-	top, _, _ := strings.Cut(tui.View().Content, "\n")
+	top, _, _ := strings.Cut(plain(tui), "\n")
 
 	return top
 }
@@ -48,13 +48,13 @@ func TestWorkspaceTopLineMarksTheSideOverBudget(t *testing.T) {
 	// Ruby turns the plugin off: its skill, 8, and the plugins block, 250.
 	press(tui, key('p'), key(' '))
 
-	if top := topLine(tui); !strings.Contains(top, "Codex ~6398 over budget → ~6140") {
+	if top := topLine(tui); !strings.Contains(top, "Codex ~6398, skills over budget → ~6140") {
 		t.Errorf("top line %q does not mark the total before over budget", top)
 	}
 
 	press(tui, esc(), key('s'), key('p'), key(' '))
 
-	if top := topLine(tui); !strings.Contains(top, "Codex ~6140 → ~6398 over budget") {
+	if top := topLine(tui); !strings.Contains(top, "Codex ~6140 → ~6398, skills over budget") {
 		t.Errorf("top line %q does not mark the total after over budget", top)
 	}
 }
@@ -70,14 +70,14 @@ func TestWriteConfirmMarksTheSideOverBudget(t *testing.T) {
 	press(tui, typed("github")...)
 	press(tui, enter(), key(' '), esc(), key('w'))
 
-	if line(tui, "Codex ~6140 → ~6398 over budget") == "" {
+	if line(tui, "Codex ~6140 → ~6398, skills over budget") == "" {
 		t.Errorf("confirm does not mark the total after over budget:\n%s", tui.View().Content)
 	}
 
 	// The members pane keeps lint highlighted; the plugin is two rows down.
 	press(tui, key('y'), down(), down(), key(' '), key('w'))
 
-	if line(tui, "Codex ~6398 over budget → ~6140") == "" {
+	if line(tui, "Codex ~6398, skills over budget → ~6140") == "" {
 		t.Errorf("confirm does not mark the total before over budget:\n%s", tui.View().Content)
 	}
 }
@@ -524,7 +524,8 @@ func TestMembersPaneMarksEditsAndOverrides(t *testing.T) {
 	}
 
 	// lint has an Override, and is removed: marked and struck through.
-	if lint := line(tui, "- lint ~0 ovr"); !strings.Contains(lint, "\x1b[9m") {
+	at := lineIndex(tui, 0, "- lint ~0 ovr")
+	if at < 0 || !strings.Contains(strings.Split(tui.View().Content, "\n")[at], "\x1b[9m") {
 		t.Errorf("members pane does not strike lint through:\n%s", tui.View().Content)
 	}
 }

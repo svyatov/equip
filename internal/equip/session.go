@@ -75,9 +75,9 @@ type View struct {
 // Total is the estimated tokens of a session in an agent.
 type Total struct {
 	Tokens int
-	// Unknown marks a total that leaves out an MCP server that is on but not
-	// measured yet.
-	Unknown bool
+	// Unmeasured counts the MCP servers that are on but not measured yet,
+	// which the total leaves out.
+	Unmeasured int
 	// OverBudget marks a skill listing that passes the agent's listing
 	// budget, so the agent shortens or drops what it lists.
 	OverBudget bool

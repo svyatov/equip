@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -14,30 +15,41 @@ import (
 
 // styles are the lipgloss styles of the TUI.
 type styles struct {
-	top, dim, warn, cur, key, pane, focused lipgloss.Style
-	states                                  map[equip.State]lipgloss.Style
+	top, dim, warn, bad, cur, key, head, agent, unmeasured, pane, focused lipgloss.Style
+	states                                                                map[equip.State]lipgloss.Style
+	kinds                                                                 map[equip.Kind]lipgloss.Style
 }
 
+// newStyles are the styles in the colours of Catppuccin Mocha,
+// github.com/catppuccin/palette.
 func newStyles() styles {
-	accent := lipgloss.Color("#af87ff")
-	pane := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#444444")).
+	mauve := "#cba6f7"
+	pane := lipgloss.NewStyle().Border(lipgloss.RoundedBorder()).BorderForeground(lipgloss.Color("#45475a")).
 		Padding(0, 1)
 
 	return styles{
-		top:     lipgloss.NewStyle().Bold(true).Foreground(accent),
-		dim:     lipgloss.NewStyle().Foreground(lipgloss.Color("#8a8a8a")),
-		warn:    lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("#d7af5f")),
-		cur:     lipgloss.NewStyle().Bold(true).Foreground(accent),
-		key:     lipgloss.NewStyle().Foreground(accent),
-		pane:    pane,
-		focused: pane.BorderForeground(accent),
+		top:        colour(mauve).Bold(true),
+		dim:        colour("#7f849c"),
+		warn:       colour("#fab387").Bold(true),
+		bad:        colour("#f38ba8").Bold(true),
+		cur:        colour(mauve).Bold(true),
+		key:        colour(mauve),
+		head:       colour("#b4befe").Bold(true),
+		agent:      colour("#89b4fa"),
+		unmeasured: colour("#89dceb"),
+		pane:       pane,
+		focused:    pane.BorderForeground(lipgloss.Color(mauve)),
 		states: map[equip.State]lipgloss.Style{
-			equip.On:         lipgloss.NewStyle().Foreground(lipgloss.Color("#5fd75f")),
-			equip.ManualOnly: lipgloss.NewStyle().Foreground(lipgloss.Color("#d7af5f")),
-			equip.Off:        lipgloss.NewStyle().Foreground(lipgloss.Color("#6c6c6c")),
+			equip.On: colour("#a6e3a1"), equip.ManualOnly: colour("#f9e2af"), equip.Off: colour("#6c7086"),
+		},
+		kinds: map[equip.Kind]lipgloss.Style{
+			equip.Skill: colour("#89b4fa"), equip.Plugin: colour("#f5c2e7"), equip.MCPServer: colour("#94e2d5"),
 		},
 	}
 }
+
+// colour is the style of text in the colour hex.
+func colour(hex string) lipgloss.Style { return lipgloss.NewStyle().Foreground(lipgloss.Color(hex)) }
 
 // The sizes of the layout, in cells.
 const (
@@ -65,6 +77,7 @@ type probedMsg struct{ err error }
 type model struct {
 	style      styles
 	s          *equip.Session
+	home       string // the user's home dir, which the top line writes as ~
 	flash      string
 	query      string    // the search: the list keeps the rows whose names contain it
 	key        string    // of the highlighted row, which the highlight stays on while the list has it
@@ -108,12 +121,12 @@ func step(key string) (int, bool) {
 	return delta, ok
 }
 
-// newTUI is the model of a fresh TUI over session.
-func newTUI(session *equip.Session) *model {
+// newTUI is the model of a fresh TUI over session, for the user with home.
+func newTUI(session *equip.Session, home string) *model {
 	view := session.View()
 	orphans := view.Orphans
 	tui := &model{
-		s: session, style: newStyles(), width: 0, height: 0, cur: 0, top: 0, detailTop: 0, facet: 0, server: 0,
+		s: session, home: home, style: newStyles(), width: 0, height: 0, cur: 0, top: 0, detailTop: 0, facet: 0, server: 0,
 		inContents: false, quitting: false,
 		searching: false, flash: "", query: "", key: "", pinned: "", orphans: orphans[:min(len(orphans), digitKeys)],
 		ws: newWorkspace(view),
@@ -135,7 +148,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if probed, ok := msg.(probedMsg); ok {
 		m.flash = ""
 		if probed.err != nil {
-			m.flash = m.style.warn.Render("measure failed: " + probed.err.Error())
+			m.flash = m.style.bad.Render("measure failed: " + probed.err.Error())
 		}
 
 		return m, nil
@@ -193,13 +206,13 @@ func (m *model) View() tea.View {
 func (m *model) mainView(height int) string {
 	session := m.s.View()
 
-	top := []string{m.style.top.Render("equip  " + session.Project.Path)}
+	top := []string{m.style.top.Render("equip") + "  " + tilde(session.Project.Path, m.home)}
 	if len(session.Presets) > 0 {
-		top = append(top, "presets "+strings.Join(session.Presets, " + "))
+		top = append(top, m.style.dim.Render("presets ")+m.style.cur.Render(strings.Join(session.Presets, " + ")))
 	}
 
 	for _, agent := range equip.Agents() {
-		top = append(top, agent.String()+" "+totalOf(session.Totals[agent]))
+		top = append(top, agentTotal(agent, session.Totals[agent], m.style))
 	}
 
 	if session.Unsaved > 0 {
@@ -234,6 +247,16 @@ func (m *model) mainView(height int) string {
 	panes = append(panes, m.box(detail, rest-listWidth, height, m.inContents))
 
 	return fit(strings.Join(top, "  "), m.width) + "\n" + lipgloss.JoinHorizontal(lipgloss.Top, panes...)
+}
+
+// tilde is path with the dir home at its start written as ~.
+func tilde(path, home string) string {
+	sep := string(filepath.Separator)
+	if rest, ok := strings.CutPrefix(path, home+sep); ok && home != "" {
+		return "~" + sep + rest
+	}
+
+	return path
 }
 
 // box is text in a pane of width by height cells, its border in the accent
@@ -362,7 +385,7 @@ func (m *model) adopt(key string) {
 
 	err = m.s.Adopt(m.orphans[i-1])
 	if err != nil {
-		m.flash = m.style.warn.Render("adopt failed: " + err.Error())
+		m.flash = m.style.bad.Render("adopt failed: " + err.Error())
 	}
 
 	m.orphans = nil
@@ -412,11 +435,11 @@ func (m *model) sidebar(facets []equip.Facet) string {
 			lines = append(lines, "")
 		}
 
-		label := fmt.Sprintf("%-*s %3d", leftWidth-paneWidth-facetMarks, facet.Name, facet.Count())
+		name, count := fmt.Sprintf("%-*s", leftWidth-paneWidth-facetMarks, facet.Name), fmt.Sprintf(" %3d", facet.Count())
 		if index == m.facet {
-			lines = append(lines, m.style.cur.Render("▸ "+label))
+			lines = append(lines, m.style.cur.Render("▸ "+name+count))
 		} else {
-			lines = append(lines, "  "+label)
+			lines = append(lines, "  "+name+m.style.dim.Render(count))
 		}
 	}
 
@@ -426,7 +449,7 @@ func (m *model) sidebar(facets []equip.Facet) string {
 // list is the list pane, width by height cells: the facet's name and row
 // count, the search, and the rows it scrolls to keep the highlight in.
 func (m *model) list(rows []equip.Row, facet string, width, height int) string {
-	title := facet + m.style.dim.Render(fmt.Sprintf("  %d", len(rows)))
+	title := m.style.head.Render(facet) + m.style.dim.Render(fmt.Sprintf("  %d", len(rows)))
 	if m.width < wideWidth {
 		title += m.style.dim.Render("  [ ] facet")
 	}
@@ -575,7 +598,7 @@ func (m *model) press(key string) tea.Cmd {
 	case "s":
 		err := m.s.Save()
 		if err != nil {
-			m.flash = m.style.warn.Render("save failed: " + err.Error())
+			m.flash = m.style.bad.Render("save failed: " + err.Error())
 		}
 	}
 
