@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"github.com/svyatov/equip/internal/equip"
@@ -108,13 +109,45 @@ func (m *Machine) RunGit(dir string, args ...string) string {
 	return strings.TrimSpace(out)
 }
 
+// template is the repo that Repo copies, as git init made it once for the
+// test binary. A copy costs far less than a git init per repo.
+var template struct { //nolint:gochecknoglobals // one per test binary, shared by parallel tests
+	err  error
+	dir  string
+	once sync.Once
+}
+
 // Repo creates a git repo with no commits at Root/name and returns its path.
 func (m *Machine) Repo(name string) string {
 	m.t.Helper()
+
+	template.once.Do(func() {
+		template.dir, template.err = os.MkdirTemp("", "equiptest-git-")
+		if template.err == nil {
+			_, template.err = m.Git(template.dir, "init", "-q", "-b", "main")
+		}
+	})
+
+	if template.err != nil {
+		m.t.Fatal(template.err)
+	}
+
 	dir := m.Mkdir(filepath.Join(m.Root, name))
-	m.RunGit(dir, "init", "-q", "-b", "main")
+
+	err := os.CopyFS(filepath.Join(dir, ".git"), os.DirFS(filepath.Join(template.dir, ".git")))
+	if err != nil {
+		m.t.Fatal(err)
+	}
 
 	return dir
+}
+
+// RemoveTemplate removes the repo that Repo copies. A TestMain calls it once
+// its tests are done.
+func RemoveTemplate() {
+	if template.dir != "" {
+		_ = os.RemoveAll(template.dir)
+	}
 }
 
 // Commit makes an empty commit in repo and returns its hash. The message

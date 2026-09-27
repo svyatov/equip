@@ -33,6 +33,8 @@ func TestMain(m *testing.M) {
 		return
 	}
 
+	defer equiptest.RemoveTemplate()
+
 	m.Run()
 }
 
