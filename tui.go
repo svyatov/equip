@@ -737,14 +737,7 @@ func (m *model) list(session equip.View, rows []equip.Row, width, height int) (s
 		title += m.style.dim.Render("  [ ] facet")
 	}
 
-	search := ""
-
-	switch {
-	case m.searching:
-		search = m.style.cur.Render("/"+m.query) + m.style.key.Render("▏")
-	case m.query != "":
-		search = m.style.cur.Render("/" + m.query)
-	}
+	search := m.searchTag(m.query, m.searching, "")
 
 	if len(rows) == 0 {
 		none := "  nothing matches"
@@ -763,6 +756,19 @@ func (m *model) list(session equip.View, rows []equip.Row, width, height int) (s
 	lines, m.top = m.window(lines, m.top, m.cur, height)
 
 	return title, search, strings.Join(lines, "\n")
+}
+
+// searchTag is the search a pane's border shows: query with a cursor while
+// typing, query once typed, and idle with no query.
+func (m *model) searchTag(query string, typing bool, idle string) string {
+	switch {
+	case typing:
+		return m.style.cur.Render("/"+query) + m.style.key.Render("▏")
+	case query != "":
+		return m.style.cur.Render("/" + query)
+	}
+
+	return idle
 }
 
 // matching counts the rows of session that facet and the search keep.
