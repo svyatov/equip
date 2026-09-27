@@ -95,8 +95,8 @@ func (m *model) inWorkspace(keyMsg tea.KeyPressMsg) {
 // space makes the highlighted preset active here or adds or removes the
 // highlighted member, n creates a preset, r renames it, a adds members, w
 // writes it, h, l, tab and the arrows move between the panes, and esc goes
-// back to the main
-// screen. A key that moves off the preset with unwritten edits asks first.
+// back to the main screen. A key that moves off the preset with unwritten
+// edits asks first.
 func (m *model) onPanes(key string, presets []equip.Preset) {
 	if delta, isStep := step(key); isStep {
 		m.moveInPanes(key, delta, presets)
@@ -104,11 +104,8 @@ func (m *model) onPanes(key string, presets []equip.Preset) {
 		return
 	}
 
-	if inMembers, isPane := map[string]bool{
-		"tab": !m.ws.inMembers, "shift+tab": !m.ws.inMembers, "l": true, "right": true, enterKey: true,
-		"h": false, "left": false,
-	}[key]; isPane {
-		m.ws.inMembers = inMembers
+	if delta, wraps, isPane := pane(key); isPane {
+		m.movePane(delta, wraps)
 
 		return
 	}
@@ -123,6 +120,12 @@ func (m *model) onPanes(key string, presets []equip.Preset) {
 			m.onPreset(key, cur)
 		}
 	}
+}
+
+// movePane moves the keys by delta between the library and the members
+// pane. Of two panes, a move that wraps lands on the other one.
+func (m *model) movePane(delta int, wraps bool) {
+	m.ws.inMembers = wraps && !m.ws.inMembers || !wraps && delta > 0
 }
 
 // moveInPanes moves the highlight by delta, as the arrow key does: among
@@ -656,14 +659,7 @@ func (m *model) memberLine(member equip.Member, width int) string {
 // its candidates, the extensions that are not members, grouped by kind, with
 // the index of the highlighted one's line; -1 with none.
 func (m *model) addList(preset equip.Preset, candidates []equip.Row, width int) (string, string, []string, int) {
-	search := m.style.dim.Render("/ searches")
-
-	switch {
-	case m.ws.searching:
-		search = m.style.cur.Render("/"+m.ws.query) + m.style.key.Render("▏")
-	case m.ws.query != "":
-		search = m.style.cur.Render("/" + m.ws.query)
-	}
+	search := m.searchTag(m.ws.query, m.ws.searching, m.style.dim.Render("/ searches"))
 
 	lines := []string{m.style.dim.Render("  nothing matches")}
 	if len(candidates) > 0 {

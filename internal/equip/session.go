@@ -453,7 +453,7 @@ func (s *Session) row(ext Extension) Row {
 		Kind:           ext.Kind,
 		Cost:           s.cost(ext),
 		CostUnknown:    s.unknown(ext),
-		ByName:         s.byName(ext),
+		ByName:         s.isByName(ext),
 		State:          state,
 		Override:       override,
 		Fallback:       s.pending.base(ext.primary(), ext),
@@ -488,9 +488,9 @@ func (s *Session) skillRows(plugin Extension) []Row {
 	return rows
 }
 
-// byName reports whether ext is a By-name skill, or a plugin of skills that
+// isByName reports whether ext is a By-name skill, or a plugin of skills that
 // are all By-name skills and nothing else that costs tokens.
-func (s *Session) byName(ext Extension) bool {
+func (s *Session) isByName(ext Extension) bool {
 	skills := ext.Kind == Skill || slices.ContainsFunc(ext.contents, func(c Content) bool { return c.Kind == Skill })
 
 	costs := slices.ContainsFunc(Agents(), func(agent Agent) bool { return ext.has(agent) && ext.cost[agent] > 0 })

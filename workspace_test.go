@@ -296,6 +296,30 @@ func TestHAndLMoveTheKeysBetweenTheLibraryAndTheMembers(t *testing.T) {
 	}
 }
 
+func TestTabShiftTabAndEnterMoveTheKeysBetweenTheLibraryAndTheMembers(t *testing.T) {
+	t.Parallel()
+	tui := presetModel(t)
+
+	press(tui, key('p'))
+
+	for _, step := range []struct {
+		key       tea.KeyPressMsg
+		inMembers bool
+	}{
+		{tab(), true},
+		{tab(), false},
+		{tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}, true},
+		{tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}, false},
+		{enter(), true},
+	} {
+		press(tui, step.key)
+
+		if tui.ws.inMembers != step.inMembers {
+			t.Fatalf("%s: inMembers = %v, want %v", step.key, tui.ws.inMembers, step.inMembers)
+		}
+	}
+}
+
 func TestLeftColumnKeepsItsWidthAcrossScreens(t *testing.T) {
 	t.Parallel()
 	tui := presetModel(t)

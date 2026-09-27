@@ -254,14 +254,9 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 }
 
 func (m *model) View() tea.View {
-	screen := m.mainView
+	screen, footer := m.mainView, m.footer()
 	if m.ws.open {
-		screen = m.workspaceView
-	}
-
-	footer := m.footer()
-	if m.ws.open {
-		footer = m.workspaceFooter()
+		screen, footer = m.workspaceView, m.workspaceFooter()
 	}
 
 	// The status and the panes take the lines above the footer.
@@ -733,18 +728,11 @@ func (m *model) list(session equip.View, rows []equip.Row, width, height int) (s
 	facet := session.Facets[m.facet]
 
 	title := m.style.head.Render(facet.Name) + m.style.dim.Render(fmt.Sprintf(" · %d", len(rows)))
-	if m.width < wideWidth {
+	if m.leftmost() == onList {
 		title += m.style.dim.Render("  [ ] facet")
 	}
 
-	search := ""
-
-	switch {
-	case m.searching:
-		search = m.style.cur.Render("/"+m.query) + m.style.key.Render("▏")
-	case m.query != "":
-		search = m.style.cur.Render("/" + m.query)
-	}
+	search := m.searchTag(m.query, m.searching, "")
 
 	if len(rows) == 0 {
 		none := "  nothing matches"
@@ -763,6 +751,19 @@ func (m *model) list(session equip.View, rows []equip.Row, width, height int) (s
 	lines, m.top = m.window(lines, m.top, m.cur, height)
 
 	return title, search, strings.Join(lines, "\n")
+}
+
+// searchTag is the search a pane's border shows: query with a cursor while
+// typing, query once typed, and idle with no query.
+func (m *model) searchTag(query string, typing bool, idle string) string {
+	switch {
+	case typing:
+		return m.style.cur.Render("/"+query) + m.style.key.Render("▏")
+	case query != "":
+		return m.style.cur.Render("/" + query)
+	}
+
+	return idle
 }
 
 // matching counts the rows of session that facet and the search keep.
