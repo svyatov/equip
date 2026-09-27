@@ -36,7 +36,7 @@ j/k move  h/l pane  space cycle state  m measure  / search  p presets  s save  ?
 
 The keys follow vim: `h` and `l` move between the facets, the list, and the detail pane, `g` and `G` jump to the ends, and `ctrl+d` and `ctrl+u` move half a page. `?` lists every key.
 
-The top line shows each agent's estimated tokens per session. An MCP server's cost counts only once you measure it with `m`, which starts the server, so `+ 4 MCP unmeasured` says how many servers that are on the total still leaves out. `skills over budget` means Codex's skill listing passes its budget, so Codex shortens or drops some skills.
+The top line shows each agent's estimated tokens per session. On open, equip measures each MCP server you configured or installed with a plugin, and each project server you approved, by starting it in the background, and caches the result until its config changes. `+ 4 MCP unmeasured` says how many servers that are on the total still leaves out: ones it could not start, such as a remote server that needs a login. `m` measures one again and says why it failed. `skills over budget` means Codex's skill listing passes its budget, so Codex shortens or drops some skills.
 
 Changes stay unsaved until you press `s`. `equip --help` prints the usage.
 

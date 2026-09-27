@@ -20,6 +20,7 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 
 ### Changed
 
+- equip measures MCP servers on open, in the background and four at a time, where it waited for `m` on each. It measures a server that is off too, as long as the user configured it or installed it with a plugin, or approved it in the project, so its cost is known before it is turned on. The top line counts the servers left, and the footer says how many could not be measured.
 - The keys follow vim. `h`, `l`, the arrows, `tab`, and `enter` move between the facet sidebar, the list, and the detail pane, and the focused pane has a coloured border. `j` and `k` pick a facet in the sidebar, move in the list, and move among a plugin's MCP servers or scroll the detail pane. `g` and `G` jump to the ends, `ctrl+d` and `ctrl+u` move half a page, and `space` cycles the state. `?` lists every key. In the presets workspace, `h` and `l` move between the library and the members.
 - The TUI uses the Catppuccin Mocha colours, with a colour per state, per kind, and per agent.
 - The top line counts the MCP servers a total leaves out until they are measured, as in `+ 4 MCP unmeasured`, and says `skills over budget` where it said `over budget`. A cost not measured yet reads `unmeasured` where it read `unknown`. The project path writes the home directory as `~`.

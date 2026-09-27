@@ -72,14 +72,22 @@ const (
 	pairSize     = 2       // a key and what it does, in the key help
 )
 
-// probedMsg reports that a probe of an MCP server ended, with its error.
-type probedMsg struct{ err error }
+// probedMsg reports that a probe of an MCP server ended, with its error, and
+// whether opening started it.
+type probedMsg struct {
+	err  error
+	auto bool
+}
+
+// probeSlots is how many MCP servers opening measures at once.
+const probeSlots = 4
 
 // model is the Bubble Tea root model over a Session.
 type model struct {
 	style     styles
 	s         *equip.Session
-	home      string // the user's home dir, which the top line writes as ~
+	slots     chan struct{} // one per probe that runs, up to probeSlots
+	home      string        // the user's home dir, which the top line writes as ~
 	flash     string
 	query     string    // the search: the list keeps the rows whose names contain it
 	key       string    // of the highlighted row, which the highlight stays on while the list has it
@@ -94,6 +102,8 @@ type model struct {
 	facet     int       // the picked facet
 	server    int       // the highlighted MCP server among the highlighted plugin's contents
 	focus     int       // the pane the keys are on: onFacets, onList or onDetail
+	probing   int       // the MCP servers opening measures, until each probe ends
+	failed    int       // of those, the ones whose probe failed
 	quitting  bool      // asking to quit with unsaved changes
 	searching bool      // the keys type into the search
 	showKeys  bool      // the key list covers the screen until the next key
@@ -159,7 +169,7 @@ func newTUI(session *equip.Session, home string) *model {
 	orphans := view.Orphans
 	tui := &model{
 		s: session, home: home, style: newStyles(), width: 0, height: 0, cur: 0, top: 0, detailTop: 0, facet: 0, server: 0,
-		focus: onList, quitting: false, showKeys: false,
+		focus: onList, quitting: false, showKeys: false, probing: 0, failed: 0, slots: make(chan struct{}, probeSlots),
 		searching: false, flash: "", query: "", key: "", pinned: "", orphans: orphans[:min(len(orphans), digitKeys)],
 		ws: newWorkspace(view),
 	}
@@ -168,7 +178,19 @@ func newTUI(session *equip.Session, home string) *model {
 	return tui
 }
 
-func (m *model) Init() tea.Cmd { return nil }
+// Init measures every MCP server equip may start and has not measured, in
+// the background.
+func (m *model) Init() tea.Cmd {
+	keys := m.s.Unmeasured()
+	m.probing = len(keys)
+
+	cmds := make([]tea.Cmd, 0, len(keys))
+	for _, key := range keys {
+		cmds = append(cmds, m.probe(key, true))
+	}
+
+	return tea.Batch(cmds...)
+}
 
 func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if size, ok := msg.(tea.WindowSizeMsg); ok {
@@ -179,10 +201,7 @@ func (m *model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 
 	if probed, ok := msg.(probedMsg); ok {
-		m.flash = ""
-		if probed.err != nil {
-			m.flash = m.style.bad.Render("measure failed: " + probed.err.Error())
-		}
+		m.probed(probed)
 
 		return m, nil
 	}
@@ -241,6 +260,52 @@ func (m *model) View() tea.View {
 	return view
 }
 
+// probe is the command that measures the MCP server with key, once one of
+// the probe slots frees, so the TUI stays live meanwhile. auto marks one
+// opening started.
+func (m *model) probe(key string, auto bool) tea.Cmd {
+	probe, slots := m.s.ProbeCost(key), m.slots
+
+	return func() tea.Msg {
+		slots <- struct{}{}
+		defer func() { <-slots }()
+
+		return probedMsg{err: probe(), auto: auto}
+	}
+}
+
+// probed takes the end of a probe: the one m started says why it failed,
+// and those opening started count down, then say how many failed.
+func (m *model) probed(probed probedMsg) {
+	if !probed.auto {
+		m.flash = ""
+		if probed.err != nil {
+			m.flash = m.style.bad.Render("measure failed: " + probed.err.Error())
+		}
+
+		return
+	}
+
+	m.probing--
+	if probed.err != nil {
+		m.failed++
+	}
+
+	if m.probing == 0 && m.failed > 0 {
+		m.flash = m.style.warn.Render(fmt.Sprintf("%d MCP %s could not be measured, m on one says why",
+			m.failed, plural(m.failed, "server", "servers")))
+	}
+}
+
+// plural is one when count is 1, else many.
+func plural(count int, one, many string) string {
+	if count == 1 {
+		return one
+	}
+
+	return many
+}
+
 // mainView is the main screen's top line and panes, height lines tall.
 func (m *model) mainView(height int) string {
 	session := m.s.View()
@@ -252,6 +317,10 @@ func (m *model) mainView(height int) string {
 
 	for _, agent := range equip.Agents() {
 		top = append(top, agentTotal(agent, session.Totals[agent], m.style))
+	}
+
+	if m.probing > 0 {
+		top = append(top, m.style.unmeasured.Render(fmt.Sprintf("measuring %d…", m.probing)))
 	}
 
 	if session.Unsaved > 0 {
@@ -803,11 +872,9 @@ func (m *model) act(key, target string) tea.Cmd {
 		states := m.s.Detail(target).States
 		m.setState(target, (slices.Index(states, m.state(target))+1)%max(len(states), 1))
 	case "m":
-		// The probe runs as a command, so the TUI stays live meanwhile.
-		probe := m.s.ProbeCost(target)
 		m.flash = m.style.dim.Render("measuring " + target + "…")
 
-		return func() tea.Msg { return probedMsg{err: probe()} }
+		return m.probe(target, false)
 	default:
 		m.setState(target, int(key[0]-'1'))
 	}

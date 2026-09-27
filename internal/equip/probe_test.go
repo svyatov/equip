@@ -432,7 +432,7 @@ func TestMeasuredCostHonoursTheTTLOfAToolsPage(t *testing.T) {
 	}
 }
 
-func TestProbeRefusesAServerTheAgentHasOff(t *testing.T) {
+func TestProbeMeasuresAServerTheAgentHasOff(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	repo := machine.Repo("app")
@@ -440,13 +440,34 @@ func TestProbeRefusesAServerTheAgentHasOff(t *testing.T) {
 		"mcpServers": map[string]any{"fake": fakeConfig(t, "modern", "")},
 		"projects":   map[string]any{repo: map[string]any{"disabledMcpServers": []string{"fake"}}},
 	})
+
+	err := newSession(t, machine, repo).ProbeCost("mcp:fake")()
+	if err != nil {
+		t.Errorf("ProbeCost = %v, want a measurement of a server the user configured", err)
+	}
+}
+
+func TestUnmeasuredListsTheServersEquipMayMeasureUntilMeasured(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	fakeServer(t, machine, "modern", "")
+	writeJSON(t, filepath.Join(repo, ".mcp.json"), map[string]any{
+		"mcpServers": map[string]any{"stranger": fakeConfig(t, "modern", "")},
+	})
 	session := newSession(t, machine, repo)
-	// On only in equip, until a save.
-	session.SetState("mcp:fake", equip.On)
+
+	if got := session.Unmeasured(); !slices.Equal(got, []string{"mcp:fake"}) {
+		t.Errorf("Unmeasured = %v, want the user's server alone, not the unapproved project one", got)
+	}
 
 	err := session.ProbeCost("mcp:fake")()
-	if !errors.Is(err, equip.ErrCannotProbe) {
-		t.Errorf("ProbeCost = %v, want ErrCannotProbe", err)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if got := session.Unmeasured(); len(got) != 0 {
+		t.Errorf("Unmeasured = %v after the probe, want none", got)
 	}
 }
 
@@ -592,7 +613,7 @@ func TestMeasuredPluginServerAddsItsCostToThePlugin(t *testing.T) {
 	}
 }
 
-func TestProbeRefusesAServerWhosePluginIsOff(t *testing.T) {
+func TestProbeMeasuresAServerWhosePluginIsOff(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	repo := machine.Repo("app")
@@ -601,8 +622,8 @@ func TestProbeRefusesAServerWhosePluginIsOff(t *testing.T) {
 		map[string]any{"enabledPlugins": map[string]bool{"github@official": false}})
 
 	err := newSession(t, machine, repo).ProbeCost("mcp:github@official:fake")()
-	if !errors.Is(err, equip.ErrCannotProbe) {
-		t.Errorf("ProbeCost = %v, want ErrCannotProbe", err)
+	if err != nil {
+		t.Errorf("ProbeCost = %v, want a measurement of a server of an installed plugin", err)
 	}
 }
 

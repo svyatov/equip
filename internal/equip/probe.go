@@ -23,8 +23,9 @@ import (
 )
 
 // ErrCannotProbe is the error of a probe of an extension equip does not
-// start: one that is not an MCP server an agent has on and trusted.
-var ErrCannotProbe = errors.New("equip measures only an MCP server an agent has on and trusted")
+// start: one that is not an MCP server an agent trusts, or one built into
+// the agent, which equip has no command or URL for.
+var ErrCannotProbe = errors.New("equip cannot start it: not an MCP server, built into the agent, or not trusted")
 
 const (
 	// probeTimeout is how long a probe gives an MCP server to answer, as
@@ -600,12 +601,7 @@ func decodeResponse(data []byte, request int, method string, result any) (bool, 
 func (s *Session) ProbeCost(key string) func() error {
 	ext, _ := s.pending.ext(key)
 
-	for _, agent := range Agents() {
-		cfg, ok := s.probeConfig(agent, ext)
-		if !ok || !s.onAndTrusted(agent, ext) {
-			continue
-		}
-
+	if cfg, ok := s.startable(ext); ok {
 		return func() error {
 			// An agent starts a server in the checkout the session runs in.
 			measured, err := probe(context.Background(), s.machine.Env, s.project.checkout, cfg)
@@ -622,6 +618,41 @@ func (s *Session) ProbeCost(key string) func() error {
 	}
 
 	return func() error { return ErrCannotProbe }
+}
+
+// Unmeasured are the keys of the MCP servers equip may start and has not
+// measured yet, which ProbeCost measures.
+func (s *Session) Unmeasured() []string {
+	var keys []string
+
+	for _, ext := range s.pending.exts {
+		if _, measured := s.measurement(ext.Key); measured {
+			continue
+		}
+
+		if _, ok := s.startable(ext); ok {
+			keys = append(keys, ext.Key)
+		}
+	}
+
+	return keys
+}
+
+// startable is how to start the MCP server ext as an agent that trusts it
+// does, one that has it on first. It reports whether there is one.
+func (s *Session) startable(ext Extension) (serverConfig, bool) {
+	for _, onlyOn := range []bool{true, false} {
+		for _, agent := range Agents() {
+			cfg, ok := s.probeConfig(agent, ext)
+			if ok && s.trusted(agent, ext) && (!onlyOn || s.pending.stateIn(agent, ext) == On) {
+				return cfg, true
+			}
+		}
+	}
+
+	var none serverConfig
+
+	return none, false
 }
 
 // readMeasurements takes the cached measurement of each MCP server, from its
@@ -674,25 +705,22 @@ func (s *Session) probeConfig(agent Agent, ext Extension) (serverConfig, bool) {
 	return cfg, err == nil && cfg.Type != "sse" && (cfg.Command != "" || cfg.URL != "")
 }
 
-// onAndTrusted reports whether agent has ext on and trusts it, as its config
-// on disk says, so pending changes do not count.
-func (s *Session) onAndTrusted(agent Agent, ext Extension) bool {
-	state, onDisk := s.disk[agent][ext.Key]
+// trusted reports whether agent trusts the MCP server ext enough for equip
+// to start it, on or off: one the user configured or installed with a
+// plugin, or a .mcp.json server, which a cloned repo brings, once the user
+// approves it, as the config on disk says.
+func (s *Session) trusted(agent Agent, ext Extension) bool {
+	if agent != ClaudeCode || !ext.lists.settings {
+		return true
+	}
+
 	// Claude Code trusts a .mcp.json server only once the user approves it,
 	// in a folder they trust. ponytail: approval by
 	// enableAllProjectMcpServers does not count; read it if users approve
 	// that way.
-	if agent == ClaudeCode && ext.lists.settings && (!onDisk || !s.approvals) {
-		return false
-	}
+	state, onDisk := s.disk[agent][ext.Key]
 
-	if !onDisk {
-		state = ext.fallback[agent]
-	}
-	// A plugin's MCP server loads only while its plugin is on.
-	plugin, inPlugin := s.pending.ext(ext.plugin)
-
-	return state == On && (!inPlugin || s.onAndTrusted(agent, plugin))
+	return onDisk && s.approvals && state == On
 }
 
 // approvalsCount reports whether Claude Code takes the approvals of .mcp.json

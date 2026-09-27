@@ -853,6 +853,52 @@ func TestMeasureKeyMeasuresTheHighlightedMCPServerInTheBackground(t *testing.T) 
 	}
 }
 
+// drain runs cmd and each command of a batch it returns, and feeds their
+// messages to tui.
+func drain(tui *model, cmd tea.Cmd) {
+	if cmd == nil {
+		return
+	}
+
+	msg := cmd()
+	if batch, ok := msg.(tea.BatchMsg); ok {
+		for _, each := range batch {
+			drain(tui, each)
+		}
+
+		return
+	}
+
+	_, next := tui.Update(msg)
+	drain(tui, next)
+}
+
+func TestOpeningMeasuresEveryServerInTheBackground(t *testing.T) {
+	t.Parallel()
+
+	server := httptest.NewServer(http.HandlerFunc(serveMCP))
+	t.Cleanup(server.Close)
+	machine := equiptest.New(t)
+	machine.WriteFile(filepath.Join(machine.Home, ".claude.json"), `{"mcpServers": {"github": {"type": "http", "url": "`+
+		server.URL+`"}, "broken": {"command": "no-such-command"}}}`)
+	tui := newModel(t, machine)
+
+	cmd := tui.Init()
+	if line(tui, "measuring 2") == "" {
+		t.Errorf("top line does not say it measures 2 servers:\n%s", plain(tui))
+	}
+
+	drain(tui, cmd)
+
+	if got := rowLine(tui, "github"); !strings.Contains(got, "~8") || line(tui, "measuring") != "" {
+		t.Errorf("view:\n%s\nwant github measured, done measuring", plain(tui))
+	}
+
+	if line(tui, "1 MCP server could not be measured") == "" {
+		t.Errorf("view does not count the server it could not measure:\n%s", plain(tui))
+	}
+}
+
 func TestMeasureKeyShowsWhyAProbeFailed(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
