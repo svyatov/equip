@@ -543,22 +543,9 @@ func TestRenameAppliesAtOnce(t *testing.T) {
 	}
 }
 
-// lineIndex is the index of the first line of the view, from, that has s
-// with its style codes removed; -1 with none.
-func lineIndex(tui *model, from int, s string) int {
-	lines := strings.Split(styleCodes.ReplaceAllString(tui.View().Content, ""), "\n")
-	for i := max(from, 0); i < len(lines); i++ {
-		if strings.Contains(lines[i], s) {
-			return i
-		}
-	}
-
-	return -1
-}
-
-// inKindGroups reports whether the view shows, from the line with first on,
-// each of want below the one before it.
-func inKindGroups(tui *model, first string, want ...string) bool {
+// inOrder reports whether the view shows, from the line with first on, each
+// of want below the one before it.
+func inOrder(tui *model, first string, want ...string) bool {
 	at := lineIndex(tui, 0, first)
 	for _, s := range want {
 		at = lineIndex(tui, at+1, s)
@@ -580,13 +567,13 @@ func TestMembersAndTheAddListAreGroupedByKind(t *testing.T) {
 
 	press(tui, key('p'))
 
-	if !inKindGroups(tui, "Members of Ruby", "skill", "lint", "plugin", "github@official") {
+	if !inOrder(tui, "Members of Ruby", "skill", "lint", "plugin", "github@official") {
 		t.Errorf("members are not grouped by kind:\n%s", tui.View().Content)
 	}
 
 	press(tui, key('a'))
 
-	if !inKindGroups(tui, "Add to Ruby", "skill", "docs", "review", "plugin", "atlas@official") {
+	if !inOrder(tui, "Add to Ruby", "skill", "docs", "review", "plugin", "atlas@official") {
 		t.Errorf("the add list is not grouped by kind:\n%s", tui.View().Content)
 	}
 }
