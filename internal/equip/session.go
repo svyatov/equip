@@ -39,17 +39,17 @@ func (s State) String() string {
 
 // Session is one open Project.
 type Session struct {
-	pending  choice                     // the pending active presets and Overrides, with the installed exts
-	saved    map[string]State           // the overrides at the last save
-	disk     map[Agent]map[string]State // each agent's entries for its applied exts, as last read or written
-	outside  map[string]Agent           // changed outside equip since the last save, in that agent
-	measured map[string]measurement     // the MCP servers measured, by key; guarded by mu
-	codex    codexConfig
-	settings string // why equip does not write .claude/settings.local.json; empty when it does
-	machine  Machine
-	project  Project
-	orphans  []string // the paths of the records the Project can adopt
-	draft    *Preset  // the one preset with unwritten edits, as edited; nil with none
+	pending          choice                     // the pending active presets and Overrides, with the installed exts
+	saved            map[string]State           // the overrides at the last save
+	disk             map[Agent]map[string]State // each agent's entries for its applied exts, as last read or written
+	outside          map[string]Agent           // changed outside equip since the last save, in that agent
+	measured         map[string]measurement     // the MCP servers measured, by key; guarded by mu
+	codex            codexConfig
+	claudeNotApplied string // why equip does not write .claude/settings.local.json; empty when it does
+	machine          Machine
+	project          Project
+	orphans          []string // the paths of the records the Project can adopt
+	draft            *Preset  // the one preset with unwritten edits, as edited; nil with none
 	// unfinished are the other Projects that use the draft, opened by a
 	// write of it that failed, before its preset file changed; nil with none.
 	unfinished []Affected
@@ -109,18 +109,18 @@ func Open(machine Machine, dir string) (*Session, error) {
 	project := locate(machine, dir)
 
 	codex := readCodexConfig(machine, project)
-	settings := settingsNotApplied(machine, project)
+	claudeNotApplied := settingsNotApplied(machine, project)
 
 	exts, err := discover(machine, project, dir, codex)
 	if err != nil {
 		return nil, err
 	}
 
-	if settings != "" {
+	if claudeNotApplied != "" {
 		takeTrackedDefaults(machine, project, exts)
 	}
 
-	applied := appliedExts(exts, codex, settings)
+	applied := appliedExts(exts, codex, claudeNotApplied)
 	disk := map[Agent]map[string]State{}
 
 	for _, agent := range Agents() {
@@ -139,21 +139,21 @@ func Open(machine Machine, dir string) (*Session, error) {
 	}
 
 	session := &Session{
-		machine:    machine,
-		project:    project,
-		pending:    choice{library: library, active: nil, overrides: nil, exts: exts, applied: applied},
-		draft:      nil,
-		unfinished: nil,
-		recorded:   nil,
-		codex:      codex,
-		settings:   settings,
-		saved:      nil,
-		disk:       nil,
-		outside:    nil,
-		measured:   map[string]measurement{},
-		approvals:  approvalsCount(machine, project),
-		orphans:    orphans(machine, project),
-		mu:         sync.Mutex{},
+		machine:          machine,
+		project:          project,
+		pending:          choice{library: library, active: nil, overrides: nil, exts: exts, applied: applied},
+		draft:            nil,
+		unfinished:       nil,
+		recorded:         nil,
+		codex:            codex,
+		claudeNotApplied: claudeNotApplied,
+		saved:            nil,
+		disk:             nil,
+		outside:          nil,
+		measured:         map[string]measurement{},
+		approvals:        approvalsCount(machine, project),
+		orphans:          orphans(machine, project),
+		mu:               sync.Mutex{},
 	}
 	session.start(saved, presets, disk)
 	session.readMeasurements()
@@ -179,14 +179,14 @@ func firstStates(disk map[Agent]map[string]State) map[string]State {
 }
 
 // appliedExts are the exts whose states equip writes for each agent, with
-// Codex's config codex and Claude Code's settings, why equip does not write
+// Codex's config codex and claudeNotApplied, why equip does not write
 // .claude/settings.local.json.
-func appliedExts(exts []Extension, codex codexConfig, settings string) map[Agent][]Extension {
+func appliedExts(exts []Extension, codex codexConfig, claudeNotApplied string) map[Agent][]Extension {
 	applied := map[Agent][]Extension{}
 
 	for _, agent := range Agents() {
 		for _, ext := range exts {
-			if ext.has(agent) && whyNotApplied(agent, ext, codex, settings) == "" {
+			if ext.has(agent) && whyNotApplied(agent, ext, codex, claudeNotApplied) == "" {
 				applied[agent] = append(applied[agent], ext)
 			}
 		}
@@ -196,12 +196,12 @@ func appliedExts(exts []Extension, codex codexConfig, settings string) map[Agent
 }
 
 // whyNotApplied is why equip does not write the state of ext for agent, with
-// Codex's config codex and settings, why equip does not write
+// Codex's config codex and claudeNotApplied, why equip does not write
 // .claude/settings.local.json. It is empty when equip does.
-func whyNotApplied(agent Agent, ext Extension, codex codexConfig, settings string) string {
+func whyNotApplied(agent Agent, ext Extension, codex codexConfig, claudeNotApplied string) string {
 	switch {
 	case agent == ClaudeCode && ext.inSettings():
-		return settings
+		return claudeNotApplied
 	case agent == ClaudeCode:
 		return ""
 	case ext.Kind == Skill:
@@ -339,7 +339,7 @@ func (s *Session) Detail(key string) Detail {
 			detail.Agents = append(detail.Agents, agent)
 			detail.Costs[agent] = s.costIn(agent, ext)
 
-			if why := whyNotApplied(agent, ext, s.codex, s.settings); why != "" {
+			if why := whyNotApplied(agent, ext, s.codex, s.claudeNotApplied); why != "" {
 				detail.NotApplied[agent] = why
 			}
 		}
@@ -545,8 +545,8 @@ func (s *Session) writeAgents(chosen choice) error {
 	// The write removed the dead Codex entries. An agent's config may have
 	// become tracked since open, and the write then left it alone.
 	s.codex = readCodexConfig(s.machine, s.project)
-	s.settings = settingsNotApplied(s.machine, s.project)
-	s.pending.applied = appliedExts(s.pending.exts, s.codex, s.settings)
+	s.claudeNotApplied = settingsNotApplied(s.machine, s.project)
+	s.pending.applied = appliedExts(s.pending.exts, s.codex, s.claudeNotApplied)
 	chosen.applied = s.pending.applied
 
 	for _, agent := range Agents() {

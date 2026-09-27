@@ -193,9 +193,10 @@ func settingsNotApplied(machine Machine, project Project) string {
 }
 
 // writeClaude writes the states of overrides into the Project's
-// .claude/settings.local.json, keeping every key equip does not own.
+// .claude/settings.local.json, keeping every key equip does not own, and into
+// ~/.claude.json. It never writes a settings.local.json git tracks.
 func writeClaude(machine Machine, project Project, exts []Extension, overrides map[string]State) error {
-	// Checked again, as the file may have become tracked since open.
+	// Checked here, as the file may have become tracked since open.
 	if settingsNotApplied(machine, project) != "" {
 		return writeClaudeJSON(machine, project, exts, overrides)
 	}
