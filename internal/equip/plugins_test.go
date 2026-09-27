@@ -171,6 +171,42 @@ func TestTurnedSinceLeavesOutAPluginsSkills(t *testing.T) {
 	}
 }
 
+func TestPluginSkillTakesNoOverride(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(filepath.Join(machine.Plugin("github@official", "user", ""), "skills"), "review")
+	session := newSession(t, machine, repo)
+
+	session.SetState("github@official/review", equip.Off)
+
+	if got := session.View().Unsaved; got != 0 {
+		t.Errorf("Unsaved = %d, want 0, as the skill follows its plugin", got)
+	}
+}
+
+func TestPluginSkillJoinsNoPreset(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(filepath.Join(machine.Plugin("github@official", "user", ""), "skills"), "review")
+	session := newSession(t, machine, repo)
+
+	id, err := session.CreatePreset("Ruby")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = session.AddMember(id, "github@official/review")
+	if err == nil {
+		t.Error("AddMember of a plugin's skill = nil, want an error")
+	}
+
+	if got := session.Presets()[0].Members; len(got) != 0 {
+		t.Errorf("members = %+v, want none", got)
+	}
+}
+
 func TestPluginSkillDetailOffersNoState(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
