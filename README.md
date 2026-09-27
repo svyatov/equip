@@ -23,7 +23,7 @@ go install github.com/svyatov/equip@latest
 Prebuilt archives for macOS and Linux are also on each [release](https://github.com/svyatov/equip/releases). Check the install, then open equip in a project:
 
 ```bash
-equip --version   # equip v0.1.1
+equip --version   # equip v0.1.2
 cd your-project
 equip             # opens the TUI on the project's extensions
 ```
