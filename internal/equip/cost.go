@@ -21,7 +21,7 @@ func fixedCost(agent Agent, listed, plugins bool) int {
 	return cost
 }
 
-// total is the total of a session in agent.
+// total adds up the costs in agent of what is on, with agent's fixed cost.
 func (s *Session) total(agent Agent) Total {
 	total, listingTokens, unknown := 0, 0, false
 	listed, plugins := false, false // a skill or plugin is on, so agent lists skills; a plugin is on

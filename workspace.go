@@ -489,9 +489,9 @@ func (m *model) workspaceTop() string {
 	top := []string{m.style.top.Render("equip presets"), "active here: " + active}
 
 	for _, agent := range equip.Agents() {
-		total := totalOf(now, agent)
+		total := totalOf(now.Totals[agent])
 		if changed {
-			total = totalOf(m.ws.before, agent) + " → " + total
+			total = totalOf(m.ws.before.Totals[agent]) + " → " + total
 		}
 
 		top = append(top, agent.String()+" "+total)
@@ -726,7 +726,7 @@ func (m *model) confirm(preset equip.Preset) string {
 	lines = append(lines, "")
 
 	for _, agent := range equip.Agents() {
-		lines = append(lines, agent.String()+" "+totalOf(before, agent)+" → "+totalOf(after, agent))
+		lines = append(lines, agent.String()+" "+totalOf(before.Totals[agent])+" → "+totalOf(after.Totals[agent]))
 	}
 
 	lines = append(lines, "", m.style.dim.Render("pending changes here stay pending"), "",

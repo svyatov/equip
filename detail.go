@@ -35,11 +35,9 @@ func costOf(unknown bool, tokens int) string {
 	return cost(tokens)
 }
 
-// totalOf shows the total of a session in agent, marked when its skill
-// listing passes agent's listing budget.
-func totalOf(view equip.View, agent equip.Agent) string {
-	total := view.Totals[agent]
-
+// totalOf shows the total of a session in an agent, marked when its skill
+// listing passes the agent's listing budget.
+func totalOf(total equip.Total) string {
 	text := costOf(total.Unknown, total.Tokens)
 	if total.OverBudget {
 		text += " over budget"
