@@ -349,6 +349,24 @@ func TestPreviewOfAPresetOnlyPendingActiveChangesNothingHere(t *testing.T) {
 	}
 }
 
+func TestPreviewKeepsPendingOverridesPending(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	repo := machine.Repo("app")
+	session := newSession(t, machine, repo)
+	session.SetPresets([]string{"r1"})
+	save(t, session)
+	session.SetState("review", equip.On)
+	add(t, session, "r1", "docs")
+
+	session.PreviewWrite()
+	session.PreviewDelete("w1")
+
+	if got := row(t, session.View(), "review"); got.State != equip.On || !got.Override || !got.Unsaved {
+		t.Errorf("review = %+v, want a pending Override on", got)
+	}
+}
+
 func TestAFailedWriteKeepsTheEditsToWriteAgain(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)
