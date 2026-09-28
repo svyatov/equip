@@ -24,6 +24,7 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 
 ### Fixed
 
+- The presets workspace draws in a terminal 60 to 73 columns wide. Before, with a Preset open, `a` or `l` crashed equip when the detail pane had no room for a Location's path, and the add list's top border ran past the terminal's edge. At these widths the add list's border now leaves out `/ searches`, which the key help still shows.
 - When `s` stops on an agent config changed outside equip and the outside change replaced unsaved changes, the message says how many: `changed outside equip: replaced 1 unsaved change, press s to save`. When the outside change matches the unsaved changes, it reads `changed outside equip to match Unsaved changes, press s to save`. Before, both read `changed outside equip: added to Unsaved changes, press s to save`, so an edit the outside change replaced was lost at the next `s` without a word.
 - The quit prompt and a preset's detail use the singular for a count of 1: `1 unsaved change. Quit without saving? y/n` and `Used by 1 project`. Before, they read `1 unsaved changes` and `Used by 1 projects`.
 - When the Project's `.codex/config.toml` is the global Codex config, as in the home directory, equip marks Codex not applied and a save leaves that file alone. equip still reads the Codex states in it, and still saves the Claude Code states. Before, a save wrote the Project's Codex states into the global config, so they applied in every Codex session.

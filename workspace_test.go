@@ -268,6 +268,37 @@ func TestWorkspaceFitsTheTerminalAndScrollsTheMembers(t *testing.T) {
 	}
 }
 
+func TestWorkspaceFitsNarrowTerminals(t *testing.T) {
+	t.Parallel()
+
+	for _, width := range []int{minWidth, 73} {
+		for _, focus := range []rune{'a', 'l'} {
+			t.Run(fmt.Sprintf("%d %c", width, focus), func(t *testing.T) {
+				t.Parallel()
+				tui := presetModel(t)
+				resize(tui, width, 20)
+				press(tui, key('p'), key(focus))
+
+				if why := fits(tui, width, 20); why != "" {
+					t.Errorf("workspace does not fit %dx20: %s\n%s", width, why, tui.View().Content)
+				}
+			})
+		}
+	}
+}
+
+func TestWorkspaceFitsAfterAResizeToTheNarrowestTerminal(t *testing.T) {
+	t.Parallel()
+	tui := presetModel(t)
+	resize(tui, 80, 20)
+	press(tui, key('p'), key('a'))
+	resize(tui, minWidth, 20)
+
+	if why := fits(tui, minWidth, 20); why != "" {
+		t.Errorf("workspace does not fit %dx20: %s\n%s", minWidth, why, tui.View().Content)
+	}
+}
+
 func TestTabShiftTabEnterHAndLMoveTheKeysBetweenTheLibraryAndTheMembers(t *testing.T) {
 	t.Parallel()
 	tui := presetModel(t)

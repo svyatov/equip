@@ -1832,6 +1832,26 @@ func TestPluginRowCutsItsMarketplaceBeforeItsName(t *testing.T) {
 	}
 }
 
+func TestCutStartKeepsTheEndOfTheTextWithinWidth(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		text  string
+		want  string
+		width int
+	}{
+		{"~/a/b", "", -3},
+		{"~/a/b", "", 0},
+		{"~/a/b", "…", 1},
+		{"~/a/b", "~/a/b", 5},
+		{"~/a/b", "…/b", 3},
+	} {
+		if got := cutStart(testCase.text, testCase.width); got != testCase.want {
+			t.Errorf("cutStart(%q, %d) = %q, want %q", testCase.text, testCase.width, got, testCase.want)
+		}
+	}
+}
+
 // withEveryKind is a machine with a skill, a plugin with a skill of its own,
 // and an MCP server.
 func withEveryKind(t *testing.T) *equiptest.Machine {

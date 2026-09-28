@@ -399,6 +399,10 @@ func (m *model) status(path string, parts ...string) string {
 
 // cutStart is text cut with … at its start to at most width cells.
 func cutStart(text string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+
 	runes := []rune(text)
 	if len(runes) <= width {
 		return text
@@ -418,8 +422,8 @@ func tilde(path, home string) string {
 }
 
 // box is text in a pane of width by height cells, with title set into the
-// left of its top border and right into the right of it, its border in the
-// accent when focused.
+// left of its top border and right into the right of it when it leaves title
+// room, its border in the accent when focused.
 func (m *model) box(title, right, text string, width, height int, focused bool) string {
 	style := m.style.pane
 	if focused {
@@ -432,6 +436,10 @@ func (m *model) box(title, right, text string, width, height int, focused bool) 
 	tail := 0 // the cells of right and its marks
 	if right != "" {
 		tail = lipgloss.Width(right) + rightMarks
+	}
+
+	if inner-tail-titleMarks <= 0 { // right leaves title no room
+		right, tail = "", 0
 	}
 
 	title = cut(title, max(inner-tail-titleMarks, 0))
