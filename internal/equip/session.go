@@ -394,14 +394,17 @@ type Saved struct {
 // changes and returns ErrChangedSinceOpen. It counts what it writes after it
 // reads the configs again, so the count sees a config that changed since.
 func (s *Session) Save() (Saved, error) {
-	changed, replaced, updated, err := s.changedOutside()
-	saved := Saved{Reason: "", Changes: 0, NotApplied: 0, Replaced: replaced, Updated: updated}
+	saved := Saved{Reason: "", Changes: 0, NotApplied: 0, Replaced: 0, Updated: false}
+	before := maps.Clone(s.pending.overrides)
 
+	changed, err := s.changedOutside()
 	if err != nil {
 		return saved, err
 	}
 
 	if changed {
+		saved.Replaced, saved.Updated = s.replaced(before), !maps.Equal(before, s.pending.overrides)
+
 		return saved, ErrChangedSinceOpen
 	}
 
@@ -666,10 +669,8 @@ func (s *Session) whyNotApplied(agent Agent, ext Extension) string {
 }
 
 // changedOutside reads each agent's config and entries again and imports the
-// entries that changed since the last read. It reports whether any did, how
-// many unsaved changes the import replaced, and whether it changed any
-// pending Override.
-func (s *Session) changedOutside() (bool, int, bool, error) {
+// entries that changed since the last read, reporting whether any did.
+func (s *Session) changedOutside() (bool, error) {
 	s.takeConfigs(readCodexConfig(s.machine, s.project))
 
 	now := map[Agent]map[string]State{}
@@ -677,30 +678,36 @@ func (s *Session) changedOutside() (bool, int, bool, error) {
 	for _, agent := range Agents() {
 		states, err := agent.config().read(s.machine, s.project, s.pending.applied[agent])
 		if err != nil {
-			return false, 0, false, err
+			return false, err
 		}
 
 		now[agent] = states
 	}
 
-	changed, before := false, maps.Clone(s.pending.overrides)
+	changed := false
 	for _, agent := range Agents() {
 		changed = s.importEntries(agent, now[agent]) || changed
 	}
 
+	return changed, nil
+}
+
+// replaced counts the unsaved changes in before, the pending Overrides of an
+// earlier time, that the pending Overrides no longer hold.
+func (s *Session) replaced(before map[string]State) int {
 	// A dropped Override is an unsaved change too, of a key only saved.
 	keys := maps.Clone(before)
 	maps.Copy(keys, s.saved)
 
-	replaced := 0
+	count := 0
 
 	for key := range keys {
 		if differ(before, s.saved, key) && differ(before, s.pending.overrides, key) {
-			replaced++
+			count++
 		}
 	}
 
-	return changed, replaced, !maps.Equal(before, s.pending.overrides), nil
+	return count
 }
 
 // writeAgents writes the entries of chosen into each agent's config.
