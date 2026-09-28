@@ -492,6 +492,38 @@ func TestWriteOfAPresetChangedOutsideSaysTheEditsMergedIt(t *testing.T) {
 	}
 }
 
+func TestWriteAfterAnOutsideChangeHereSaysWWritesIt(t *testing.T) {
+	t.Parallel()
+	tui, machine := ruby(t)
+	settings := filepath.Join(machine.Root, ".claude", "settings.local.json")
+
+	press(tui, key('a'), key(' '), esc())
+	machine.WriteFile(settings, `{"skillOverrides": {"review": "off"}}`)
+	press(tui, key('w'), key('y'))
+
+	if line(tui, "changed outside equip: added to Unsaved changes, press w to write") == "" {
+		t.Errorf("w does not say the change was added:\n%s", tui.View().Content)
+	}
+}
+
+func TestWriteThatFailsShowsTheError(t *testing.T) {
+	t.Parallel()
+	tui, machine := ruby(t)
+	presets := filepath.Join(machine.ConfigHome, "equip", "presets")
+
+	err := os.Chmod(presets, 0o500)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = os.Chmod(presets, 0o700) })
+	press(tui, key('a'), key(' '), esc(), key('w'), key('y'))
+
+	if !strings.Contains(line(tui, "write failed: "), "permission denied") {
+		t.Errorf("w does not show the error:\n%s", tui.View().Content)
+	}
+}
+
 func TestWriteOfAPresetDeletedOutsideSaysWWritesItAgain(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)
