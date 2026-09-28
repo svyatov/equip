@@ -20,7 +20,7 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 
 ### Changed
 
-- When `s` or `w` stops on an agent config changed outside equip, the message says equip added the change to Unsaved changes, and names the key that saves it: `changed outside equip: added to Unsaved changes, press s to save`. Before, it read `save failed: changed outside equip since open`.
+- When `s` or `w` stops on an agent config changed outside equip, the message says equip added the change to Unsaved changes, and names the key that saves it: `changed outside equip: added to Unsaved changes, press s to save`. Before, it read `save failed: changed outside equip since open`, or `write failed: changed outside equip since open` after `w`.
 
 ### Fixed
 
