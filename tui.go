@@ -116,6 +116,7 @@ type model struct {
 	query     string    // the search: the list keeps the rows whose names contain it
 	key       string    // of the highlighted row, which the highlight stays on while the list has it
 	pinned    string    // of a row the keys changed, which the list keeps until the highlight leaves it
+	bulk      string    // a bulk action: "a" after a, then the key that picks it until y confirms it
 	orphans   []string  // the records of a moved repo the first open offers, while it asks to adopt one
 	ws        workspace // the presets workspace
 	width     int       // of the terminal
@@ -194,8 +195,8 @@ func newTUI(session *equip.Session, home string) *model {
 	tui := &model{
 		s: session, home: home, style: newStyles(), width: 0, height: 0, cur: 0, top: 0, detailTop: 0, facet: 0, server: 0,
 		focus: onList, quitting: false, showKeys: false, probing: 0, failed: 0, slots: make(chan struct{}, probeSlots),
-		searching: false, flash: "", query: "", key: "", pinned: "", orphans: orphans[:min(len(orphans), digitKeys)],
-		ws: newWorkspace(view),
+		searching: false, flash: "", query: "", key: "", pinned: "", bulk: "",
+		orphans: orphans[:min(len(orphans), digitKeys)], ws: newWorkspace(view),
 	}
 	tui.clamp()
 
@@ -550,6 +551,8 @@ func (m *model) dispatch(keyMsg tea.KeyPressMsg) tea.Cmd {
 		m.showKeys = false
 	case len(m.orphans) > 0:
 		m.adopt(key)
+	case m.bulk != "":
+		m.bulkKey(key)
 	case key == "?" && !m.typing():
 		m.showKeys = true
 	case m.ws.open:
@@ -599,21 +602,50 @@ func (m *model) footer() string {
 		return strings.Join(append(lines, m.style.dim.Render("its number adopts it  n start fresh")), "\n")
 	case m.quitting:
 		return m.style.warn.Render(fmt.Sprintf("%d unsaved changes. Quit without saving? y/n", m.unsaved()))
+	case m.bulk != "":
+		return m.bulkPrompt()
 	case m.flash != "":
 		return m.flash
 	case m.searching:
 		return m.help("type", "to search", "enter", "done", "esc", "clear")
 	case m.focus == onFacets:
 		return m.help("j/k", "facet", "l", "list", "/", "search", "?", "keys", "q", "quit")
-	case m.focus == onDetail && len(m.servers(m.rows(m.s.View()))) > 0:
-		return m.help("j/k", "MCP server", "space", "cycle state", "x", "drop override", "m", "measure", "h", "list",
-			"s", "save", "?", "keys", "q", "quit")
 	case m.focus == onDetail:
-		return m.help("j/k", "scroll", "space", "cycle state", "h", "list", "s", "save", "?", "keys", "q", "quit")
+		return m.detailHelp()
 	}
 
 	return m.help("j/k", "move", "h/l", "pane", "space", "cycle state", "m", "measure", "/", "search", "p", "presets",
 		"s", "save", "?", "keys", "q", "quit")
+}
+
+// detailHelp is the key help of the detail pane: among the MCP servers of a
+// plugin with some, else as it scrolls.
+func (m *model) detailHelp() string {
+	if len(m.servers(m.rows(m.s.View()))) > 0 {
+		return m.help("j/k", "MCP server", "space", "cycle state", "x", "drop override", "m", "measure", "h", "list",
+			"s", "save", "?", "keys", "q", "quit")
+	}
+
+	return m.help("j/k", "scroll", "space", "cycle state", "h", "list", "s", "save", "?", "keys", "q", "quit")
+}
+
+// bulkPrompt is the footer of a bulk action: after a, the keys that pick it,
+// then the count it changes, to confirm.
+func (m *model) bulkPrompt() string {
+	if m.bulk == "a" {
+		return m.style.warn.Render("Change every row the list shows") + "\n" +
+			m.help("1 2 3", "on, manual-only, off", "x", "drop the overrides", "esc", "cancel")
+	}
+
+	keys, skipped := m.bulkRows(m.bulk)
+	if m.bulk == "x" {
+		return m.style.warn.Render(fmt.Sprintf("Drop %d %s? y/n", len(keys), plural(len(keys), "override", "overrides")))
+	}
+
+	count := len(keys) + skipped
+
+	return m.style.warn.Render(fmt.Sprintf("Set %d %s %s? y/n", count, plural(count, "row", "rows"),
+		equip.States()[m.bulk[0]-'1']))
 }
 
 // typing reports whether the keys type text: into a search or a preset's
@@ -642,7 +674,8 @@ func (m *model) keyList() string {
 			"enter", "into the next pane, or to a plugin skill's plugin",
 		}},
 		{"Change", []string{
-			"space", "cycle state", "1 2 3", "set state", "x", "drop override", "m", "measure an MCP server", "s", "save",
+			"space", "cycle state", "1 2 3", "set state", "x", "drop override", "a 1 2 3", "set every row the list shows",
+			"a x", "drop every override the list shows", "m", "measure an MCP server", "s", "save",
 		}},
 		{"Find", []string{"/", "search by name", "[ ]", "previous and next facet", "esc", "clear, back to the list"}},
 		{"Presets", []string{
@@ -965,6 +998,8 @@ func (m *model) press(key string) tea.Cmd {
 
 			return m.act(key, target)
 		}
+	case key == "a":
+		m.bulk = key
 	case key == "p":
 		m.openWorkspace()
 	case key == "s":
@@ -972,6 +1007,75 @@ func (m *model) press(key string) tea.Cmd {
 	}
 
 	return nil
+}
+
+// bulkKey acts on key during a bulk action: after a, 1, 2, 3 or x picks the
+// action, and y then does it. Any other key cancels it.
+func (m *model) bulkKey(key string) {
+	action := m.bulk
+	m.bulk = ""
+
+	if action == "a" {
+		if slices.Contains([]string{"1", "2", "3", "x"}, key) {
+			m.bulk = key
+		}
+
+		return
+	}
+
+	if key != "y" {
+		return
+	}
+
+	keys, skipped := m.bulkRows(action)
+
+	if action == "x" {
+		for _, key := range keys {
+			m.s.DropOverride(key)
+		}
+
+		m.flash = m.style.dim.Render(fmt.Sprintf("dropped %d %s", len(keys), plural(len(keys), "override", "overrides")))
+
+		return
+	}
+
+	state := equip.States()[action[0]-'1']
+	for _, key := range keys {
+		m.s.SetState(key, state)
+	}
+
+	m.flash = fmt.Sprintf("set %d %s %s", len(keys), plural(len(keys), "row", "rows"), state)
+	if skipped > 0 {
+		m.flash += fmt.Sprintf(", skipped %d without it", skipped)
+	}
+
+	m.flash = m.style.dim.Render(m.flash)
+}
+
+// bulkRows are the keys of the rows the list shows that the bulk action
+// picked by key changes, and the count of those it skips: x changes those
+// with an Override, and 1, 2 and 3 those that offer the state they set. A
+// plugin's skill follows its plugin, so it is neither.
+func (m *model) bulkRows(key string) ([]string, int) {
+	var keys []string
+
+	skipped := 0
+
+	for _, row := range m.rows(m.s.View()) {
+		switch {
+		case row.Follows():
+		case key == "x":
+			if row.Override {
+				keys = append(keys, row.Key)
+			}
+		case slices.Contains(m.s.Detail(row.Key).States, equip.States()[key[0]-'1']):
+			keys = append(keys, row.Key)
+		default:
+			skipped++
+		}
+	}
+
+	return keys, skipped
 }
 
 // follows acts on key when the highlighted row of rows is a plugin's skill,

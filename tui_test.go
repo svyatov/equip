@@ -260,7 +260,10 @@ func TestQuestionMarkListsEveryKeyUntilTheNextKey(t *testing.T) {
 
 	press(tui, key('?'))
 
-	for _, want := range []string{"ctrl+d", "cycle state", "measure", "presets"} {
+	for _, want := range []string{
+		"ctrl+d", "cycle state", "measure", "presets", "a 1 2 3        set every row the list shows",
+		"a x            drop every override the list shows",
+	} {
 		if line(tui, want) == "" {
 			t.Errorf("key list does not show %q:\n%s", want, plain(tui))
 		}
@@ -1666,5 +1669,137 @@ func TestPluginRowCutsItsMarketplaceBeforeItsName(t *testing.T) {
 
 	if line(tui, "chrome-devtools-mcp@") == "" {
 		t.Errorf("plugin row lost its name:\n%s", plain(tui))
+	}
+}
+
+// withEveryKind is a machine with a skill, a plugin with a skill of its own,
+// and an MCP server.
+func withEveryKind(t *testing.T) *equiptest.Machine {
+	t.Helper()
+
+	machine := withPluginSkill(t)
+	machine.Skill(machine.ClaudeSkills(), "alpha")
+	machine.WriteFile(filepath.Join(machine.Home, ".claude.json"), `{"mcpServers": {"search": {"command": "search"}}}`)
+
+	return machine
+}
+
+func TestAThreeYSetsEveryShownRowOff(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withEveryKind(t))
+
+	press(tui, key('a'), key('3'), key('y'))
+
+	for _, r := range tui.s.View().Rows {
+		switch {
+		case r.Follows() && r.Override:
+			t.Errorf("plugin skill %s = %+v, want it to follow its plugin", r.Name, r)
+		case !r.Follows() && (r.State != equip.Off || !r.Override):
+			t.Errorf("%s = %+v, want an Override off", r.Name, r)
+		}
+	}
+
+	if got := line(tui, "set 3 rows off"); got == "" || strings.Contains(got, "skipped") {
+		t.Errorf("view does not say it set 3 rows off and skipped none:\n%s", plain(tui))
+	}
+}
+
+func TestATwoYSetsTheSkillsManualOnlyAndCountsTheRowsWithoutIt(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withEveryKind(t))
+
+	press(tui, key('a'), key('2'), key('y'))
+
+	for _, r := range tui.s.View().Rows {
+		if want := r.Name == "alpha"; r.Override != want || want && r.State != equip.ManualOnly {
+			t.Errorf("%s = %+v, want an Override manual-only only on alpha", r.Name, r)
+		}
+	}
+
+	if line(tui, "set 1 row manual-only, skipped 2 without it") == "" {
+		t.Errorf("view does not count the rows set and skipped:\n%s", plain(tui))
+	}
+}
+
+func TestAXYDropsEveryShownOverride(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withEveryKind(t))
+
+	// Off by hand on alpha, the first row.
+	press(tui, key('3'), key('a'), key('x'), key('y'))
+
+	for _, r := range tui.s.View().Rows {
+		if r.Override || r.State != equip.On {
+			t.Errorf("%s = %+v, want on from the Presets with no Override", r.Name, r)
+		}
+	}
+
+	if line(tui, "dropped 1 override") == "" {
+		t.Errorf("view does not count the Overrides dropped:\n%s", plain(tui))
+	}
+}
+
+func TestABulkActionAsksToConfirmWithItsCount(t *testing.T) {
+	t.Parallel()
+
+	for want, keys := range map[string][]tea.KeyPressMsg{
+		"Set 3 rows off? y/n":                 {key('a'), key('3')},
+		"Set 3 rows manual-only? y/n":         {key('a'), key('2')},
+		"Drop 1 override? y/n":                {key('3'), key('a'), key('x')},
+		"Change every row the list shows":     {key('a')},
+		"1 2 3  on, manual-only, off":         {key('a')},
+		"x  drop the overrides   esc  cancel": {key('a')},
+	} {
+		tui := newModel(t, withEveryKind(t))
+
+		press(tui, keys...)
+
+		if line(tui, want) == "" {
+			t.Errorf("after %v, view does not show %q:\n%s", keys, want, plain(tui))
+		}
+
+		if r := tui.s.View().Rows[3]; r.Override {
+			t.Errorf("after %v, search = %+v, want no Override before y", keys, r)
+		}
+	}
+}
+
+func TestABulkActionCancelsOnAnyOtherKey(t *testing.T) {
+	t.Parallel()
+
+	esc := tea.KeyPressMsg{Code: tea.KeyEscape}
+
+	for _, keys := range [][]tea.KeyPressMsg{
+		{key('a'), esc}, {key('a'), key('q')}, {key('a'), key('3'), key('n')}, {key('a'), key('3'), esc},
+	} {
+		tui := newModel(t, withEveryKind(t))
+
+		// Once cancelled, 3 turns off the highlighted row, alpha, alone.
+		press(tui, append(keys, key('3'))...)
+
+		for _, r := range tui.s.View().Rows {
+			if r.Override != (r.Name == "alpha") {
+				t.Errorf("after %v, %s = %+v, want an Override only on alpha", keys, r.Name, r)
+			}
+		}
+	}
+}
+
+func TestAThreeYSetsOnlyTheRowsTheFacetOrSearchShows(t *testing.T) {
+	t.Parallel()
+
+	for name, keys := range map[string][]tea.KeyPressMsg{
+		"github@official": {key(']'), key(']')}, // the Plugins facet
+		"search":          {key('/'), key('s'), key('e'), key('a'), enter()},
+	} {
+		tui := newModel(t, withEveryKind(t))
+
+		press(tui, append(keys, key('a'), key('3'), key('y'))...)
+
+		for _, r := range tui.s.View().Rows {
+			if r.Override != (r.Name == name) {
+				t.Errorf("after %v, %s = %+v, want an Override only on %s", keys, r.Name, r, name)
+			}
+		}
 	}
 }
