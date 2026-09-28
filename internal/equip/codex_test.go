@@ -1051,3 +1051,86 @@ func TestTrackedCodexConfigIsReadButNotWritten(t *testing.T) {
 		t.Errorf("NotApplied[Codex] = %q, want the file tracked by git", got)
 	}
 }
+
+// globalCodexProject writes a global Codex config that defines db and trusts
+// project, whose Codex config it also is, and returns its content.
+func globalCodexProject(t *testing.T, machine *equiptest.Machine, project string) string {
+	t.Helper()
+	appendFile(t, machine.CodexConfig(), "[mcp_servers.db]\ncommand = \"db\"\n")
+	trust(t, machine, project)
+
+	data, err := os.ReadFile(machine.CodexConfig())
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return string(data)
+}
+
+// globalCodexLeftAlone checks that the global Codex config still holds config
+// and that db's detail names it as why Codex is not applied.
+func globalCodexLeftAlone(t *testing.T, machine *equiptest.Machine, session *equip.Session, config string) {
+	t.Helper()
+
+	if data, _ := os.ReadFile(machine.CodexConfig()); string(data) != config {
+		t.Errorf("global config = %q, want it as it was", data)
+	}
+
+	if got := session.Detail("mcp:db").NotApplied[equip.Codex]; !strings.Contains(got, "global Codex config") {
+		t.Errorf("NotApplied[Codex] = %q, want the global Codex config named", got)
+	}
+}
+
+func TestSaveInTheHomeDirectoryLeavesTheGlobalCodexConfigAlone(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "review")
+	config := globalCodexProject(t, machine, machine.Home)
+	session := newSession(t, machine, machine.Home)
+	session.SetState("mcp:db", equip.Off)
+	session.SetState("review", equip.Off)
+
+	save(t, session)
+
+	globalCodexLeftAlone(t, machine, session, config)
+
+	want := map[string]any{"review": "off"}
+	if got := readJSON(t, settingsLocal(machine.Home))["skillOverrides"]; !reflect.DeepEqual(got, want) {
+		t.Errorf("skillOverrides = %v, want review off", got)
+	}
+}
+
+func TestCodexHomeInTheProjectLeavesItsCodexConfigAlone(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.CodexHome = machine.Mkdir(filepath.Join(repo, ".codex"))
+	config := globalCodexProject(t, machine, repo)
+	session := newSession(t, machine, repo)
+	session.SetState("mcp:db", equip.Off)
+
+	save(t, session)
+
+	globalCodexLeftAlone(t, machine, session, config)
+}
+
+func TestCodexHomeLinkedToTheProjectLeavesItsCodexConfigAlone(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	link := filepath.Join(machine.Root, "codex")
+
+	err := os.Symlink(machine.Mkdir(filepath.Join(repo, ".codex")), link)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	machine.CodexHome = link
+	config := globalCodexProject(t, machine, repo)
+	session := newSession(t, machine, repo)
+	session.SetState("mcp:db", equip.Off)
+
+	save(t, session)
+
+	globalCodexLeftAlone(t, machine, session, config)
+}

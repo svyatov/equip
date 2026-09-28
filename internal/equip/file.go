@@ -30,6 +30,15 @@ func readDoc(path string, unmarshal func([]byte, any) error, doc any) (bool, err
 	return false, nil
 }
 
+// sameFile reports whether the files at a and b both exist and are one file.
+func sameFile(a, b string) bool {
+	// A failed Stat leaves nil, which is never the same file.
+	aInfo, _ := os.Stat(a)
+	bInfo, _ := os.Stat(b)
+
+	return os.SameFile(aInfo, bInfo)
+}
+
 // writeFile writes data to path through a temp file and a rename, so no
 // reader sees half a file. It creates the directory of path.
 func writeFile(path string, data []byte) error {
