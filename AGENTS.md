@@ -22,4 +22,4 @@ The default vocabulary: `bug`, `enhancement`, `needs-triage`, `needs-info`, `rea
 
 ### Domain docs
 
-Single-context: one `GLOSSARY.md` and `docs/adr/` at the repo root. See `docs/agents/domain.md`.
+Single-context: one `GLOSSARY.md` at the repo root, and ADRs in `docs/adr/` once the first one is written. See `docs/agents/domain.md`.
