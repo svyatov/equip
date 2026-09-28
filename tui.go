@@ -1107,45 +1107,46 @@ func (m *model) target(rows []equip.Row, servers []string) (string, bool) {
 }
 
 // act acts on the extension with target: x drops its Override, m measures
-// its cost, space sets the state after its own, and a number key sets the
-// state it picks.
+// its cost, space sets the state after its own, and 1, 2 and 3 set on,
+// manual-only and off, or say the extension has no such state.
 func (m *model) act(key, target string) tea.Cmd {
 	switch key {
 	case "x":
 		m.s.DropOverride(target)
 	case spaceKey:
 		states := m.s.Detail(target).States
-		m.setState(target, (slices.Index(states, m.state(target))+1)%max(len(states), 1))
+		state, _ := m.stateAndKind(target)
+		m.s.SetState(target, states[(slices.Index(states, state)+1)%len(states)])
 	case "m":
 		m.flash = m.style.dim.Render("measuring " + target + "…")
 
 		return m.probe(target, false)
 	default:
-		m.setState(target, int(key[0]-'1'))
+		state := equip.States()[key[0]-'1']
+		if !slices.Contains(m.s.Detail(target).States, state) {
+			_, kind := m.stateAndKind(target)
+			m.flash = m.style.dim.Render(fmt.Sprintf("%ss have no %s state", kind, state))
+
+			return nil
+		}
+
+		m.s.SetState(target, state)
 	}
 
 	return nil
 }
 
-// state is the pending state of the extension with key: the highlighted row,
-// or one of its MCP servers.
-func (m *model) state(key string) equip.State {
+// stateAndKind are the pending state and the kind of the extension with key:
+// the highlighted row, or one of its MCP servers.
+func (m *model) stateAndKind(key string) (equip.State, equip.Kind) {
 	rows := m.rows(m.s.View())
 	for _, content := range m.s.Detail(rows[m.cur].Key).Contents {
 		if content.Key == key {
-			return content.State
+			return content.State, content.Kind
 		}
 	}
 
-	return rows[m.cur].State
-}
-
-// setState sets the extension with key to the state the key numbered i picks
-// among the states it offers.
-func (m *model) setState(key string, i int) {
-	if states := m.s.Detail(key).States; i < len(states) {
-		m.s.SetState(key, states[i])
-	}
+	return rows[m.cur].State, rows[m.cur].Kind
 }
 
 // quit quits, or first asks to confirm with unsaved changes.

@@ -14,6 +14,10 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 
 ## [Unreleased]
 
+### Fixed
+
+- The keys `1`, `2`, and `3` set on, manual-only, and off on every row. On a plugin or an MCP server, `3` sets off, and `2` changes nothing and says the row has no manual-only state. Before, `2` set off there and `3` did nothing.
+
 ## [0.1.3] - 2026-09-27
 
 ### Changed
