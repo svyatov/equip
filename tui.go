@@ -399,6 +399,10 @@ func (m *model) status(path string, parts ...string) string {
 
 // cutStart is text cut with … at its start to at most width cells.
 func cutStart(text string, width int) string {
+	if width <= 0 {
+		return ""
+	}
+
 	runes := []rune(text)
 	if len(runes) <= width {
 		return text
@@ -418,8 +422,8 @@ func tilde(path, home string) string {
 }
 
 // box is text in a pane of width by height cells, with title set into the
-// left of its top border and right into the right of it, its border in the
-// accent when focused.
+// left of its top border and right into the right of it when it fits, its
+// border in the accent when focused.
 func (m *model) box(title, right, text string, width, height int, focused bool) string {
 	style := m.style.pane
 	if focused {
@@ -432,6 +436,10 @@ func (m *model) box(title, right, text string, width, height int, focused bool) 
 	tail := 0 // the cells of right and its marks
 	if right != "" {
 		tail = lipgloss.Width(right) + rightMarks
+	}
+
+	if tail >= inner { // no room for right and the line before title
+		right, tail = "", 0
 	}
 
 	title = cut(title, max(inner-tail-titleMarks, 0))
@@ -473,7 +481,11 @@ func cut(line string, width int) string {
 		return line
 	}
 
-	return lipgloss.NewStyle().MaxWidth(max(width-1, 0)).Render(line) + "…"
+	if width <= 1 { // MaxWidth(0) sets no limit
+		return strings.Repeat("…", max(width, 0))
+	}
+
+	return lipgloss.NewStyle().MaxWidth(width-1).Render(line) + "…"
 }
 
 // fit is one line cut with … or padded to width cells.
@@ -776,7 +788,7 @@ func (m *model) list(session equip.View, rows []equip.Row, width, height int) (s
 		title += m.style.dim.Render("  [ ] facet")
 	}
 
-	search := m.searchTag(m.query, m.searching, "")
+	search := m.searchTag(m.query, m.searching, "", width)
 
 	if len(rows) == 0 {
 		none := "  nothing matches"
@@ -797,14 +809,17 @@ func (m *model) list(session equip.View, rows []equip.Row, width, height int) (s
 	return title, search, strings.Join(lines, "\n")
 }
 
-// searchTag is the search a pane's border shows: query with a cursor while
-// typing, query once typed, and idle with no query.
-func (m *model) searchTag(query string, typing bool, idle string) string {
+// searchTag is the search the border of a pane width cells inside shows:
+// query, cut from its start to fit, with a cursor while typing, and idle with
+// no query.
+func (m *model) searchTag(query string, typing bool, idle string, width int) string {
+	room := width + paneWidth - corners - rightMarks - 1 // the border's cells after the line before title
+
 	switch {
 	case typing:
-		return m.style.cur.Render("/"+query) + m.style.key.Render("▏")
+		return m.style.cur.Render(cutStart("/"+query, room-1)) + m.style.key.Render("▏")
 	case query != "":
-		return m.style.cur.Render("/" + query)
+		return m.style.cur.Render(cutStart("/"+query, room))
 	}
 
 	return idle

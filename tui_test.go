@@ -1832,6 +1832,65 @@ func TestPluginRowCutsItsMarketplaceBeforeItsName(t *testing.T) {
 	}
 }
 
+func TestSearchCutsALongQueryFromItsStart(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withSkills(t, 3))
+	resize(tui, minWidth, 20)
+	press(tui, key('/'))
+
+	for _, r := range "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz" {
+		press(tui, key(r))
+	}
+
+	if line(tui, "xyz▏") == "" {
+		t.Errorf("the list's border does not show the end of the query:\n%s", plain(tui))
+	}
+
+	if why := fits(tui, minWidth, 20); why != "" {
+		t.Errorf("view does not fit %dx20: %s\n%s", minWidth, why, plain(tui))
+	}
+}
+
+func TestCutStartKeepsTheEndOfTheTextWithinWidth(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		text  string
+		want  string
+		width int
+	}{
+		{"~/a/b", "", -3},
+		{"~/a/b", "", 0},
+		{"~/a/b", "…", 1},
+		{"~/a/b", "~/a/b", 5},
+		{"~/a/b", "…/b", 3},
+	} {
+		if got := cutStart(testCase.text, testCase.width); got != testCase.want {
+			t.Errorf("cutStart(%q, %d) = %q, want %q", testCase.text, testCase.width, got, testCase.want)
+		}
+	}
+}
+
+func TestCutKeepsTheStartOfTheLineWithinWidth(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		line  string
+		want  string
+		width int
+	}{
+		{"abc", "", -1},
+		{"abc", "", 0},
+		{"abc", "…", 1},
+		{"abc", "a…", 2},
+		{"abc", "abc", 3},
+	} {
+		if got := cut(testCase.line, testCase.width); got != testCase.want {
+			t.Errorf("cut(%q, %d) = %q, want %q", testCase.line, testCase.width, got, testCase.want)
+		}
+	}
+}
+
 // withEveryKind is a machine with a skill, a plugin with a skill of its own,
 // and an MCP server.
 func withEveryKind(t *testing.T) *equiptest.Machine {

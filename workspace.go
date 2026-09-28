@@ -666,7 +666,7 @@ func (m *model) memberLine(member equip.Member, width int) string {
 // its candidates, the extensions that are not members, grouped by kind, with
 // the index of the highlighted one's line; -1 with none.
 func (m *model) addList(preset equip.Preset, candidates []equip.Row, width int) (string, string, []string, int) {
-	search := m.searchTag(m.ws.query, m.ws.searching, m.style.dim.Render("/ searches"))
+	search := m.searchTag(m.ws.query, m.ws.searching, m.style.dim.Render("/ searches"), width)
 
 	lines := []string{m.style.dim.Render("  nothing matches")}
 	if len(candidates) > 0 {
