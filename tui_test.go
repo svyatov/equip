@@ -780,7 +780,7 @@ func TestQuitWithUnsavedChangesAsksFirst(t *testing.T) {
 		t.Fatal("q quit with unsaved changes")
 	}
 
-	if line(tui, "Quit without saving? y/n") == "" {
+	if line(tui, "1 unsaved change. Quit without saving? y/n") == "" {
 		t.Errorf("view does not ask:\n%s", tui.View().Content)
 	}
 
@@ -790,6 +790,20 @@ func TestQuitWithUnsavedChangesAsksFirst(t *testing.T) {
 
 	if !quits(press(tui, key('q'), key('y'))) {
 		t.Error("y did not quit")
+	}
+}
+
+func TestQuitPromptCountsChangesInThePlural(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "lint")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	tui := newModel(t, machine)
+
+	press(tui, key('3'), down(), key('3'), key('q'))
+
+	if line(tui, "2 unsaved changes. Quit without saving? y/n") == "" {
+		t.Errorf("view does not count 2 changes:\n%s", tui.View().Content)
 	}
 }
 

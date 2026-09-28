@@ -646,11 +646,26 @@ func TestXInTheWorkspaceKeepsTheOverride(t *testing.T) {
 	}
 }
 
+func TestRightPaneCountsTheUsersInThePlural(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	using(t, machine, machine.Root, "r1")
+	using(t, machine, t.TempDir(), "r1")
+	tui := newModel(t, machine)
+
+	press(tui, key('p'))
+
+	if line(tui, "Used by 2 projects") == "" {
+		t.Errorf("right pane does not count 2 projects:\n%s", tui.View().Content)
+	}
+}
+
 func TestRightPaneShowsTheUsersOrTheHighlightedExtensionsPresets(t *testing.T) {
 	t.Parallel()
 	tui, machine := ruby(t)
 
-	if line(tui, "Used by 1 projects") == "" || line(tui, machine.Root+" (here)") == "" {
+	used := line(tui, "Used by 1 project")
+	if used == "" || strings.Contains(used, "projects") || line(tui, machine.Root+" (here)") == "" {
 		t.Errorf("right pane does not show the project using Ruby:\n%s", tui.View().Content)
 	}
 
