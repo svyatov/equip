@@ -1068,7 +1068,7 @@ func globalCodexProject(t *testing.T, machine *equiptest.Machine, project string
 }
 
 // globalCodexLeftAlone checks that the global Codex config still holds config
-// and that db's detail names it as why Codex is not applied.
+// and that db's detail names it once, and as why Codex is not applied.
 func globalCodexLeftAlone(t *testing.T, machine *equiptest.Machine, session *equip.Session, config string) {
 	t.Helper()
 
@@ -1076,8 +1076,14 @@ func globalCodexLeftAlone(t *testing.T, machine *equiptest.Machine, session *equ
 		t.Errorf("global config = %q, want it as it was", data)
 	}
 
-	if got := session.Detail("mcp:db").NotApplied[equip.Codex]; !strings.Contains(got, "global Codex config") {
+	detail := session.Detail("mcp:db")
+	if got := detail.NotApplied[equip.Codex]; !strings.Contains(got, "global Codex config") {
 		t.Errorf("NotApplied[Codex] = %q, want the global Codex config named", got)
+	}
+
+	want := []equip.Location{{Path: machine.CodexConfig(), Agent: equip.Codex}}
+	if got := detail.Locations; !slices.Equal(got, want) {
+		t.Errorf("Locations = %v, want %v", got, want)
 	}
 }
 
