@@ -603,7 +603,9 @@ func (m *model) footer() string {
 
 		return strings.Join(append(lines, m.style.dim.Render("its number adopts it  n start fresh")), "\n")
 	case m.quitting:
-		return m.style.warn.Render(fmt.Sprintf("%d unsaved changes. Quit without saving? y/n", m.unsaved()))
+		n := m.unsaved()
+
+		return m.style.warn.Render(fmt.Sprintf("%d unsaved %s. Quit without saving? y/n", n, plural(n, "change", "changes")))
 	case m.bulking():
 		return m.bulkPrompt()
 	case m.flash != "":

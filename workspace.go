@@ -714,7 +714,8 @@ func (m *model) right(preset equip.Preset, presets []equip.Preset, candidates []
 	}
 
 	here := m.s.View().Project.Path
-	lines := []string{m.style.head.Render(fmt.Sprintf("Used by %d projects", len(preset.Projects)))}
+	used := len(preset.Projects)
+	lines := []string{m.style.head.Render(fmt.Sprintf("Used by %d %s", used, plural(used, "project", "projects")))}
 
 	for _, path := range preset.Projects {
 		if path == here {
