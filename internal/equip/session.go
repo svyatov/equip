@@ -394,7 +394,9 @@ type Saved struct {
 // changes and returns ErrChangedSinceOpen. It counts what it writes after it
 // reads the configs again, so the count sees a config that changed since.
 func (s *Session) Save() (Saved, error) {
-	changed, saved, err := s.changedOutside()
+	changed, replaced, updated, err := s.changedOutside()
+	saved := Saved{Reason: "", Changes: 0, NotApplied: 0, Replaced: replaced, Updated: updated}
+
 	if err != nil {
 		return saved, err
 	}
@@ -664,18 +666,18 @@ func (s *Session) whyNotApplied(agent Agent, ext Extension) string {
 }
 
 // changedOutside reads each agent's config and entries again and imports the
-// entries that changed since the last read, reporting whether any did and
-// what the import did to the pending Overrides.
-func (s *Session) changedOutside() (bool, Saved, error) {
+// entries that changed since the last read. It reports whether any did, how
+// many unsaved changes the import replaced, and whether it changed any
+// pending Override.
+func (s *Session) changedOutside() (bool, int, bool, error) {
 	s.takeConfigs(readCodexConfig(s.machine, s.project))
 
 	now := map[Agent]map[string]State{}
-	imported := Saved{Reason: "", Changes: 0, NotApplied: 0, Replaced: 0, Updated: false}
 
 	for _, agent := range Agents() {
 		states, err := agent.config().read(s.machine, s.project, s.pending.applied[agent])
 		if err != nil {
-			return false, imported, err
+			return false, 0, false, err
 		}
 
 		now[agent] = states
@@ -690,15 +692,15 @@ func (s *Session) changedOutside() (bool, Saved, error) {
 	keys := maps.Clone(before)
 	maps.Copy(keys, s.saved)
 
+	replaced := 0
+
 	for key := range keys {
 		if differ(before, s.saved, key) && differ(before, s.pending.overrides, key) {
-			imported.Replaced++
+			replaced++
 		}
 	}
 
-	imported.Updated = !maps.Equal(before, s.pending.overrides)
-
-	return changed, imported, nil
+	return changed, replaced, !maps.Equal(before, s.pending.overrides), nil
 }
 
 // writeAgents writes the entries of chosen into each agent's config.
