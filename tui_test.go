@@ -587,7 +587,7 @@ func TestTabThenStateKeyTurnsOffTheHighlightedMCPServerInsideThePlugin(t *testin
 	dir := machine.Plugin("github@official", "user", "")
 	machine.WriteFile(filepath.Join(dir, ".mcp.json"),
 		`{"mcpServers": {"issues": {"command": "issues"}, "search": {"command": "search"}}}`)
-	machine.Skill(filepath.Join(dir, "skills"), "review") // follows the plugin, so tab skips it
+	machine.Skill(filepath.Join(dir, "skills"), "review") // has no state of its own, so the highlight skips it
 	tui := newModel(t, machine)
 	up := tea.KeyPressMsg{Code: tea.KeyUp}
 
@@ -1653,8 +1653,8 @@ func TestManualOnlySkillReadsManualWhereNoAgentListsIt(t *testing.T) {
 	}
 }
 
-// withPluginSkill is a machine with the plugin github@official, whose skill
-// review has the second row, under its plugin's.
+// withPluginSkill is a machine with the plugin github@official, whose detail
+// lists its skill review.
 func withPluginSkill(t *testing.T) *equiptest.Machine {
 	t.Helper()
 
