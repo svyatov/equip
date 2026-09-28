@@ -1679,7 +1679,7 @@ func TestListMarksARowNoAgentApplies(t *testing.T) {
 	}
 }
 
-func TestSaveGivesNoReasonForChangesNotAppliedForTwo(t *testing.T) {
+func TestSaveGivesNoReasonWhenTheNotAppliedChangesHaveTwo(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	repo := machine.Repo("app")
@@ -1689,7 +1689,8 @@ func TestSaveGivesNoReasonForChangesNotAppliedForTwo(t *testing.T) {
 
 	press(tui, key('a'), key('3'), key('y'), key('s'))
 
-	if got := line(tui, "saved 2 changes"); !strings.Contains(got, "saved 2 changes, 2 not applied ") {
+	got := line(tui, "saved 2 changes")
+	if !strings.Contains(got, "saved 2 changes, 2 not applied") || strings.Contains(got, "not applied:") {
 		t.Errorf("save line %q does not count 2 not applied with no reason", got)
 	}
 }
