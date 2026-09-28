@@ -442,6 +442,13 @@ func TestStateKeysPickFromThePluginsOnAndOff(t *testing.T) {
 	machine.Plugin("github@official", "user", "")
 	tui := newModel(t, machine)
 
+	// A plugin has no third state, so 3 leaves it alone.
+	press(tui, key('3'))
+
+	if r := tui.s.View().Rows[0]; r.State != equip.On || r.Override {
+		t.Errorf("after 3, github@official = %+v, want on with no Override", r)
+	}
+
 	press(tui, key('2'))
 
 	if r := tui.s.View().Rows[0]; r.State != equip.Off || !r.Override {
@@ -452,19 +459,6 @@ func TestStateKeysPickFromThePluginsOnAndOff(t *testing.T) {
 		if line(tui, want) == "" {
 			t.Errorf("view does not show %q:\n%s", want, tui.View().Content)
 		}
-	}
-}
-
-func TestThirdStateKeyLeavesAPluginAlone(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	machine.Plugin("github@official", "user", "")
-	tui := newModel(t, machine)
-
-	press(tui, key('3'))
-
-	if r := tui.s.View().Rows[0]; r.State != equip.On || r.Override {
-		t.Errorf("github@official = %+v, want on with no Override", r)
 	}
 }
 

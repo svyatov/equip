@@ -60,13 +60,6 @@ func TestPluginOffersOnlyOnAndOff(t *testing.T) {
 	if got := session.Detail("review").States; !slices.Equal(got, want) {
 		t.Errorf("skill States = %v, want %v", got, want)
 	}
-}
-
-func TestSettingAPluginToManualOnlyChangesNothing(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	machine.Plugin("github@official", "user", "")
-	session := newSession(t, machine, machine.Root)
 
 	session.SetState("github@official", equip.ManualOnly)
 
@@ -451,27 +444,19 @@ func TestPluginManifestWithMCPServersInAFileKeepsItsOtherFields(t *testing.T) {
 	}
 }
 
-func TestPluginWithAHooksFileHasHooks(t *testing.T) {
+func TestPluginWithAHooksFileOrManifestKeyHasHooks(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	machine.Plugin("plain@official", "user", "")
 	writeFile(t, filepath.Join(machine.Plugin("hooked@official", "user", ""), "hooks", "hooks.json"), `{"hooks": {}}`)
+	writeFile(t, filepath.Join(machine.Plugin("manifest@official", "user", ""), ".claude-plugin", "plugin.json"),
+		`{"name": "manifest", "hooks": "./hooks/extra.json"}`)
 	session := newSession(t, machine, machine.Root)
 
-	if !session.Detail("hooked@official").Hooks || session.Detail("plain@official").Hooks {
-		t.Errorf("Hooks = %v and %v, want true for hooked and false for plain",
-			session.Detail("hooked@official").Hooks, session.Detail("plain@official").Hooks)
-	}
-}
-
-func TestPluginWithHooksInItsManifestHasHooks(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	writeFile(t, filepath.Join(machine.Plugin("hooked@official", "user", ""), ".claude-plugin", "plugin.json"),
-		`{"name": "hooked", "hooks": "./hooks/extra.json"}`)
-
-	if !newSession(t, machine, machine.Root).Detail("hooked@official").Hooks {
-		t.Error("Hooks = false, want true")
+	for key, want := range map[string]bool{"hooked@official": true, "manifest@official": true, "plain@official": false} {
+		if got := session.Detail(key).Hooks; got != want {
+			t.Errorf("%s: Hooks = %v, want %v", key, got, want)
+		}
 	}
 }
 

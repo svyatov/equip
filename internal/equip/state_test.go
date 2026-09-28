@@ -773,7 +773,7 @@ func TestSaveKeepsSkillOverridesForUndiscoveredSkills(t *testing.T) {
 	}
 }
 
-func TestDroppingASavedOverrideIsUnsaved(t *testing.T) {
+func TestDroppingASavedOverrideIsUnsavedAndSavingItRemovesItsEntry(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	repo := machine.Repo("app")
@@ -788,17 +788,6 @@ func TestDroppingASavedOverrideIsUnsaved(t *testing.T) {
 	if !view.Rows[0].Unsaved || view.Unsaved != 1 {
 		t.Errorf("row unsaved = %t, Unsaved = %d, want true and 1", view.Rows[0].Unsaved, view.Unsaved)
 	}
-}
-
-func TestSavingADroppedOverrideRemovesItsEntry(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	repo := machine.Repo("app")
-	machine.Skill(machine.ClaudeSkills(), "review")
-	session := newSession(t, machine, repo)
-	session.SetState("review", equip.Off)
-	save(t, session)
-	session.DropOverride("review")
 
 	save(t, session)
 

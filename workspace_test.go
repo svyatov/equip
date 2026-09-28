@@ -279,24 +279,7 @@ func TestWorkspaceFitsTheTerminalAndScrollsTheMembers(t *testing.T) {
 	}
 }
 
-func TestHAndLMoveTheKeysBetweenTheLibraryAndTheMembers(t *testing.T) {
-	t.Parallel()
-	tui := presetModel(t)
-
-	press(tui, key('p'), key('l'))
-
-	if !tui.ws.inMembers {
-		t.Error("l did not move the keys to the members")
-	}
-
-	press(tui, key('h'))
-
-	if tui.ws.inMembers {
-		t.Error("h did not move the keys back to the library")
-	}
-}
-
-func TestTabShiftTabAndEnterMoveTheKeysBetweenTheLibraryAndTheMembers(t *testing.T) {
+func TestTabShiftTabEnterHAndLMoveTheKeysBetweenTheLibraryAndTheMembers(t *testing.T) {
 	t.Parallel()
 	tui := presetModel(t)
 
@@ -311,6 +294,8 @@ func TestTabShiftTabAndEnterMoveTheKeysBetweenTheLibraryAndTheMembers(t *testing
 		{tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}, true},
 		{tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}, false},
 		{enter(), true},
+		{key('h'), false},
+		{key('l'), true},
 	} {
 		press(tui, step.key)
 

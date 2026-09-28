@@ -290,18 +290,6 @@ func TestProbeStartsAgainAServerThatQuitsOnServerDiscover(t *testing.T) {
 	}
 }
 
-func TestProbeSaysWhatTheServerAnsweredWithAnError(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	repo := machine.Repo("app")
-	fakeServer(t, machine, "broken", "")
-
-	err := newSession(t, machine, repo).ProbeCost("mcp:fake")()
-	if err == nil || !strings.Contains(err.Error(), "boom") {
-		t.Errorf("ProbeCost = %v, want the server's error boom", err)
-	}
-}
-
 func TestProbeStartsAServerAsCodexDoesWhenOnlyCodexHasItOn(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
@@ -664,8 +652,8 @@ func TestServerThatNeedsALoginIsNotTriedAgain(t *testing.T) {
 	})
 
 	err := newSession(t, machine, repo).ProbeCost("mcp:fake")()
-	if err == nil {
-		t.Fatal("ProbeCost = nil, want the refusal")
+	if err == nil || !strings.Contains(err.Error(), "401") {
+		t.Fatalf("ProbeCost = %v, want a refusal naming the 401", err)
 	}
 
 	session := newSession(t, machine, repo)
@@ -685,8 +673,8 @@ func TestServerThatAnswersWithAnErrorIsNotTriedAgain(t *testing.T) {
 	fakeServer(t, machine, "broken", "")
 
 	err := newSession(t, machine, repo).ProbeCost("mcp:fake")()
-	if !errors.Is(err, equip.ErrRefused) {
-		t.Fatalf("ProbeCost = %v, want ErrRefused", err)
+	if !errors.Is(err, equip.ErrRefused) || !strings.Contains(err.Error(), "boom") {
+		t.Fatalf("ProbeCost = %v, want ErrRefused with the server's error boom", err)
 	}
 
 	session := newSession(t, machine, repo)
@@ -869,18 +857,6 @@ func TestProbeSendsTheBearerTokenOfACodexRemoteServer(t *testing.T) {
 
 	if got := probedRow(t, machine, repo); got.CostUnknown {
 		t.Errorf("row = %+v, want its cost measured", got)
-	}
-}
-
-func TestProbeSaysARemoteServerRefusedIt(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	repo := machine.Repo("app")
-	remoteServer(t, machine, fakeHTTPServer(t), "wrong")
-
-	err := newSession(t, machine, repo).ProbeCost("mcp:fake")()
-	if err == nil || !strings.Contains(err.Error(), "401") {
-		t.Errorf("ProbeCost = %v, want an error naming the 401", err)
 	}
 }
 
