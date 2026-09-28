@@ -182,7 +182,7 @@ func TestSaveAfterAnOutsideChangeWritesNothingAndImportsIt(t *testing.T) {
 	writeFile(t, settingsLocal(repo), outside)
 	session.SetState("docs", equip.ManualOnly)
 
-	err := session.Save()
+	_, err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
@@ -227,7 +227,7 @@ func TestSaveReportsSettingsBrokenSinceOpen(t *testing.T) {
 	session := newSession(t, machine, repo)
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": `)
 
-	err := session.Save()
+	_, err := session.Save()
 	if err == nil || errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Errorf("Save = %v, want the read error", err)
 	}
@@ -270,7 +270,7 @@ func TestSaveAfterAnImportIsRemovedOutsideDropsIt(t *testing.T) {
 	session = newSession(t, machine, repo)
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"docs": "off"}}`)
 
-	err := session.Save()
+	_, err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
@@ -294,7 +294,7 @@ func TestSaveAfterAnOutsideRemovalWritesNothing(t *testing.T) {
 	session := newSession(t, machine, repo)
 	writeFile(t, settingsLocal(repo), `{}`)
 
-	err := session.Save()
+	_, err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
@@ -344,7 +344,7 @@ func TestSaveAfterAnOutsideChangeBackShowsTheRecordState(t *testing.T) {
 	session := newSession(t, machine, repo)
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "off"}}`)
 
-	err := session.Save()
+	_, err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
@@ -369,7 +369,7 @@ func TestSaveMarksAPendingToggleReplacedByAnOutsideChange(t *testing.T) {
 	session.SetState("review", equip.ManualOnly)
 	writeFile(t, settingsLocal(repo), `{}`)
 
-	err := session.Save()
+	_, err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
@@ -422,7 +422,7 @@ func TestSaveAfterAFailedRecordWriteSucceeds(t *testing.T) {
 	records := filepath.Join(machine.StateHome, "equip")
 	writeFile(t, records, "") // a file where the records dir belongs
 
-	err := session.Save()
+	_, err := session.Save()
 	if err == nil {
 		t.Fatal("Save wrote a record into a file")
 	}
@@ -432,7 +432,7 @@ func TestSaveAfterAFailedRecordWriteSucceeds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = session.Save()
+	_, err = session.Save()
 	if err != nil {
 		t.Errorf("Save = %v, want it to write", err)
 	}

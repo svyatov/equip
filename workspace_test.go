@@ -164,7 +164,7 @@ func TestMissingPresetShowsMissingAndCanOnlyBeToggled(t *testing.T) {
 
 	session.SetPresets([]string{"o1"})
 
-	err = session.Save()
+	_, err = session.Save()
 	if err == nil {
 		err = os.Remove(old)
 	}
@@ -202,7 +202,7 @@ func TestDetailPaneNotesAPresetChangedOutside(t *testing.T) {
 
 	session.SetPresets([]string{"r1"})
 
-	err = session.Save()
+	_, err = session.Save()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -413,7 +413,7 @@ func using(t *testing.T, machine *equiptest.Machine, dir string, ids ...string) 
 	session, err := equip.Open(machine.Machine, dir)
 	if err == nil {
 		session.SetPresets(ids)
-		err = session.Save()
+		_, err = session.Save()
 	}
 
 	if err != nil {

@@ -1137,24 +1137,21 @@ func stateKey(key string) bool {
 // save saves the pending changes, and says how many it wrote, how many of
 // them no agent applies and why, or why it failed.
 func (m *model) save() {
-	count := m.s.View().Unsaved
-	notApplied, reason := m.s.UnsavedNotApplied()
-
-	err := m.s.Save()
+	saved, err := m.s.Save()
 
 	switch {
 	case err != nil:
 		m.flash = m.style.bad.Render("save failed: " + err.Error())
-	case count == 0:
+	case saved.Changes == 0:
 		m.flash = m.style.dim.Render("nothing to save")
 	default:
-		flash := fmt.Sprintf("saved %d %s", count, plural(count, "change", "changes"))
-		if notApplied > 0 {
-			flash += fmt.Sprintf(", %d not applied", notApplied)
+		flash := fmt.Sprintf("saved %d %s", saved.Changes, plural(saved.Changes, "change", "changes"))
+		if saved.NotApplied > 0 {
+			flash += fmt.Sprintf(", %d not applied", saved.NotApplied)
 		}
 
-		if reason != "" {
-			flash += ": " + reason
+		if saved.Reason != "" {
+			flash += ": " + saved.Reason
 		}
 
 		m.flash = m.style.ok.Render(flash)

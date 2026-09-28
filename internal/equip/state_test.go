@@ -102,7 +102,7 @@ func readJSON(t *testing.T, path string) map[string]any {
 func save(t *testing.T, session *equip.Session) {
 	t.Helper()
 
-	err := session.Save()
+	_, err := session.Save()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +426,7 @@ func TestSettingsFileUntrackedSinceOpenHoldsNoDefaults(t *testing.T) {
 	session := newSession(t, machine, repo)
 	machine.RunGit(repo, "rm", "--cached", "-q", ".claude/settings.local.json")
 
-	err := session.Save()
+	_, err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want ErrChangedSinceOpen", err)
 	}
@@ -587,7 +587,7 @@ func TestSaveRefusesBrokenSettings(t *testing.T) {
 	session := newSession(t, machine, repo)
 	session.SetState("review", equip.Off)
 
-	err := session.Save()
+	_, err := session.Save()
 	if err == nil {
 		t.Error("Save overwrote broken settings")
 	}

@@ -1347,7 +1347,7 @@ func movedAway(t *testing.T, machine *equiptest.Machine, states ...equip.State) 
 
 		session.SetState("mcp:github", state)
 
-		err = session.Save()
+		_, err = session.Save()
 		if err == nil {
 			err = os.RemoveAll(old)
 		}

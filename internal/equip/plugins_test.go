@@ -594,7 +594,7 @@ func TestSaveImportsAPluginChangedOutsideSinceOpen(t *testing.T) {
 	session := newSession(t, machine, repo)
 	writeFile(t, settingsLocal(repo), `{"enabledPlugins": {"github@official": false}}`)
 
-	err := session.Save()
+	_, err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}

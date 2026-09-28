@@ -377,22 +377,37 @@ func (s *Session) Adopt(path string) error {
 // DropOverride removes the Override for key, so the extension falls back.
 func (s *Session) DropOverride(key string) { delete(s.pending.overrides, key) }
 
+// Saved is what a save wrote.
+type Saved struct {
+	// Reason is why no agent applies the NotApplied changes, when they share
+	// one reason; empty when they do not.
+	Reason     string
+	Changes    int // the pending changes it wrote
+	NotApplied int // of those, the changes of extensions no agent applies
+}
+
 // Save writes the pending Overrides into each agent's config. If an agent's
 // entries changed since they were read, it writes nothing, imports the
-// changes and returns ErrChangedSinceOpen.
-func (s *Session) Save() error {
+// changes and returns ErrChangedSinceOpen. It counts what it writes after it
+// reads the configs again, so the count sees a config that changed since.
+func (s *Session) Save() (Saved, error) {
+	saved := Saved{Reason: "", Changes: 0, NotApplied: 0}
+
 	changed, err := s.changedOutside()
 	if err != nil {
-		return err
+		return saved, err
 	}
 
 	if changed {
-		return ErrChangedSinceOpen
+		return saved, ErrChangedSinceOpen
 	}
+
+	saved.Changes = s.unsavedCount()
+	saved.NotApplied, saved.Reason = s.unsavedNotApplied()
 	// Nothing to write. With saved Overrides, a save still writes them, so
 	// the record of a first open's imports gets created. With records on
 	// offer, it creates an empty record, so the next open offers them no more.
-	nothing := s.unsavedCount() == 0 && len(s.saved) == 0
+	nothing := saved.Changes == 0 && len(s.saved) == 0
 	if nothing {
 		// As a write would, every save keeps the settings file out of git.
 		err = excludeSettings(s.machine, s.project)
@@ -403,27 +418,27 @@ func (s *Session) Save() error {
 	}
 
 	if err != nil || nothing && len(s.orphans) == 0 {
-		return err
+		return saved, err
 	}
 
 	presets := s.pending.record(s.recorded)
 
 	err = writeRecord(s.machine, s.project, s.pending.overrides, presets)
 	if err != nil {
-		return err
+		return saved, err
 	}
 
 	s.saved, s.recorded = maps.Clone(s.pending.overrides), presets
 	s.orphans = nil
 	clear(s.outside)
 
-	return nil
+	return saved, nil
 }
 
-// UnsavedNotApplied counts the pending changes of extensions no agent gets
+// unsavedNotApplied counts the pending changes of extensions no agent gets
 // the state of, which a save records but applies nowhere, and gives the
 // reason they share, empty when they have more than one.
-func (s *Session) UnsavedNotApplied() (int, string) {
+func (s *Session) unsavedNotApplied() (int, string) {
 	count, reasons := 0, map[string]bool{}
 
 	for _, key := range s.unsavedKeys() {

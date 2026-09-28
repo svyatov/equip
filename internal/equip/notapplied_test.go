@@ -2,6 +2,7 @@ package equip_test
 
 import (
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/svyatov/equip/internal/equip"
@@ -58,6 +59,26 @@ func TestCodexOnlyPluginAndMCPServerAreNotAppliedInAnUntrustedProject(t *testing
 		if got := row(t, view, name); !got.NotApplied {
 			t.Errorf("row = %+v, want it not applied", got)
 		}
+	}
+}
+
+func TestSaveCountsAChangeNotAppliedSinceTheSettingsFileGotTracked(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	writeFile(t, settingsLocal(repo), `{}`)
+	session := newSession(t, machine, repo)
+	session.SetState("review", equip.Off)
+	machine.RunGit(repo, "add", ".claude/settings.local.json")
+
+	saved, err := session.Save()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if saved.Changes != 1 || saved.NotApplied != 1 || !strings.Contains(saved.Reason, "tracked by git") {
+		t.Errorf("Save = %+v, want 1 change, not applied as the file is tracked by git", saved)
 	}
 }
 

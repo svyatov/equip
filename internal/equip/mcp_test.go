@@ -358,7 +358,7 @@ func TestSaveImportsAServerDisabledOutsideSinceOpen(t *testing.T) {
 	writeFile(t, claudeJSON(machine), `{"mcpServers": {"github": {"command": "gh"}},
 		"projects": {"`+repo+`": {"disabledMcpServers": ["github"]}}}`)
 
-	err := session.Save()
+	_, err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
@@ -435,7 +435,7 @@ func TestBrokenClaudeJSONListsNoServersAndSaveLeavesItAlone(t *testing.T) {
 
 	session.SetState("review", equip.Off)
 
-	err := session.Save()
+	_, err := session.Save()
 	if err == nil {
 		t.Error("Save = nil, want an error")
 	}
@@ -550,7 +550,7 @@ func TestSaveAfterAFailedClaudeJSONWriteKeepsWhatLandedAsEquipsOwn(t *testing.T)
 	session.SetState("review", equip.Off)
 	session.SetState("mcp:github", equip.Off)
 
-	err = session.Save()
+	_, err = session.Save()
 	if err == nil {
 		t.Fatal("Save = nil, want an error")
 	}
