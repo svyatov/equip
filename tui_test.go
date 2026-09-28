@@ -581,18 +581,54 @@ func TestDetailPaneListsThePluginsContents(t *testing.T) {
 	}
 }
 
+func TestDetailHighlightReachesEverySkillOfAPluginWithAnMCPServer(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	dir := machine.Plugin("github@official", "user", "")
+	machine.WriteFile(filepath.Join(dir, ".mcp.json"), `{"mcpServers": {"issues": {"command": "issues"}}}`)
+
+	for i := range 30 {
+		machine.Skill(filepath.Join(dir, "skills"), fmt.Sprintf("s%02d", i))
+	}
+
+	tui := newModel(t, machine)
+	resize(tui, 120, 20)
+
+	press(tui, tea.KeyPressMsg{Code: tea.KeyTab})
+
+	for range 15 {
+		press(tui, down())
+	}
+
+	if got := line(tui, "The s15 skill."); !strings.Contains(got, "▸") {
+		t.Errorf("skill s15 line %q, want it shown and highlighted:\n%s", got, plain(tui))
+	}
+
+	press(tui, key('3'))
+
+	if got := line(tui, "have no"); got != "" {
+		t.Errorf("3 on a skill flashed %q, want no word", got)
+	}
+
+	press(tui, key(' '), key('s'))
+
+	if line(tui, "nothing to save") == "" {
+		t.Errorf("3 on a skill left something to save:\n%s", plain(tui))
+	}
+}
+
 func TestTabThenStateKeyTurnsOffTheHighlightedMCPServerInsideThePlugin(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	dir := machine.Plugin("github@official", "user", "")
 	machine.WriteFile(filepath.Join(dir, ".mcp.json"),
 		`{"mcpServers": {"issues": {"command": "issues"}, "search": {"command": "search"}}}`)
-	machine.Skill(filepath.Join(dir, "skills"), "review") // has no state of its own, so the highlight skips it
+	machine.Skill(filepath.Join(dir, "skills"), "review") // listed first
 	tui := newModel(t, machine)
 	up := tea.KeyPressMsg{Code: tea.KeyUp}
 
-	// Down stops at the last server, so two ups are back on the first.
-	press(tui, tea.KeyPressMsg{Code: tea.KeyTab}, down(), down(), down(), up, up, key('3'))
+	// Down stops at the last server, so one up is back on the first.
+	press(tui, tea.KeyPressMsg{Code: tea.KeyTab}, down(), down(), down(), up, key('3'))
 
 	if r := tui.s.View().Rows[0]; r.State != equip.On || r.Override {
 		t.Errorf("plugin = %+v, want on with no Override", r)
@@ -1381,7 +1417,7 @@ func TestHighlightLeavesTheContentsWhenAnotherRowTakesItsPlace(t *testing.T) {
 	press(tui, tea.KeyPressMsg{Code: tea.KeyTab}, down(), key('/'), key('b'))
 
 	if tui.focus == onDetail {
-		t.Errorf("keys still act on MCP server %d, of beta now:\n%s", tui.server, tui.View().Content)
+		t.Errorf("keys still act on content %d, of beta now:\n%s", tui.content, tui.View().Content)
 	}
 }
 

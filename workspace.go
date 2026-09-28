@@ -769,7 +769,7 @@ func (m *model) extension(key, name string, presets []equip.Preset, width, heigh
 	view := m.s.View()
 	if i := index(view.Rows, key); i >= 0 {
 		return m.detailTitle(view.Rows[i]),
-			m.detail(view, view.Rows[i], m.s.Detail(key), "", width, height-presetsLines) + "\n\n" + line
+			m.detail(view, view.Rows[i], m.s.Detail(key), -1, width, height-presetsLines) + "\n\n" + line
 	}
 
 	return m.style.cur.Render(name), m.style.dim.Render("not installed") + "\n\n" + line

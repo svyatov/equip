@@ -125,7 +125,7 @@ type model struct {
 	top       int       // the first row the list shows
 	detailTop int       // the first line under its title the detail pane shows
 	facet     int       // the picked facet
-	server    int       // the highlighted MCP server among the highlighted plugin's contents
+	content   int       // the highlighted one among the contents of a plugin with an MCP server
 	focus     int       // the pane the keys are on: onFacets, onList or onDetail
 	probing   int       // the MCP servers opening measures, until each probe ends
 	failed    int       // of those, the ones whose probe failed
@@ -136,7 +136,8 @@ type model struct {
 }
 
 // The panes of the main screen the keys can be on, left to right. In the
-// detail pane they move among the MCP servers of a plugin, else scroll it.
+// detail pane they move among the contents of a plugin with an MCP server,
+// else scroll it.
 const (
 	onFacets = iota
 	onList
@@ -194,7 +195,7 @@ func newTUI(session *equip.Session, home string) *model {
 	view := session.View()
 	orphans := view.Orphans
 	tui := &model{
-		s: session, home: home, style: newStyles(), width: 0, height: 0, cur: 0, top: 0, detailTop: 0, facet: 0, server: 0,
+		s: session, home: home, style: newStyles(), width: 0, height: 0, cur: 0, top: 0, detailTop: 0, facet: 0, content: 0,
 		focus: onList, quitting: false, showKeys: false, probing: 0, failed: 0, slots: make(chan struct{}, probeSlots),
 		searching: false, flash: "", query: "", key: "", pinned: "", bulk: "", choosing: false,
 		orphans: orphans[:min(len(orphans), digitKeys)], ws: newWorkspace(view),
@@ -371,13 +372,13 @@ func (m *model) mainView(height int) string {
 	title, detail := "", ""
 
 	if m.cur < len(rows) {
-		row, server := rows[m.cur], ""
-		if servers := m.servers(rows); m.focus == onDetail && len(servers) > 0 {
-			server = servers[m.server]
+		row, content := rows[m.cur], -1
+		if m.focus == onDetail && len(m.contentKeys(rows)) > 0 {
+			content = m.content
 		}
 
 		title = m.detailTitle(row)
-		detail = m.detail(session, row, m.s.Detail(row.Key), server, rest-listWidth-paneWidth, height-paneHeight)
+		detail = m.detail(session, row, m.s.Detail(row.Key), content, rest-listWidth-paneWidth, height-paneHeight)
 	}
 
 	panes = append(panes, m.box(title, "", detail, rest-listWidth, height, m.focus == onDetail))
@@ -632,11 +633,11 @@ func (m *model) footer() string {
 		"s", "save", "?", "keys", "q", "quit")
 }
 
-// detailHelp is the key help of the detail pane: among the MCP servers of a
-// plugin with some, else as it scrolls.
+// detailHelp is the key help of the detail pane: among the contents of a
+// plugin with an MCP server, else as it scrolls.
 func (m *model) detailHelp() string {
-	if len(m.servers(m.rows(m.s.View()))) > 0 {
-		return m.help("j/k", "MCP server", "space", "cycle state", "x", "drop override", "m", "measure", "h", "list",
+	if len(m.contentKeys(m.rows(m.s.View()))) > 0 {
+		return m.help("j/k", "contents", "space", "cycle state", "x", "drop override", "m", "measure", "h", "list",
 			"s", "save", "?", "keys", "q", "quit")
 	}
 
@@ -946,14 +947,14 @@ func (m *model) clamp() {
 	}
 
 	if key != m.key {
-		m.server, m.detailTop = 0, 0
+		m.content, m.detailTop = 0, 0
 		if m.focus == onDetail {
 			m.focus = onList
 		}
 	}
 
 	m.key = key
-	m.server = max(min(m.server, len(m.servers(rows))-1), 0)
+	m.content = max(min(m.content, len(m.contentKeys(rows))-1), 0)
 }
 
 // index is the index of the row with key among rows, or -1.
@@ -989,10 +990,10 @@ func (m *model) matches(row equip.Row, query string) bool {
 // press acts on key on the main screen.
 func (m *model) press(key string) tea.Cmd {
 	rows := m.rows(m.s.View())
-	servers := m.servers(rows)
+	contents := m.contentKeys(rows)
 
 	if delta, ok := step(key); ok {
-		m.move(delta, len(servers))
+		m.move(delta, len(contents))
 
 		return nil
 	}
@@ -1007,7 +1008,7 @@ func (m *model) press(key string) tea.Cmd {
 	case key == "q":
 		return m.quit()
 	case stateKey(key):
-		if target, ok := m.target(rows, servers); ok {
+		if target, ok := m.target(rows, contents); ok {
 			// The list keeps the row even when the key takes it out of the
 			// facet, so a second press does not act on the next row.
 			m.pinned = m.key
@@ -1175,18 +1176,18 @@ func (m *model) narrow(key string) bool {
 }
 
 // move moves the highlight by delta in the pane the keys are on: among the
-// facets, among the rows, or among the count servers of the highlighted
-// plugin, else it scrolls the detail pane. clamp keeps it on them, and the
-// detail pane keeps its scroll in its lines.
-func (m *model) move(delta, servers int) {
+// facets, among the rows, or among the count contents of the highlighted
+// plugin with an MCP server, else it scrolls the detail pane. clamp keeps it
+// on them, and the detail pane keeps its scroll in its lines.
+func (m *model) move(delta, contents int) {
 	switch {
 	case m.focus == onFacets:
 		m.facet = max(min(m.facet+delta, len(m.s.View().Facets)-1), 0)
 		m.first()
 	case m.focus == onList:
 		m.cur, m.key = m.cur+delta, ""
-	case servers > 0:
-		m.server += delta
+	case contents > 0:
+		m.content += delta
 	default:
 		m.detailTop = max(m.detailTop+delta, 0)
 	}
@@ -1204,9 +1205,10 @@ func (m *model) moveFocus(delta int, wraps bool) {
 	}
 }
 
-// servers are the keys of the MCP servers among the contents of the
-// highlighted row of rows.
-func (m *model) servers(rows []equip.Row) []string {
+// contentKeys are the keys of the contents of the highlighted row of rows
+// when one is an MCP server, else none. A skill's key is "", as it follows
+// its plugin.
+func (m *model) contentKeys(rows []equip.Row) []string {
 	if m.cur >= len(rows) {
 		return nil
 	}
@@ -1214,20 +1216,22 @@ func (m *model) servers(rows []equip.Row) []string {
 	var keys []string
 
 	for _, content := range m.s.Detail(rows[m.cur].Key).Contents {
-		if content.Key != "" {
-			keys = append(keys, content.Key)
-		}
+		keys = append(keys, content.Key)
+	}
+
+	if !slices.ContainsFunc(keys, func(key string) bool { return key != "" }) {
+		return nil
 	}
 
 	return keys
 }
 
-// target is the key the state keys act on: the highlighted MCP server of
-// servers while the keys are on the detail pane, else the highlighted row of
-// rows. It reports whether there is one.
-func (m *model) target(rows []equip.Row, servers []string) (string, bool) {
-	if m.focus == onDetail && len(servers) > 0 {
-		return servers[m.server], true
+// target is the key the state keys act on: the highlighted content of
+// contents while the keys are on the detail pane, else the highlighted row of
+// rows. It reports whether there is one: a skill among contents has none.
+func (m *model) target(rows []equip.Row, contents []string) (string, bool) {
+	if m.focus == onDetail && len(contents) > 0 {
+		return contents[m.content], contents[m.content] != ""
 	}
 
 	if m.cur < len(rows) {

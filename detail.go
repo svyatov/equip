@@ -116,10 +116,10 @@ func (m *model) detailTitle(row equip.Row) string {
 
 // detail is the detail pane of row in view, width by height cells: what it
 // is, which agents have it, its origin, the states to pick from, its contents
-// with the MCP server with key server highlighted, and where it comes from.
-// It scrolls to keep the highlighted MCP server in. The presets workspace
+// with the one at index content highlighted (none at -1), and where it comes
+// from. It scrolls to keep the highlighted content in. The presets workspace
 // leaves out the states, which its keys do not set.
-func (m *model) detail(view equip.View, row equip.Row, ext equip.Detail, server string, width, height int) string {
+func (m *model) detail(view equip.View, row equip.Row, ext equip.Detail, content, width, height int) string {
 	agents := make([]string, 0, len(ext.Agents))
 	for _, agent := range ext.Agents {
 		agents = append(agents, m.style.agent.Render(agent.String()))
@@ -150,7 +150,7 @@ func (m *model) detail(view equip.View, row equip.Row, ext equip.Detail, server 
 	lines = append(lines, m.origin(view, row, ext, width)...)
 	lines = append(lines, m.states(row, ext)...)
 
-	contents, highlighted := m.contents(ext.Contents, server, width)
+	contents, highlighted := m.contents(ext.Contents, content, width)
 	if highlighted >= 0 {
 		highlighted += len(lines)
 	}
@@ -250,9 +250,9 @@ func (m *model) costLine(row equip.Row, ext equip.Detail) string {
 }
 
 // contents are the detail pane lines of a plugin's contents, width cells, in
-// columns, with the MCP server with key highlighted, and the index of its
+// columns, with the one at index highlight highlighted, and the index of its
 // line; -1 with none.
-func (m *model) contents(contents []equip.Content, key string, width int) ([]string, int) {
+func (m *model) contents(contents []equip.Content, highlight, width int) ([]string, int) {
 	if len(contents) == 0 {
 		return nil, -1
 	}
@@ -278,7 +278,7 @@ func (m *model) contents(contents []equip.Content, key string, width int) ([]str
 	rest := width - contentMarks - kindWidth - nameWidth - costWidth // the description's
 
 	for index, content := range contents {
-		isHighlighted := content.Key != "" && content.Key == key
+		isHighlighted := index == highlight
 		if isHighlighted {
 			highlighted = len(lines)
 		}
