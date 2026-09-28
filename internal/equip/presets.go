@@ -377,19 +377,15 @@ func byKind(a, b Member) int { return cmp.Or(cmp.Compare(a.Kind, b.Kind), cmp.Co
 // edits are the members of written, a preset's as written, and of draft, as
 // edited, each added or removed marked so.
 func edits(written, draft []Member) []Member {
-	has := func(members []Member, m Member) bool {
-		return slices.ContainsFunc(members, func(other Member) bool { return other.Key == m.Key })
-	}
-
 	var out []Member
 
 	for _, m := range draft {
-		m.Added = !has(written, m)
+		m.Added = !hasKey(written, m.Key)
 		out = append(out, m)
 	}
 
 	for _, m := range written {
-		if !has(draft, m) {
+		if !hasKey(draft, m.Key) {
 			m.Removed = true
 			out = append(out, m)
 		}
@@ -398,6 +394,11 @@ func edits(written, draft []Member) []Member {
 	slices.SortFunc(out, byKind)
 
 	return out
+}
+
+// hasKey reports whether members has the member with key.
+func hasKey(members []Member, key string) bool {
+	return slices.ContainsFunc(members, func(m Member) bool { return m.Key == key })
 }
 
 // Preview is what a write or delete of a preset changes: the views of the
@@ -548,7 +549,7 @@ func merged(written, draft, now []Member) []Member {
 		switch {
 		case m.Removed:
 			out = slices.DeleteFunc(out, func(other Member) bool { return other.Key == m.Key })
-		case m.Added && !slices.ContainsFunc(out, func(other Member) bool { return other.Key == m.Key }):
+		case m.Added && !hasKey(out, m.Key):
 			out = append(out, member(m.Key))
 		}
 	}
