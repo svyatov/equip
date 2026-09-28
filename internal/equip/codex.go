@@ -48,7 +48,7 @@ const (
 func codexConfigPath(project Project) string { return filepath.Join(project.checkout, codexConfigRel) }
 
 // readCodexConfig reads the Codex config of the Project. Codex reads the
-// Project's config only when the user's config trusts the Project, and equip
+// Project's config only when the global config trusts the Project, and equip
 // never sets trust. A file equip cannot read leaves Codex out, so Claude Code
 // still opens and saves.
 func readCodexConfig(machine Machine, project Project) codexConfig {

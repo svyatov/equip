@@ -32,7 +32,7 @@ func readDoc(path string, unmarshal func([]byte, any) error, doc any) (bool, err
 
 // sameFile reports whether the files at a and b both exist and are one file.
 func sameFile(a, b string) bool {
-	// A file Stat cannot read gives nil, which is the same file as nothing.
+	// A failed Stat leaves nil, which is never the same file.
 	aInfo, _ := os.Stat(a)
 	bInfo, _ := os.Stat(b)
 
