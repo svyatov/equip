@@ -335,12 +335,10 @@ func (s *Session) Detail(key string) Detail {
 		if ext.has(agent) {
 			detail.Agents = append(detail.Agents, agent)
 			detail.Costs[agent] = s.costIn(agent, ext)
-
-			if why := s.whyNotApplied(agent, ext); why != "" {
-				detail.NotApplied[agent] = why
-			}
 		}
 	}
+
+	detail.NotApplied = s.notAppliedIn(ext)
 
 	return detail
 }
@@ -436,10 +434,8 @@ func (s *Session) UnsavedNotApplied() (int, string) {
 
 		count++
 
-		for _, agent := range Agents() {
-			if ext.has(agent) {
-				reasons[s.whyNotApplied(agent, ext)] = true
-			}
+		for _, why := range s.notAppliedIn(ext) {
+			reasons[why] = true
 		}
 	}
 
@@ -496,9 +492,7 @@ func (s *Session) row(ext Extension) Row {
 
 // isNotApplied reports whether no agent that has ext gets its state.
 func (s *Session) isNotApplied(ext Extension) bool {
-	return !slices.ContainsFunc(Agents(), func(agent Agent) bool {
-		return ext.has(agent) && s.whyNotApplied(agent, ext) == ""
-	})
+	return !slices.ContainsFunc(Agents(), func(agent Agent) bool { return s.applies(agent, ext) })
 }
 
 // skillRowKey is the key of the row of the skill named name in the plugin
@@ -613,11 +607,30 @@ func (s *Session) takeConfigs(codex codexConfig) {
 
 	for _, agent := range Agents() {
 		for _, ext := range s.pending.exts {
-			if ext.has(agent) && s.whyNotApplied(agent, ext) == "" {
+			if s.applies(agent, ext) {
 				s.pending.applied[agent] = append(s.pending.applied[agent], ext)
 			}
 		}
 	}
+}
+
+// applies reports whether agent has ext and equip writes its state there.
+func (s *Session) applies(agent Agent, ext Extension) bool {
+	return ext.has(agent) && s.whyNotApplied(agent, ext) == ""
+}
+
+// notAppliedIn is why each agent that has ext does not get its state, by
+// agent; it leaves out each agent that does.
+func (s *Session) notAppliedIn(ext Extension) map[Agent]string {
+	reasons := map[Agent]string{}
+
+	for _, agent := range Agents() {
+		if why := s.whyNotApplied(agent, ext); ext.has(agent) && why != "" {
+			reasons[agent] = why
+		}
+	}
+
+	return reasons
 }
 
 // whyNotApplied is why equip does not write the state of ext for agent. It is

@@ -289,7 +289,7 @@ func (m *model) contents(contents []equip.Content, key string, width int) ([]str
 
 		cost := costs[index]
 
-		line := m.mark(isHighlighted) + m.glyph(content.State) + " " +
+		line := m.mark(isHighlighted, false) + m.glyph(content.State) + " " +
 			m.style.kinds[content.Kind].Render(fmt.Sprintf("%-*s", kindWidth, content.Kind.String())) + " " +
 			fit(names[index], nameWidth) + " " + strings.Repeat(" ", costWidth-lipgloss.Width(cost)) + cost
 		if first, _, _ := strings.Cut(content.Description, "\n"); rest > 0 && first != "" {

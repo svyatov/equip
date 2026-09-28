@@ -707,13 +707,18 @@ func (m *model) keyList() string {
 }
 
 // mark is the start of a list line, two cells: the highlight's when on, then
-// a space.
-func (m *model) mark(on bool) string {
+// ! next to the glyph of a row no agent applies.
+func (m *model) mark(on, notApplied bool) string {
+	highlight, marker := " ", " "
 	if on {
-		return m.style.cur.Render("▸") + " "
+		highlight = m.style.cur.Render("▸")
 	}
 
-	return "  "
+	if notApplied {
+		marker = m.style.warn.Render("!")
+	}
+
+	return highlight + marker
 }
 
 // sidebar is the facet sidebar of session, height lines tall, with the
@@ -846,13 +851,7 @@ func (m *model) entry(row equip.Row, highlighted bool, width int) string {
 		name += m.style.warn.Render("*")
 	}
 
-	// A row no agent applies has ! in the mark's space, next to its glyph.
-	lead := m.mark(highlighted)
-	if row.NotApplied {
-		lead = strings.TrimSuffix(lead, " ") + m.style.warn.Render("!")
-	}
-
-	return fit(lead+mark+" "+name, width-lipgloss.Width(cost)) + cost
+	return fit(m.mark(highlighted, row.NotApplied)+mark+" "+name, width-lipgloss.Width(cost)) + cost
 }
 
 // name is the name of a row, base in style then rest dimmed, cut to width

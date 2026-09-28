@@ -595,7 +595,7 @@ func (m *model) library(presets []equip.Preset) []string {
 			line = check + m.style.dim.Render(fmt.Sprintf(" %-15s %8s", name, "missing"))
 		}
 
-		lines = append(lines, m.mark(index == m.ws.preset)+line)
+		lines = append(lines, m.mark(index == m.ws.preset, false)+line)
 	}
 
 	return lines
@@ -624,7 +624,7 @@ func (m *model) members(preset equip.Preset, width int) (string, string, []strin
 			highlighted = len(lines)
 		}
 
-		lines = append(lines, m.mark(on)+m.memberLine(member, width-markWidth))
+		lines = append(lines, m.mark(on, false)+m.memberLine(member, width-markWidth))
 	}
 
 	return m.style.head.Render("Members of " + preset.Name), "", lines, highlighted
