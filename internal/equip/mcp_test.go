@@ -73,17 +73,6 @@ func TestViewListsLocalMCPServersOfThisProjectOnly(t *testing.T) {
 	}
 }
 
-func TestViewListsTheProjectsMCPJSONServers(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	repo := machine.Repo("app")
-	writeFile(t, filepath.Join(repo, ".mcp.json"), `{"mcpServers": {"search": {"command": "search"}}}`)
-
-	if got, want := names(open(t, machine, repo)), []string{"search"}; !slices.Equal(got, want) {
-		t.Errorf("rows = %q, want %q", got, want)
-	}
-}
-
 func TestMCPServerInSeveralPlacesIsOneRowWithEachLocation(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)

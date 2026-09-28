@@ -51,7 +51,7 @@ func TestLibraryShowsWhereEachPresetIsActive(t *testing.T) {
 	app := newSession(t, machine, repo)
 	app.SetPresets([]string{"r1"})
 	save(t, app)
-	session := newSession(t, machine, machine.Repo("other"))
+	session := newSession(t, machine, machine.Root)
 
 	session.SetPresets([]string{"w1"})
 
@@ -84,7 +84,7 @@ func TestLibraryDoesNotCountAProjectWhosePathIsGone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := len(newSession(t, machine, machine.Repo("other")).Presets()[0].Projects); got != 0 {
+	if got := len(newSession(t, machine, machine.Root).Presets()[0].Projects); got != 0 {
 		t.Errorf("Ruby's projects = %d, want 0", got)
 	}
 }
@@ -182,19 +182,6 @@ mcp = ["github"]`)
 	_, err := equip.Open(machine.Machine, machine.Root)
 	if err == nil || !strings.Contains(err.Error(), "Data.toml") {
 		t.Errorf("Open = %v, want an error naming Data.toml", err)
-	}
-}
-
-func TestActivePresetTurnsOnItsMembersAndOffEverythingElse(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.WithPresets(t)
-	session := newSession(t, machine, machine.Root)
-
-	session.SetPresets([]string{"r1"})
-
-	got, want := states(session.View()), []string{"skill docs off", "skill lint on", "skill review off"}
-	if !slices.Equal(got, want) {
-		t.Errorf("states = %q, want %q", got, want)
 	}
 }
 

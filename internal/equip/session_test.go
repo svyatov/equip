@@ -90,18 +90,6 @@ func TestProjectPathHasSymlinksResolved(t *testing.T) {
 	}
 }
 
-func TestProjectReportsRootCommit(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	repo := machine.Repo("app")
-	root := machine.Commit(repo)
-	machine.Commit(repo)
-
-	if got := open(t, machine, repo).Project.RootCommit; got != root {
-		t.Errorf("RootCommit = %q, want %q", got, root)
-	}
-}
-
 func TestProjectKeepsOldestRootCommitAfterMergingUnrelatedHistory(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)

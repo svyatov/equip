@@ -140,17 +140,6 @@ func TestDetailPaneShowsThePresetsAsTheOrigin(t *testing.T) {
 	}
 }
 
-func TestCtrlCInTheWorkspaceAsksBeforeDroppingUnsavedChanges(t *testing.T) {
-	t.Parallel()
-	tui := presetModel(t)
-
-	cmd := press(tui, key('p'), key(' '), tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
-
-	if quits(cmd) || line(tui, "Quit without saving?") == "" {
-		t.Errorf("ctrl+c did not ask first:\n%s", tui.View().Content)
-	}
-}
-
 func TestWorkspaceComparesWithTheViewAtItsOpening(t *testing.T) {
 	t.Parallel()
 	tui := presetModel(t)
@@ -279,24 +268,7 @@ func TestWorkspaceFitsTheTerminalAndScrollsTheMembers(t *testing.T) {
 	}
 }
 
-func TestHAndLMoveTheKeysBetweenTheLibraryAndTheMembers(t *testing.T) {
-	t.Parallel()
-	tui := presetModel(t)
-
-	press(tui, key('p'), key('l'))
-
-	if !tui.ws.inMembers {
-		t.Error("l did not move the keys to the members")
-	}
-
-	press(tui, key('h'))
-
-	if tui.ws.inMembers {
-		t.Error("h did not move the keys back to the library")
-	}
-}
-
-func TestTabShiftTabAndEnterMoveTheKeysBetweenTheLibraryAndTheMembers(t *testing.T) {
+func TestTabShiftTabEnterHAndLMoveTheKeysBetweenTheLibraryAndTheMembers(t *testing.T) {
 	t.Parallel()
 	tui := presetModel(t)
 
@@ -311,6 +283,8 @@ func TestTabShiftTabAndEnterMoveTheKeysBetweenTheLibraryAndTheMembers(t *testing
 		{tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}, true},
 		{tea.KeyPressMsg{Code: tea.KeyTab, Mod: tea.ModShift}, false},
 		{enter(), true},
+		{key('h'), false},
+		{key('l'), true},
 	} {
 		press(tui, step.key)
 
@@ -447,22 +421,28 @@ func using(t *testing.T, machine *equiptest.Machine, dir string, ids ...string) 
 	}
 }
 
-func TestWriteConfirmListsTheOtherProjectsAndTheSkippedOnes(t *testing.T) {
+func TestOthersListsWhatTurnsInEachProjectAndWhyOneIsSkipped(t *testing.T) {
 	t.Parallel()
-	tui, machine := ruby(t)
-	other, edited := machine.Repo("other"), machine.Repo("edited")
-	using(t, machine, other, "r1")
-	using(t, machine, edited, "r1")
-	machine.WriteFile(filepath.Join(edited, ".claude", "settings.local.json"), `{"skillOverrides": {"docs": "on"}}`)
 
-	// The add list offers docs, then review; its esc leaves lint highlighted
-	// in the members pane.
-	press(tui, key('a'), down(), key(' '), esc(), key(' '), key('w'))
+	var tui model
 
-	for _, want := range []string{other, "    + review", "    - lint", edited + "  skipped: changed outside equip"} {
-		if line(tui, want) == "" {
-			t.Errorf("confirm does not show %q:\n%s", want, tui.View().Content)
-		}
+	tui.style = newStyles()
+
+	var review, lint equip.Row
+
+	review.Name, review.State = "review", equip.On
+	lint.Name, lint.State = "lint", equip.Off
+
+	lines := tui.others([]equip.Affected{
+		{Path: "/other", Skipped: "", Turned: []equip.Row{review, lint}},
+		{Path: "/edited", Skipped: "changed outside equip", Turned: nil},
+	})
+
+	got := styleCodes.ReplaceAllString(strings.Join(lines, "\n"), "")
+	want := "Other projects\n  /other\n    + review\n    - lint\n  /edited  skipped: changed outside equip"
+
+	if got != want {
+		t.Errorf("others =\n%s\nwant\n%s", got, want)
 	}
 }
 

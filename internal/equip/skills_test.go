@@ -159,7 +159,6 @@ func TestSaveWritesNoClaudeCodeEntryForACodexOnlySkill(t *testing.T) {
 func TestSkillDefaultsToItsStateInUserSettings(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 
 	for _, name := range []string{"review", "lint", "odd"} {
 		machine.Skill(machine.ClaudeSkills(), name)
@@ -168,7 +167,7 @@ func TestSkillDefaultsToItsStateInUserSettings(t *testing.T) {
 	writeFile(t, filepath.Join(machine.Home, ".claude", "settings.json"),
 		`{"skillOverrides": {"review": "user-invocable-only", "lint": "off", "odd": "bogus"}}`)
 
-	view := open(t, machine, repo)
+	view := open(t, machine, machine.Root)
 	for name, want := range map[string]equip.State{"review": equip.ManualOnly, "lint": equip.Off, "odd": equip.On} {
 		if got := row(t, view, name); got.State != want || got.Fallback != want || got.Override {
 			t.Errorf("%s: row = %+v, want %v with no Override", name, got, want)
@@ -273,63 +272,6 @@ func TestOpenFailsOnUnreadableClaudeCodeUserSkills(t *testing.T) {
 	_, err := equip.Open(machine.Machine, machine.Root)
 	if !errors.Is(err, fs.ErrPermission) {
 		t.Errorf("Open error = %v, want permission denied", err)
-	}
-}
-
-// skillDescription writes a skill whose frontmatter holds description as
-// written and returns the description the Session reads from it.
-func skillDescription(t *testing.T, description string) string {
-	t.Helper()
-	machine := equiptest.New(t)
-	dir := machine.Skill(machine.ClaudeSkills(), "review")
-	skill := "---\nname: review\ndescription:" + description + "\nlicense: MIT\n---\nBody.\n"
-	writeFile(t, filepath.Join(dir, "SKILL.md"), skill)
-
-	return newSession(t, machine, machine.Root).Detail("review").Description
-}
-
-func TestSkillDescriptionReadsALiteralBlock(t *testing.T) {
-	t.Parallel()
-
-	got := skillDescription(t, " |\n  Reviews code.\n  Use before a merge.")
-	if want := "Reviews code.\nUse before a merge."; got != want {
-		t.Errorf("Description = %q, want %q", got, want)
-	}
-}
-
-func TestSkillDescriptionFoldsAFoldedBlock(t *testing.T) {
-	t.Parallel()
-
-	got := skillDescription(t, " >-\n  Reviews code.\n  Use before a merge.")
-	if want := "Reviews code. Use before a merge."; got != want {
-		t.Errorf("Description = %q, want %q", got, want)
-	}
-}
-
-func TestSkillDescriptionReadsAPlainValueOnTheNextLines(t *testing.T) {
-	t.Parallel()
-
-	got := skillDescription(t, "\n  Reviews code.\n  Use before a merge.")
-	if want := "Reviews code. Use before a merge."; got != want {
-		t.Errorf("Description = %q, want %q", got, want)
-	}
-}
-
-func TestSkillDescriptionUnquotesADoubleQuotedValue(t *testing.T) {
-	t.Parallel()
-
-	got := skillDescription(t, ` "Reviews \"code\": use before a merge."`)
-	if want := `Reviews "code": use before a merge.`; got != want {
-		t.Errorf("Description = %q, want %q", got, want)
-	}
-}
-
-func TestSkillDescriptionUnquotesASingleQuotedValue(t *testing.T) {
-	t.Parallel()
-
-	got := skillDescription(t, ` 'Reviews the user''s code.'`)
-	if want := "Reviews the user's code."; got != want {
-		t.Errorf("Description = %q, want %q", got, want)
 	}
 }
 

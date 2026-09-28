@@ -51,7 +51,6 @@ func TestFacetsGroupIntoKindsAgentsStatesAndChanges(t *testing.T) {
 func TestFacetsCountRowsByKind(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	machine.Skill(machine.ClaudeSkills(), "review")
 	machine.Skill(machine.ClaudeSkills(), "lint")
 	machine.Plugin("github@official", "user", "")
@@ -60,19 +59,18 @@ func TestFacetsCountRowsByKind(t *testing.T) {
 	writeFile(t, filepath.Join(machine.ClaudeSkills(), "ship", "SKILL.md"),
 		"---\nname: ship\ndescription: x\ndisable-model-invocation: true\n---\n")
 
-	wantCounts(t, open(t, machine, repo),
+	wantCounts(t, open(t, machine, machine.Root),
 		map[string]int{"All": 5, "Skills": 3, "Plugins": 1, "MCP servers": 1, "By name": 1})
 }
 
 func TestFacetsCountAPluginsSkillsAsSkills(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	skills := filepath.Join(machine.Plugin("github@official", "user", ""), "skills")
 	machine.Skill(skills, "review")
 	writeFile(t, filepath.Join(skills, "ship", "SKILL.md"),
 		"---\nname: ship\ndescription: x\ndisable-model-invocation: true\n---\n")
-	session := newSession(t, machine, repo)
+	session := newSession(t, machine, machine.Root)
 
 	wantCounts(t, session.View(), map[string]int{
 		"All": 3, "Skills": 2, "Plugins": 1, "By name": 1, "Claude Code": 3, "Codex": 0,
@@ -86,26 +84,24 @@ func TestFacetsCountAPluginsSkillsAsSkills(t *testing.T) {
 func TestFacetsCountRowsEachAgentHas(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	machine.Skill(machine.ClaudeSkills(), "review")
 	machine.Skill(machine.CodexSkills(), "notes")
 	machine.Skill(machine.CodexSkills(), "lint")
 	machine.Skill(machine.ClaudeSkills(), "shared")
 	machine.Skill(machine.CodexSkills(), "shared")
 
-	wantCounts(t, open(t, machine, repo), map[string]int{"All": 4, "Claude Code": 2, "Codex": 3})
+	wantCounts(t, open(t, machine, machine.Root), map[string]int{"All": 4, "Claude Code": 2, "Codex": 3})
 }
 
 func TestFacetsCountRowsByState(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 
 	for _, name := range []string{"review", "lint", "notes", "docs"} {
 		machine.Skill(machine.ClaudeSkills(), name)
 	}
 
-	s := newSession(t, machine, repo)
+	s := newSession(t, machine, machine.Root)
 	s.SetState("lint", equip.ManualOnly)
 	s.SetState("notes", equip.Off)
 	s.SetState("docs", equip.Off)
@@ -116,13 +112,12 @@ func TestFacetsCountRowsByState(t *testing.T) {
 func TestFacetsCountOverridesAndUnsavedChanges(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 
 	for _, name := range []string{"review", "lint", "docs"} {
 		machine.Skill(machine.ClaudeSkills(), name)
 	}
 
-	s := newSession(t, machine, repo)
+	s := newSession(t, machine, machine.Root)
 	s.SetState("lint", equip.Off)
 	save(t, s)
 	s.SetState("docs", equip.ManualOnly)
@@ -133,10 +128,9 @@ func TestFacetsCountOverridesAndUnsavedChanges(t *testing.T) {
 func TestOverridesFacetKeepsAPluginWhoseMCPServerHasAnOverride(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	pluginServer(t, machine)
 
-	s := newSession(t, machine, repo)
+	s := newSession(t, machine, machine.Root)
 	s.SetState(search(t, s).Key, equip.Off)
 
 	wantCounts(t, s.View(), map[string]int{"Overrides": 1})

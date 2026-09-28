@@ -126,6 +126,10 @@ func (m *Machine) Repo(name string) string {
 		if template.err == nil {
 			_, template.err = m.Git(template.dir, "init", "-q", "-b", "main")
 		}
+		// The sample hooks are most of the files in .git, and no test runs one.
+		if template.err == nil {
+			template.err = os.RemoveAll(filepath.Join(template.dir, ".git", "hooks"))
+		}
 	})
 
 	if template.err != nil {
