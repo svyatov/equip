@@ -320,6 +320,32 @@ func TestAddListSearchShowsTheQueryInANarrowTerminal(t *testing.T) {
 	}
 }
 
+func TestAddListSearchCutsALongQueryFromItsStart(t *testing.T) {
+	t.Parallel()
+	tui := presetModel(t)
+	resize(tui, minWidth, 20)
+	press(tui, key('p'), key('a'), key('/'))
+
+	for _, r := range "abcdefghijklmnopqrstuvwxyz" {
+		press(tui, key(r))
+	}
+
+	// The pane's border has 7 cells for the query and its cursor.
+	if line(tui, "╮╭─ …vwxyz▏ ─╮╭") == "" {
+		t.Errorf("the add list's border does not show the end of the query:\n%s", plain(tui))
+	}
+
+	if why := fits(tui, minWidth, 20); why != "" {
+		t.Errorf("workspace does not fit %dx20: %s\n%s", minWidth, why, plain(tui))
+	}
+
+	press(tui, enter())
+
+	if line(tui, "╮╭─ …uvwxyz ─╮╭") == "" {
+		t.Errorf("the add list's border does not show the end of the typed query:\n%s", plain(tui))
+	}
+}
+
 func TestWorkspaceFitsAfterAResizeToTheNarrowestTerminal(t *testing.T) {
 	t.Parallel()
 	tui := presetModel(t)

@@ -788,7 +788,7 @@ func (m *model) list(session equip.View, rows []equip.Row, width, height int) (s
 		title += m.style.dim.Render("  [ ] facet")
 	}
 
-	search := m.searchTag(m.query, m.searching, "")
+	search := m.searchTag(m.query, m.searching, "", width)
 
 	if len(rows) == 0 {
 		none := "  nothing matches"
@@ -809,14 +809,17 @@ func (m *model) list(session equip.View, rows []equip.Row, width, height int) (s
 	return title, search, strings.Join(lines, "\n")
 }
 
-// searchTag is the search a pane's border shows: query with a cursor while
-// typing, query once typed, and idle with no query.
-func (m *model) searchTag(query string, typing bool, idle string) string {
+// searchTag is the search the border of a pane width cells inside shows:
+// query, cut from its start to fit, with a cursor while typing, and idle with
+// no query.
+func (m *model) searchTag(query string, typing bool, idle string, width int) string {
+	room := width + paneWidth - corners - rightMarks - 1 // the border's cells after the line before title
+
 	switch {
 	case typing:
-		return m.style.cur.Render("/"+query) + m.style.key.Render("▏")
+		return m.style.cur.Render(cutStart("/"+query, room-1)) + m.style.key.Render("▏")
 	case query != "":
-		return m.style.cur.Render("/" + query)
+		return m.style.cur.Render(cutStart("/"+query, room))
 	}
 
 	return idle

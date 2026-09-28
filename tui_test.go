@@ -1832,6 +1832,25 @@ func TestPluginRowCutsItsMarketplaceBeforeItsName(t *testing.T) {
 	}
 }
 
+func TestSearchCutsALongQueryFromItsStart(t *testing.T) {
+	t.Parallel()
+	tui := newModel(t, withSkills(t, 3))
+	resize(tui, minWidth, 20)
+	press(tui, key('/'))
+
+	for _, r := range "abcdefghijklmnopqrstuvwxyzabcdefghijklmnopqrstuvwxyz" {
+		press(tui, key(r))
+	}
+
+	if line(tui, "xyz▏") == "" {
+		t.Errorf("the list's border does not show the end of the query:\n%s", plain(tui))
+	}
+
+	if why := fits(tui, minWidth, 20); why != "" {
+		t.Errorf("view does not fit %dx20: %s\n%s", minWidth, why, plain(tui))
+	}
+}
+
 func TestCutStartKeepsTheEndOfTheTextWithinWidth(t *testing.T) {
 	t.Parallel()
 
