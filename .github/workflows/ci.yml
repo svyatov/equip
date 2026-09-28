@@ -60,6 +60,23 @@ jobs:
       - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
       - run: mise run vuln
 
+  # A feat or fix changes what users get, so it says so under [Unreleased]. The
+  # skip-changelog label waives it for a fix to work no release has shipped.
+  changelog:
+    if: >-
+      github.event_name == 'pull_request'
+      && (startsWith(github.event.pull_request.title, 'feat') || startsWith(github.event.pull_request.title, 'fix'))
+      && !contains(github.event.pull_request.labels.*.name, 'skip-changelog')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The diff against main needs main's history.
+          fetch-depth: 0
+      - uses: jdx/mise-action@c2a87611a18de5b3828c5652fe268e992400cb5c # v4.3.0
+      - run: mise run changelog
+
   release-config:
     runs-on: ubuntu-latest
     timeout-minutes: 10

@@ -11,6 +11,8 @@ Two documents decide whether a change is acceptable:
 
 A change that introduces or renames a domain term updates `GLOSSARY.md` in the same pull request.
 
+A `feat` or `fix` adds a line under `[Unreleased]` in `CHANGELOG.md` in the same pull request. CI checks it. The `skip-changelog` label waives it for a fix to work no release has shipped.
+
 ## Setup
 
 You need [Go](https://go.dev/dl/) at the version in `go.mod`, currently 1.27.1, and [mise](https://mise.jdx.dev/getting-started.html). Then:
@@ -40,9 +42,10 @@ mise run cover   # the same run with coverage, fails under 88%
 mise run lint    # go.mod tidy and verified, go fix -diff, golangci-lint, the formatter, and the dash check
 mise run vuln    # govulncheck over the code paths equip calls
 mise run release-check   # goreleaser check, and the newest changelog section is not empty
+mise run changelog   # the branch adds to CHANGELOG.md, for a feat or fix
 ```
 
-CI runs `build`, `cover`, `lint`, `vuln`, and `release-check` through these same tasks, so a local pass means what a green check means.
+CI runs `build`, `cover`, `lint`, `vuln`, `release-check`, and, for a `feat` or `fix`, `changelog` through these same tasks, so a local pass means what a green check means.
 
 ## Tests
 
