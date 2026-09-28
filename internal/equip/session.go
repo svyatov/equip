@@ -377,13 +377,16 @@ func (s *Session) Adopt(path string) error {
 // DropOverride removes the Override for key, so the extension falls back.
 func (s *Session) DropOverride(key string) { delete(s.pending.overrides, key) }
 
-// Saved is what a save wrote.
+// Saved is what a save wrote or, when it returns ErrChangedSinceOpen, what
+// its import of the outside changes did to the pending Overrides.
 type Saved struct {
 	// Reason is why no agent applies the NotApplied changes, when they share
 	// one reason; empty when they do not.
 	Reason     string
-	Changes    int // the pending changes it wrote
-	NotApplied int // of those, the changes of extensions no agent applies
+	Changes    int  // the pending changes it wrote
+	NotApplied int  // of those, the changes of extensions no agent applies
+	Replaced   int  // the unsaved changes the import replaced
+	Updated    bool // whether the import changed any pending Override
 }
 
 // Save writes the pending Overrides into each agent's config. If an agent's
@@ -391,7 +394,8 @@ type Saved struct {
 // changes and returns ErrChangedSinceOpen. It counts what it writes after it
 // reads the configs again, so the count sees a config that changed since.
 func (s *Session) Save() (Saved, error) {
-	saved := Saved{Reason: "", Changes: 0, NotApplied: 0}
+	saved := Saved{Reason: "", Changes: 0, NotApplied: 0, Replaced: 0, Updated: false}
+	before := maps.Clone(s.pending.overrides)
 
 	changed, err := s.changedOutside()
 	if err != nil {
@@ -399,6 +403,8 @@ func (s *Session) Save() (Saved, error) {
 	}
 
 	if changed {
+		saved.Replaced, saved.Updated = s.replaced(before), !maps.Equal(before, s.pending.overrides)
+
 		return saved, ErrChangedSinceOpen
 	}
 
@@ -684,6 +690,24 @@ func (s *Session) changedOutside() (bool, error) {
 	}
 
 	return changed, nil
+}
+
+// replaced counts the unsaved changes in before, the pending Overrides of an
+// earlier time, that the pending Overrides no longer hold.
+func (s *Session) replaced(before map[string]State) int {
+	// A dropped Override is an unsaved change too, of a key only saved.
+	keys := maps.Clone(before)
+	maps.Copy(keys, s.saved)
+
+	count := 0
+
+	for key := range keys {
+		if differ(before, s.saved, key) && differ(before, s.pending.overrides, key) {
+			count++
+		}
+	}
+
+	return count
 }
 
 // writeAgents writes the entries of chosen into each agent's config.
