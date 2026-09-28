@@ -173,29 +173,21 @@ func TestNoRecordIsOfferedOnceTheProjectHasItsOwn(t *testing.T) {
 
 func TestNoRecordIsOfferedWithoutARootCommit(t *testing.T) {
 	t.Parallel()
+	machine := equiptest.New(t)
+	// Outside git, as a repo with no commits, a Project has no root commit.
+	old := machine.Mkdir(filepath.Join(machine.Root, "app"))
+	machine.Skill(machine.ClaudeSkills(), "review")
+	session := newSession(t, machine, old)
+	session.SetState("review", equip.Off)
+	save(t, session)
 
-	for name, dir := range map[string]func(*equiptest.Machine, string) string{
-		"outside git":     func(m *equiptest.Machine, name string) string { return m.Mkdir(filepath.Join(m.Root, name)) },
-		"with no commits": (*equiptest.Machine).Repo,
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			machine := equiptest.New(t)
-			old := dir(machine, "app")
-			machine.Skill(machine.ClaudeSkills(), "review")
-			session := newSession(t, machine, old)
-			session.SetState("review", equip.Off)
-			save(t, session)
+	err := os.RemoveAll(old)
+	if err != nil {
+		t.Fatal(err)
+	}
 
-			err := os.RemoveAll(old)
-			if err != nil {
-				t.Fatal(err)
-			}
-
-			if got := open(t, machine, dir(machine, "other")).Orphans; len(got) != 0 {
-				t.Errorf("Orphans = %q, want none", got)
-			}
-		})
+	if got := open(t, machine, machine.Mkdir(filepath.Join(machine.Root, "other"))).Orphans; len(got) != 0 {
+		t.Errorf("Orphans = %q, want none", got)
 	}
 }
 

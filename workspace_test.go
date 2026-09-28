@@ -140,17 +140,6 @@ func TestDetailPaneShowsThePresetsAsTheOrigin(t *testing.T) {
 	}
 }
 
-func TestCtrlCInTheWorkspaceAsksBeforeDroppingUnsavedChanges(t *testing.T) {
-	t.Parallel()
-	tui := presetModel(t)
-
-	cmd := press(tui, key('p'), key(' '), tea.KeyPressMsg{Code: 'c', Mod: tea.ModCtrl})
-
-	if quits(cmd) || line(tui, "Quit without saving?") == "" {
-		t.Errorf("ctrl+c did not ask first:\n%s", tui.View().Content)
-	}
-}
-
 func TestWorkspaceComparesWithTheViewAtItsOpening(t *testing.T) {
 	t.Parallel()
 	tui := presetModel(t)

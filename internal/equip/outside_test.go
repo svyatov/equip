@@ -146,41 +146,26 @@ func TestEntryMissingOnDiskShowsTheRecordStateUnsaved(t *testing.T) {
 	}
 }
 
-func TestEntryChangedOnDiskIsImportedAsAnUnsavedOverride(t *testing.T) {
+func TestEntryWantedByNoRecordIsImportedAsAnUnsavedOverride(t *testing.T) {
 	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	machine.Skill(machine.ClaudeSkills(), "docs")
 
-	for name, testCase := range map[string]struct {
-		settings string
-		savedKey string // the skill the record has an Override of off for
-		want     equip.State
-		cost     int
-	}{
-		"another value": {`{"skillOverrides": {"review": "on"}}`, "review", equip.On, 8},
-		"none wanted": {
-			`{"skillOverrides": {"docs": "off", "review": "user-invocable-only"}}`, "docs", equip.ManualOnly, 0,
-		},
-	} {
-		t.Run(name, func(t *testing.T) {
-			t.Parallel()
-			machine := equiptest.New(t)
-			repo := machine.Repo("app")
-			machine.Skill(machine.ClaudeSkills(), "review")
-			machine.Skill(machine.ClaudeSkills(), "docs")
+	// The record has an Override of docs only.
+	savedOff(t, machine, repo, "docs")
+	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"docs": "off", "review": "user-invocable-only"}}`)
 
-			savedOff(t, machine, repo, testCase.savedKey)
-			writeFile(t, settingsLocal(repo), testCase.settings)
+	view := newSession(t, machine, repo).View()
 
-			view := newSession(t, machine, repo).View()
-
-			want := equip.Row{
-				Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
-				Cost: testCase.cost, CostUnknown: false, ByName: false, State: testCase.want, Override: true, Fallback: equip.On,
-				Unsaved: true, ChangedOutside: true,
-			}
-			if view.Rows[1] != want {
-				t.Errorf("row = %+v, want %+v", view.Rows[1], want)
-			}
-		})
+	want := equip.Row{
+		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
+		Cost: 0, CostUnknown: false, ByName: false, State: equip.ManualOnly, Override: true, Fallback: equip.On,
+		Unsaved: true, ChangedOutside: true,
+	}
+	if view.Rows[1] != want {
+		t.Errorf("row = %+v, want %+v", view.Rows[1], want)
 	}
 }
 

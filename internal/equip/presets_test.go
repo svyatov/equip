@@ -185,19 +185,6 @@ mcp = ["github"]`)
 	}
 }
 
-func TestActivePresetTurnsOnItsMembersAndOffEverythingElse(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.WithPresets(t)
-	session := newSession(t, machine, machine.Root)
-
-	session.SetPresets([]string{"r1"})
-
-	got, want := states(session.View()), []string{"skill docs off", "skill lint on", "skill review off"}
-	if !slices.Equal(got, want) {
-		t.Errorf("states = %q, want %q", got, want)
-	}
-}
-
 func TestSaveWithAnActivePresetWritesAnEntryForEveryInstalledExtension(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)

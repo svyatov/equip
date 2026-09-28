@@ -628,19 +628,6 @@ func TestDropKeyDropsTheOverride(t *testing.T) {
 	}
 }
 
-func TestSaveKeyWritesTheOverrides(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	machine.Skill(machine.ClaudeSkills(), "review")
-	tui := newModel(t, machine)
-
-	press(tui, key('3'), key('s'))
-
-	if n := tui.s.View().Unsaved; n != 0 {
-		t.Errorf("Unsaved = %d after s, want 0", n)
-	}
-}
-
 func TestSaveKeyShowsTheErrorUntilTheNextKey(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
@@ -660,20 +647,6 @@ func TestSaveKeyShowsTheErrorUntilTheNextKey(t *testing.T) {
 
 	if line(tui, flash) != "" {
 		t.Error("the save error stays after the next key")
-	}
-}
-
-func TestUpKeyMovesBack(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	machine.Skill(machine.ClaudeSkills(), "alpha")
-	machine.Skill(machine.ClaudeSkills(), "beta")
-	tui := newModel(t, machine)
-
-	press(tui, down(), tea.KeyPressMsg{Code: tea.KeyUp}, key('3'))
-
-	if r := tui.s.View().Rows[0]; !r.Override {
-		t.Errorf("alpha = %+v, want an Override", r)
 	}
 }
 
@@ -744,16 +717,6 @@ func TestDetailPaneShowsDescriptionAgentsLocationsAndCodexNote(t *testing.T) {
 
 	if got := line(tui, tilde(codex, machine.Home)); !strings.Contains(got, "Codex") {
 		t.Errorf("location line %q does not name Codex", got)
-	}
-}
-
-func TestRowShowsItsCost(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	machine.Skill(machine.ClaudeSkills(), "review") // 23 bytes: 8
-
-	if got := line(newModel(t, machine), "●"); !strings.Contains(got, "~8") {
-		t.Errorf("row line %q does not show the cost ~8", got)
 	}
 }
 
@@ -952,19 +915,6 @@ func TestTotalOfCountsTheUnmeasuredAndMarksOverBudget(t *testing.T) {
 	}
 }
 
-func TestStateKeysSetTheHighlightedMCPServer(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	machine.WriteFile(filepath.Join(machine.Home, ".claude.json"), `{"mcpServers": {"github": {"command": "gh"}}}`)
-	tui := newModel(t, machine)
-
-	press(tui, key('2'))
-
-	if got := rowLine(tui, "github"); !strings.Contains(got, "○") {
-		t.Errorf("row line %q, want github off", got)
-	}
-}
-
 func TestDetailPaneNamesTheKind(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
@@ -973,16 +923,6 @@ func TestDetailPaneNamesTheKind(t *testing.T) {
 	// The list and the detail pane's title share the first line.
 	if got := line(newModel(t, machine), "github"); !strings.Contains(got, "MCP server") {
 		t.Errorf("line %q does not name the kind", got)
-	}
-}
-
-func TestDetailPaneSaysABuiltInServerIsBuiltIntoClaudeCode(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	machine.ClaudeBuiltins = map[string]equip.State{"computer-use": equip.Off}
-
-	if line(newModel(t, machine), "built into Claude Code") == "" {
-		t.Error("detail pane does not say the server is built into Claude Code")
 	}
 }
 

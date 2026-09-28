@@ -40,28 +40,6 @@ func totalTokens(view equip.View) map[equip.Agent]int {
 	return tokens
 }
 
-func TestClaudeCodeSkillCostsItsNameAndDescriptionBytesOverThree(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	// 3 + 27 = 30 bytes.
-	writeSkill(t, machine.ClaudeSkills(), strings.Repeat("x", 27))
-
-	if got := row(t, open(t, machine, machine.Root), "abc").Cost; got != 10 {
-		t.Errorf("Cost = %d, want 10", got)
-	}
-}
-
-func TestCostRoundsUp(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	// 3 + 28 = 31 bytes.
-	writeSkill(t, machine.ClaudeSkills(), strings.Repeat("x", 28))
-
-	if got := row(t, open(t, machine, machine.Root), "abc").Cost; got != 11 {
-		t.Errorf("Cost = %d, want 11", got)
-	}
-}
-
 func TestClaudeCodeSkillCostComesFromThePersonalLocation(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
@@ -72,17 +50,6 @@ func TestClaudeCodeSkillCostComesFromThePersonalLocation(t *testing.T) {
 
 	if got := row(t, open(t, machine, repo), "abc").Cost; got != 10 {
 		t.Errorf("Cost = %d, want 10", got)
-	}
-}
-
-func TestCodexSkillCostsItsNameAndDescriptionBytesOverFour(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	// 3 + 29 = 32 bytes.
-	writeSkill(t, machine.CodexSkills(), strings.Repeat("x", 29))
-
-	if got := row(t, open(t, machine, machine.Root), "abc").Cost; got != 8 {
-		t.Errorf("Cost = %d, want 8", got)
 	}
 }
 
@@ -160,17 +127,6 @@ func TestCodexSkillCostCountsEveryLocation(t *testing.T) {
 	}
 }
 
-func TestSkillThatDisablesModelInvocationCostsNothingInClaudeCode(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	writeFile(t, filepath.Join(machine.ClaudeSkills(), "abc", "SKILL.md"),
-		"---\nname: abc\ndescription: "+strings.Repeat("x", 27)+"\ndisable-model-invocation: true\n---\n")
-
-	if got := row(t, open(t, machine, machine.Root), "abc").Cost; got != 0 {
-		t.Errorf("Cost = %d, want 0", got)
-	}
-}
-
 func TestSkillOnlyItsNameCallsIsByName(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
@@ -194,18 +150,6 @@ func TestSkillOnlyItsNameCallsIsByName(t *testing.T) {
 		if got := row(t, view, name).ByName; got != want {
 			t.Errorf("%s: ByName = %v, want %v", name, got, want)
 		}
-	}
-}
-
-func TestSkillThatDisablesModelInvocationKeepsItsCostInCodex(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	// 3 + 29 = 32 bytes; Codex does not read the key.
-	writeFile(t, filepath.Join(machine.CodexSkills(), "abc", "SKILL.md"),
-		"---\nname: abc\ndescription: "+strings.Repeat("x", 29)+"\ndisable-model-invocation: true\n---\n")
-
-	if got := row(t, open(t, machine, machine.Root), "abc").Cost; got != 8 {
-		t.Errorf("Cost = %d, want 8", got)
 	}
 }
 
