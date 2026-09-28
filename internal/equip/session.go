@@ -377,13 +377,16 @@ func (s *Session) Adopt(path string) error {
 // DropOverride removes the Override for key, so the extension falls back.
 func (s *Session) DropOverride(key string) { delete(s.pending.overrides, key) }
 
-// Saved is what a save wrote.
+// Saved is what a save wrote or, when it returns ErrChangedSinceOpen, what
+// its import of the outside changes did to the pending Overrides.
 type Saved struct {
 	// Reason is why no agent applies the NotApplied changes, when they share
 	// one reason; empty when they do not.
 	Reason     string
-	Changes    int // the pending changes it wrote
-	NotApplied int // of those, the changes of extensions no agent applies
+	Changes    int  // the pending changes it wrote
+	NotApplied int  // of those, the changes of extensions no agent applies
+	Replaced   int  // the unsaved changes the import replaced
+	Updated    bool // whether the import changed any pending Override
 }
 
 // Save writes the pending Overrides into each agent's config. If an agent's
@@ -391,9 +394,7 @@ type Saved struct {
 // changes and returns ErrChangedSinceOpen. It counts what it writes after it
 // reads the configs again, so the count sees a config that changed since.
 func (s *Session) Save() (Saved, error) {
-	saved := Saved{Reason: "", Changes: 0, NotApplied: 0}
-
-	changed, err := s.changedOutside()
+	changed, saved, err := s.changedOutside()
 	if err != nil {
 		return saved, err
 	}
@@ -663,27 +664,41 @@ func (s *Session) whyNotApplied(agent Agent, ext Extension) string {
 }
 
 // changedOutside reads each agent's config and entries again and imports the
-// entries that changed since the last read, reporting whether any did.
-func (s *Session) changedOutside() (bool, error) {
+// entries that changed since the last read, reporting whether any did and
+// what the import did to the pending Overrides.
+func (s *Session) changedOutside() (bool, Saved, error) {
 	s.takeConfigs(readCodexConfig(s.machine, s.project))
 
 	now := map[Agent]map[string]State{}
+	imported := Saved{Reason: "", Changes: 0, NotApplied: 0, Replaced: 0, Updated: false}
 
 	for _, agent := range Agents() {
 		states, err := agent.config().read(s.machine, s.project, s.pending.applied[agent])
 		if err != nil {
-			return false, err
+			return false, imported, err
 		}
 
 		now[agent] = states
 	}
 
-	changed := false
+	changed, before := false, maps.Clone(s.pending.overrides)
 	for _, agent := range Agents() {
 		changed = s.importEntries(agent, now[agent]) || changed
 	}
 
-	return changed, nil
+	// A dropped Override is an unsaved change too, of a key only saved.
+	keys := maps.Clone(before)
+	maps.Copy(keys, s.saved)
+
+	for key := range keys {
+		if differ(before, s.saved, key) && differ(before, s.pending.overrides, key) {
+			imported.Replaced++
+		}
+	}
+
+	imported.Updated = !maps.Equal(before, s.pending.overrides)
+
+	return changed, imported, nil
 }
 
 // writeAgents writes the entries of chosen into each agent's config.

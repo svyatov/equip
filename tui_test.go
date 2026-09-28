@@ -719,6 +719,72 @@ func TestSaveKeyAfterAnOutsideChangeSaysSSavesIt(t *testing.T) {
 	}
 }
 
+func TestSaveKeySaysAnOutsideChangeReplacedAnUnsavedChange(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "lint")
+	tui := newModel(t, machine)
+	settings := filepath.Join(machine.Root, ".claude", "settings.local.json")
+	machine.WriteFile(settings, `{"skillOverrides": {"lint": "user-invocable-only"}}`)
+
+	press(tui, key('3'), key('s'))
+
+	if line(tui, "changed outside equip: replaced 1 unsaved change, press s to save") == "" {
+		t.Errorf("s does not say the outside change replaced the edit:\n%s", tui.View().Content)
+	}
+}
+
+func TestSaveKeySaysAnOutsideChangeReplacedTwoUnsavedChanges(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "lint")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	tui := newModel(t, machine)
+	settings := filepath.Join(machine.Root, ".claude", "settings.local.json")
+	machine.WriteFile(settings, `{"skillOverrides": {"lint": "user-invocable-only", "review": "user-invocable-only"}}`)
+
+	press(tui, key('3'), down(), key('3'), key('s'))
+
+	if line(tui, "changed outside equip: replaced 2 unsaved changes, press s to save") == "" {
+		t.Errorf("s does not say the outside change replaced both edits:\n%s", tui.View().Content)
+	}
+}
+
+func TestSaveKeySaysReplacedWhenAnOutsideChangeAlsoAdded(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "lint")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	tui := newModel(t, machine)
+	settings := filepath.Join(machine.Root, ".claude", "settings.local.json")
+	machine.WriteFile(settings, `{"skillOverrides": {"lint": "user-invocable-only", "review": "off"}}`)
+
+	press(tui, key('3'), key('s'))
+
+	if line(tui, "changed outside equip: replaced 1 unsaved change, press s to save") == "" {
+		t.Errorf("s does not say the outside change replaced the edit:\n%s", tui.View().Content)
+	}
+}
+
+func TestSaveKeySaysAnOutsideChangeMatchesTheUnsavedChanges(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "lint")
+	tui := newModel(t, machine)
+	settings := filepath.Join(machine.Root, ".claude", "settings.local.json")
+	machine.WriteFile(settings, `{"skillOverrides": {"lint": "off"}}`)
+
+	press(tui, key('3'), key('s'))
+
+	if line(tui, "changed outside equip to match Unsaved changes, press s to save") == "" {
+		t.Errorf("s does not say the outside change matches the edit:\n%s", tui.View().Content)
+	}
+
+	if line(tui, "added to Unsaved changes") != "" {
+		t.Errorf("s says the matching change was added:\n%s", tui.View().Content)
+	}
+}
+
 func TestSaveKeyShowsTheErrorUntilTheNextKey(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)

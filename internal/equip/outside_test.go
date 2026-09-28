@@ -369,9 +369,13 @@ func TestSaveMarksAPendingToggleReplacedByAnOutsideChange(t *testing.T) {
 	session.SetState("review", equip.ManualOnly)
 	writeFile(t, settingsLocal(repo), `{}`)
 
-	_, err := session.Save()
+	saved, err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
+	}
+
+	if saved.Replaced != 1 {
+		t.Errorf("Replaced = %d, want 1", saved.Replaced)
 	}
 
 	want := equip.Row{
@@ -381,6 +385,90 @@ func TestSaveMarksAPendingToggleReplacedByAnOutsideChange(t *testing.T) {
 	}
 	if view := session.View(); view.Rows[0] != want {
 		t.Errorf("row = %+v, want %+v", view.Rows[0], want)
+	}
+}
+
+func TestSaveCountsAPendingEditAnOutsideChangeReplaced(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "lint")
+	session := newSession(t, machine, repo)
+	session.SetState("lint", equip.Off)
+	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"lint": "user-invocable-only"}}`)
+
+	saved, err := session.Save()
+	if !errors.Is(err, equip.ErrChangedSinceOpen) {
+		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
+	}
+
+	if saved.Replaced != 1 {
+		t.Errorf("Replaced = %d, want 1", saved.Replaced)
+	}
+
+	row := session.View().Rows[0]
+	if row.State != equip.ManualOnly || !row.Unsaved || !row.ChangedOutside {
+		t.Errorf("row = %+v, want manual-only, unsaved and changed outside", row)
+	}
+}
+
+func TestSaveCountsADroppedOverrideAnOutsideChangeReplaced(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	savedOff(t, machine, repo, "review")
+	session := newSession(t, machine, repo)
+	session.DropOverride("review")
+	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "user-invocable-only"}}`)
+
+	saved, err := session.Save()
+	if !errors.Is(err, equip.ErrChangedSinceOpen) {
+		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
+	}
+
+	if saved.Replaced != 1 {
+		t.Errorf("Replaced = %d, want 1", saved.Replaced)
+	}
+}
+
+func TestSaveReportsAnOutsideChangeMatchingThePendingEditUpdatesNoRow(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "lint")
+	session := newSession(t, machine, repo)
+	session.SetState("lint", equip.Off)
+	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"lint": "off"}}`)
+
+	saved, err := session.Save()
+	if !errors.Is(err, equip.ErrChangedSinceOpen) {
+		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
+	}
+
+	if saved.Replaced != 0 || saved.Updated {
+		t.Errorf("Save = %+v, want 0 replaced and no row updated", saved)
+	}
+}
+
+func TestSaveReportsAnOutsideChangeBesideAPendingEditAsAdded(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.ClaudeSkills(), "lint")
+	machine.Skill(machine.ClaudeSkills(), "review")
+	savedOff(t, machine, repo, "review")
+	session := newSession(t, machine, repo)
+	session.SetState("lint", equip.Off)
+	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "user-invocable-only"}}`)
+
+	saved, err := session.Save()
+	if !errors.Is(err, equip.ErrChangedSinceOpen) {
+		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
+	}
+
+	if saved.Replaced != 0 || !saved.Updated {
+		t.Errorf("Save = %+v, want 0 replaced and a row updated", saved)
 	}
 }
 

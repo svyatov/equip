@@ -1141,7 +1141,7 @@ func (m *model) save() {
 
 	switch {
 	case errors.Is(err, equip.ErrChangedSinceOpen):
-		m.flash = m.style.bad.Render("changed outside equip: added to Unsaved changes, press s to save")
+		m.flash = m.style.bad.Render(changedOutside(saved))
 	case err != nil:
 		m.flash = m.style.bad.Render("save failed: " + err.Error())
 	case saved.Changes == 0:
@@ -1157,6 +1157,20 @@ func (m *model) save() {
 		}
 
 		m.flash = m.style.ok.Render(flash)
+	}
+}
+
+// changedOutside says what the import of a save stopped by an outside change
+// did to the Unsaved changes: replaced some, added to them, or matched them.
+func changedOutside(saved equip.Saved) string {
+	switch {
+	case saved.Replaced > 0:
+		return "changed outside equip: replaced " + count(saved.Replaced, "unsaved change", "unsaved changes") +
+			", press s to save"
+	case saved.Updated:
+		return "changed outside equip: added to Unsaved changes, press s to save"
+	default:
+		return "changed outside equip to match Unsaved changes, press s to save"
 	}
 }
 

@@ -577,7 +577,7 @@ func (s *Session) savedActive(id string) (bool, error) {
 		return false, nil
 	}
 
-	changed, err := s.changedOutside()
+	changed, _, err := s.changedOutside()
 	if err == nil && changed {
 		err = ErrChangedSinceOpen
 	}
@@ -699,7 +699,7 @@ func (s *Session) rewrite(others []Affected, change presetChange) error {
 
 		other := project.session
 		// Checked again, as its entries may have changed since it was opened.
-		changed, err := other.changedOutside()
+		changed, _, err := other.changedOutside()
 		if err != nil || changed {
 			errs = append(errs, err)
 
