@@ -50,6 +50,7 @@ func (s *Session) facets(rows []Row) []Facet {
 			{name: "Overrides", has: func(ext Extension, row Row) bool {
 				return !row.Follows() && s.inRow(ext, s.overridden)
 			}},
+			{name: "Not applied", has: func(_ Extension, row Row) bool { return row.NotApplied }},
 			{name: "Unsaved changes", has: func(_ Extension, row Row) bool { return row.Unsaved }},
 		},
 	}

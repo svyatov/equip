@@ -29,12 +29,12 @@ func TestFirstOpenImportsHandSetStatesAsOverrides(t *testing.T) {
 			Key: "docs", Name: "docs", Plugin: "", Kind: equip.Skill,
 			Cost: 0, CostUnknown: false, ByName: false, State: equip.ManualOnly, Override: true,
 			Fallback: equip.On, Unsaved: false,
-			ChangedOutside: false,
+			NotApplied: false, ChangedOutside: false,
 		},
 		{
 			Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 			Cost: 0, CostUnknown: false, ByName: false, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: false,
-			ChangedOutside: false,
+			NotApplied: false, ChangedOutside: false,
 		},
 	}
 	if !slices.Equal(view.Rows, want) || view.Unsaved != 0 {
@@ -81,7 +81,7 @@ func TestQuittingWithoutSavingLeavesHandEditsToImportAgain(t *testing.T) {
 	want := equip.Row{
 		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 		Cost: 8, CostUnknown: false, ByName: false, State: equip.On, Override: true, Fallback: equip.On, Unsaved: true,
-		ChangedOutside: true,
+		NotApplied: false, ChangedOutside: true,
 	}
 	if view.Rows[0] != want {
 		t.Errorf("row = %+v, want %+v", view.Rows[0], want)
@@ -102,7 +102,7 @@ func TestSaveKeepsAnImportAndClearsItsNote(t *testing.T) {
 	want := equip.Row{
 		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 		Cost: 8, CostUnknown: false, ByName: false, State: equip.On, Override: true, Fallback: equip.On, Unsaved: false,
-		ChangedOutside: false,
+		NotApplied: false, ChangedOutside: false,
 	}
 	if view := session.View(); view.Rows[0] != want || view.Unsaved != 0 {
 		t.Errorf("row = %+v, Unsaved = %d, want %+v and 0", view.Rows[0], view.Unsaved, want)
@@ -139,7 +139,7 @@ func TestEntryMissingOnDiskShowsTheRecordStateUnsaved(t *testing.T) {
 	want := equip.Row{
 		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 		Cost: 0, CostUnknown: false, ByName: false, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true,
-		ChangedOutside: false,
+		NotApplied: false, ChangedOutside: false,
 	}
 	if view.Rows[0] != want || view.Unsaved != 1 {
 		t.Errorf("row = %+v, Unsaved = %d, want %+v and 1", view.Rows[0], view.Unsaved, want)
@@ -162,7 +162,7 @@ func TestEntryWantedByNoRecordIsImportedAsAnUnsavedOverride(t *testing.T) {
 	want := equip.Row{
 		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 		Cost: 0, CostUnknown: false, ByName: false, State: equip.ManualOnly, Override: true, Fallback: equip.On,
-		Unsaved: true, ChangedOutside: true,
+		Unsaved: true, NotApplied: false, ChangedOutside: true,
 	}
 	if view.Rows[1] != want {
 		t.Errorf("row = %+v, want %+v", view.Rows[1], want)
@@ -182,7 +182,7 @@ func TestSaveAfterAnOutsideChangeWritesNothingAndImportsIt(t *testing.T) {
 	writeFile(t, settingsLocal(repo), outside)
 	session.SetState("docs", equip.ManualOnly)
 
-	err := session.Save()
+	_, err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
@@ -205,12 +205,12 @@ func TestSaveAfterAnOutsideChangeWritesNothingAndImportsIt(t *testing.T) {
 			Key: "docs", Name: "docs", Plugin: "", Kind: equip.Skill,
 			Cost: 0, CostUnknown: false, ByName: false, State: equip.ManualOnly, Override: true,
 			Fallback: equip.On, Unsaved: true,
-			ChangedOutside: false,
+			NotApplied: false, ChangedOutside: false,
 		},
 		{
 			Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 			Cost: 8, CostUnknown: false, ByName: false, State: equip.On, Override: true, Fallback: equip.On, Unsaved: true,
-			ChangedOutside: true,
+			NotApplied: false, ChangedOutside: true,
 		},
 	}
 	if view := session.View(); !slices.Equal(view.Rows, want) {
@@ -227,7 +227,7 @@ func TestSaveReportsSettingsBrokenSinceOpen(t *testing.T) {
 	session := newSession(t, machine, repo)
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": `)
 
-	err := session.Save()
+	_, err := session.Save()
 	if err == nil || errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Errorf("Save = %v, want the read error", err)
 	}
@@ -250,7 +250,7 @@ func TestNameOnlyOnDiskMatchesARecordedOn(t *testing.T) {
 	want := equip.Row{
 		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 		Cost: 8, CostUnknown: false, ByName: false, State: equip.On, Override: true, Fallback: equip.On, Unsaved: false,
-		ChangedOutside: false,
+		NotApplied: false, ChangedOutside: false,
 	}
 	if view := newSession(t, machine, repo).View(); view.Rows[0] != want {
 		t.Errorf("row = %+v, want %+v", view.Rows[0], want)
@@ -270,7 +270,7 @@ func TestSaveAfterAnImportIsRemovedOutsideDropsIt(t *testing.T) {
 	session = newSession(t, machine, repo)
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"docs": "off"}}`)
 
-	err := session.Save()
+	_, err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
@@ -278,7 +278,7 @@ func TestSaveAfterAnImportIsRemovedOutsideDropsIt(t *testing.T) {
 	want := equip.Row{
 		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 		Cost: 8, CostUnknown: false, ByName: false, State: equip.On, Override: false, Fallback: equip.On, Unsaved: false,
-		ChangedOutside: false,
+		NotApplied: false, ChangedOutside: false,
 	}
 	if view := session.View(); view.Rows[1] != want || view.Unsaved != 0 {
 		t.Errorf("row = %+v, Unsaved = %d, want %+v and 0", view.Rows[1], view.Unsaved, want)
@@ -294,7 +294,7 @@ func TestSaveAfterAnOutsideRemovalWritesNothing(t *testing.T) {
 	session := newSession(t, machine, repo)
 	writeFile(t, settingsLocal(repo), `{}`)
 
-	err := session.Save()
+	_, err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
@@ -306,7 +306,7 @@ func TestSaveAfterAnOutsideRemovalWritesNothing(t *testing.T) {
 	want := equip.Row{
 		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 		Cost: 0, CostUnknown: false, ByName: false, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true,
-		ChangedOutside: false,
+		NotApplied: false, ChangedOutside: false,
 	}
 	if view := session.View(); view.Rows[0] != want {
 		t.Errorf("row = %+v, want %+v", view.Rows[0], want)
@@ -344,7 +344,7 @@ func TestSaveAfterAnOutsideChangeBackShowsTheRecordState(t *testing.T) {
 	session := newSession(t, machine, repo)
 	writeFile(t, settingsLocal(repo), `{"skillOverrides": {"review": "off"}}`)
 
-	err := session.Save()
+	_, err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
@@ -352,7 +352,7 @@ func TestSaveAfterAnOutsideChangeBackShowsTheRecordState(t *testing.T) {
 	want := equip.Row{
 		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 		Cost: 0, CostUnknown: false, ByName: false, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: false,
-		ChangedOutside: false,
+		NotApplied: false, ChangedOutside: false,
 	}
 	if view := session.View(); view.Rows[0] != want || view.Unsaved != 0 {
 		t.Errorf("row = %+v, Unsaved = %d, want %+v and 0", view.Rows[0], view.Unsaved, want)
@@ -369,7 +369,7 @@ func TestSaveMarksAPendingToggleReplacedByAnOutsideChange(t *testing.T) {
 	session.SetState("review", equip.ManualOnly)
 	writeFile(t, settingsLocal(repo), `{}`)
 
-	err := session.Save()
+	_, err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}
@@ -377,7 +377,7 @@ func TestSaveMarksAPendingToggleReplacedByAnOutsideChange(t *testing.T) {
 	want := equip.Row{
 		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 		Cost: 0, CostUnknown: false, ByName: false, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true,
-		ChangedOutside: true,
+		NotApplied: false, ChangedOutside: true,
 	}
 	if view := session.View(); view.Rows[0] != want {
 		t.Errorf("row = %+v, want %+v", view.Rows[0], want)
@@ -422,7 +422,7 @@ func TestSaveAfterAFailedRecordWriteSucceeds(t *testing.T) {
 	records := filepath.Join(machine.StateHome, "equip")
 	writeFile(t, records, "") // a file where the records dir belongs
 
-	err := session.Save()
+	_, err := session.Save()
 	if err == nil {
 		t.Fatal("Save wrote a record into a file")
 	}
@@ -432,7 +432,7 @@ func TestSaveAfterAFailedRecordWriteSucceeds(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	err = session.Save()
+	_, err = session.Save()
 	if err != nil {
 		t.Errorf("Save = %v, want it to write", err)
 	}

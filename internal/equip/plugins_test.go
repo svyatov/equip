@@ -127,7 +127,7 @@ func TestPluginSkillHasARowThatFollowsItsPlugin(t *testing.T) {
 	want := equip.Row{
 		Key: "github@official/review", Name: "review", Plugin: "github@official", Kind: equip.Skill, Cost: 10,
 		State: equip.On, Fallback: equip.On, CostUnknown: false, ByName: false, Override: false, Unsaved: false,
-		ChangedOutside: false,
+		NotApplied: false, ChangedOutside: false,
 	}
 	if got := row(t, session.View(), "review"); got != want {
 		t.Errorf("row = %+v, want %+v", got, want)
@@ -223,7 +223,8 @@ func TestPluginDefaultsToItsStateInUserSettings(t *testing.T) {
 
 	want := equip.Row{
 		Key: "github@official", Name: "github@official", Kind: equip.Plugin, Cost: 0, State: equip.Off, Fallback: equip.Off,
-		Plugin: "", CostUnknown: false, ByName: false, Override: false, Unsaved: false, ChangedOutside: false,
+		Plugin: "", CostUnknown: false, ByName: false, Override: false, Unsaved: false, NotApplied: false,
+		ChangedOutside: false,
 	}
 	if got := row(t, open(t, machine, machine.Root), "github@official"); got != want {
 		t.Errorf("row = %+v, want %+v", got, want)
@@ -593,7 +594,7 @@ func TestSaveImportsAPluginChangedOutsideSinceOpen(t *testing.T) {
 	session := newSession(t, machine, repo)
 	writeFile(t, settingsLocal(repo), `{"enabledPlugins": {"github@official": false}}`)
 
-	err := session.Save()
+	_, err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}

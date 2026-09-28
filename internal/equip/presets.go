@@ -60,7 +60,7 @@ type Member struct {
 func member(key string) Member {
 	return Member{
 		Key: key, Name: keyName(key), Kind: keyKind(key), Cost: 0, State: On, Fallback: On, CostUnknown: false, ByName: false,
-		Override: false, Unsaved: false, ChangedOutside: false, Plugin: "",
+		Override: false, Unsaved: false, NotApplied: false, ChangedOutside: false, Plugin: "",
 		Installed: false, Added: false, Removed: false,
 	}
 }

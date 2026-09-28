@@ -467,7 +467,7 @@ func TestSaveAfterAFailedCodexWriteKeepsWhatClaudeCodeGotAsEquipsOwn(t *testing.
 	session.SetState("review", equip.Off)
 	session.SetState("github@official", equip.Off)
 
-	err = session.Save()
+	_, err = session.Save()
 	if err == nil {
 		t.Fatal("Save = nil, want an error")
 	}
@@ -569,7 +569,7 @@ func TestSaveImportsACodexEntryChangedOutsideSinceOpen(t *testing.T) {
 	session.SetState("github@official", equip.On)
 	writeFile(t, codexProject(repo), "[plugins.\"github@official\"]\nenabled = false\n")
 
-	err := session.Save()
+	_, err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
 	}

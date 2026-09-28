@@ -40,7 +40,7 @@ func TestSetStateMakesAnUnsavedOverride(t *testing.T) {
 	want := equip.Row{
 		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 		Cost: 0, CostUnknown: false, ByName: false, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true,
-		ChangedOutside: false,
+		NotApplied: false, ChangedOutside: false,
 	}
 	if view.Rows[0] != want {
 		t.Errorf("row = %+v, want %+v", view.Rows[0], want)
@@ -63,7 +63,7 @@ func TestDropOverrideReturnsSkillToDefault(t *testing.T) {
 	want := equip.Row{
 		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 		Cost: 8, CostUnknown: false, ByName: false, State: equip.On, Override: false, Fallback: equip.On, Unsaved: false,
-		ChangedOutside: false,
+		NotApplied: false, ChangedOutside: false,
 	}
 
 	view := session.View()
@@ -102,7 +102,7 @@ func readJSON(t *testing.T, path string) map[string]any {
 func save(t *testing.T, session *equip.Session) {
 	t.Helper()
 
-	err := session.Save()
+	_, err := session.Save()
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -426,7 +426,7 @@ func TestSettingsFileUntrackedSinceOpenHoldsNoDefaults(t *testing.T) {
 	session := newSession(t, machine, repo)
 	machine.RunGit(repo, "rm", "--cached", "-q", ".claude/settings.local.json")
 
-	err := session.Save()
+	_, err := session.Save()
 	if !errors.Is(err, equip.ErrChangedSinceOpen) {
 		t.Fatalf("Save = %v, want ErrChangedSinceOpen", err)
 	}
@@ -542,6 +542,7 @@ func TestReopenShowsSavedOverrides(t *testing.T) {
 		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
 		Cost: 0, CostUnknown: false, ByName: false, State: equip.ManualOnly, Override: true, Fallback: equip.On,
 		Unsaved:        false,
+		NotApplied:     false,
 		ChangedOutside: false,
 	}
 	if view.Rows[0] != want || view.Unsaved != 0 {
@@ -586,7 +587,7 @@ func TestSaveRefusesBrokenSettings(t *testing.T) {
 	session := newSession(t, machine, repo)
 	session.SetState("review", equip.Off)
 
-	err := session.Save()
+	_, err := session.Save()
 	if err == nil {
 		t.Error("Save overwrote broken settings")
 	}
