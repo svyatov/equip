@@ -68,6 +68,13 @@ func readCodexConfig(machine Machine, project Project) codexConfig {
 	}
 
 	path := codexConfigPath(project)
+	// Written for the Project, it would apply in every Project. Codex reads
+	// the one file once, so it is the user layer alone.
+	if sameFile(path, userPath) {
+		cfg.notApplied = "the Project's Codex config is the global Codex config"
+
+		return cfg
+	}
 
 	data, err := readTOML(path)
 	if err != nil {
@@ -77,11 +84,6 @@ func readCodexConfig(machine Machine, project Project) codexConfig {
 	}
 
 	cfg.notApplied = trackedReason(machine, project, project.checkout, codexConfigRel)
-	// Written for the Project, it would apply in every Project.
-	if sameFile(path, userPath) {
-		cfg.notApplied = "the Project's Codex config is the global Codex config"
-	}
-
 	cfg.layers = append(cfg.layers, codexLayer{data: data, path: path, owned: cfg.notApplied == ""})
 
 	return cfg
