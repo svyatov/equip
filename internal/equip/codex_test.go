@@ -1067,6 +1067,20 @@ func globalCodexProject(t *testing.T, machine *equiptest.Machine, project string
 	return string(data)
 }
 
+// globalCodexLeftAlone checks that the global Codex config still holds config
+// and that db's detail names it as why Codex is not applied.
+func globalCodexLeftAlone(t *testing.T, machine *equiptest.Machine, session *equip.Session, config string) {
+	t.Helper()
+
+	if data, _ := os.ReadFile(machine.CodexConfig()); string(data) != config {
+		t.Errorf("global config = %q, want it as it was", data)
+	}
+
+	if got := session.Detail("mcp:db").NotApplied[equip.Codex]; !strings.Contains(got, "global Codex config") {
+		t.Errorf("NotApplied[Codex] = %q, want the global Codex config named", got)
+	}
+}
+
 func TestSaveInTheHomeDirectoryLeavesTheGlobalCodexConfigAlone(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
@@ -1078,13 +1092,7 @@ func TestSaveInTheHomeDirectoryLeavesTheGlobalCodexConfigAlone(t *testing.T) {
 
 	save(t, session)
 
-	if data, _ := os.ReadFile(machine.CodexConfig()); string(data) != config {
-		t.Errorf("global config = %q, want it as it was", data)
-	}
-
-	if got := session.Detail("mcp:db").NotApplied[equip.Codex]; !strings.Contains(got, "global Codex config") {
-		t.Errorf("NotApplied[Codex] = %q, want the global Codex config named", got)
-	}
+	globalCodexLeftAlone(t, machine, session, config)
 
 	want := map[string]any{"review": "off"}
 	if got := readJSON(t, settingsLocal(machine.Home))["skillOverrides"]; !reflect.DeepEqual(got, want) {
@@ -1103,13 +1111,7 @@ func TestCodexHomeInTheProjectLeavesItsCodexConfigAlone(t *testing.T) {
 
 	save(t, session)
 
-	if data, _ := os.ReadFile(codexProject(repo)); string(data) != config {
-		t.Errorf(".codex/config.toml = %q, want it as it was", data)
-	}
-
-	if got := session.Detail("mcp:db").NotApplied[equip.Codex]; !strings.Contains(got, "global Codex config") {
-		t.Errorf("NotApplied[Codex] = %q, want the global Codex config named", got)
-	}
+	globalCodexLeftAlone(t, machine, session, config)
 }
 
 func TestCodexHomeLinkedToTheProjectLeavesItsCodexConfigAlone(t *testing.T) {
@@ -1130,11 +1132,5 @@ func TestCodexHomeLinkedToTheProjectLeavesItsCodexConfigAlone(t *testing.T) {
 
 	save(t, session)
 
-	if data, _ := os.ReadFile(codexProject(repo)); string(data) != config {
-		t.Errorf(".codex/config.toml = %q, want it as it was", data)
-	}
-
-	if got := session.Detail("mcp:db").NotApplied[equip.Codex]; !strings.Contains(got, "global Codex config") {
-		t.Errorf("NotApplied[Codex] = %q, want the global Codex config named", got)
-	}
+	globalCodexLeftAlone(t, machine, session, config)
 }
