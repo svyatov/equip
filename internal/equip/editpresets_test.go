@@ -298,6 +298,94 @@ func TestWriteStopsWhenThisProjectChangedOutsideSinceOpen(t *testing.T) {
 	}
 }
 
+func TestWriteStopsWhenThePresetChangedOutsideAndMergesTheChange(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	repo := machine.Repo("app")
+	session := newSession(t, machine, repo)
+	session.SetPresets([]string{"r1"})
+	save(t, session)
+	remove(t, session, "r1", "lint")
+	add(t, session, "r1", "docs")
+	add(t, session, "r1", "review")
+
+	// Adds review, as the edits do, and removes rspec.
+	const outside = "id = \"r1\"\nskills = [\"lint\", \"review\"]\n"
+	machine.Preset("Ruby", outside)
+
+	settings, _ := os.ReadFile(settingsLocal(repo))
+	record, _ := os.ReadFile(recordFile(t, machine))
+
+	err := session.WritePreset()
+	if !errors.Is(err, equip.ErrPresetChanged) || !errors.Is(err, equip.ErrChangedSinceOpen) {
+		t.Errorf("WritePreset = %v, want ErrPresetChanged", err)
+	}
+
+	file := filepath.Join(machine.ConfigHome, "equip", "presets", "Ruby.toml")
+	if got, _ := os.ReadFile(file); string(got) != outside {
+		t.Errorf("Ruby.toml = %q, want the outside change kept", got)
+	}
+
+	after, _ := os.ReadFile(settingsLocal(repo))
+	if afterRecord, _ := os.ReadFile(recordFile(t, machine)); string(after) != string(settings) ||
+		string(afterRecord) != string(record) {
+		t.Errorf("the refused write changed the Project:\n%s\n%s", after, afterRecord)
+	}
+
+	if got := members(session, "r1"); !slices.Equal(got, []string{"docs +", "lint -", "review ="}) {
+		t.Errorf("Ruby's members = %q, want the outside change with the edits made to it", got)
+	}
+
+	write(t, session)
+
+	if got := members(newSession(t, machine, repo), "r1"); !slices.Equal(got, []string{"docs =", "review ="}) {
+		t.Errorf("Ruby's members on disk = %q, want the merged docs and review", got)
+	}
+
+	add(t, session, "r1", "lint")
+	write(t, session)
+}
+
+func TestWriteOfAPresetFileThatNoLongerReadsFailsAndKeepsIt(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	session := newSession(t, machine, machine.Root)
+	add(t, session, "r1", "review")
+
+	const broken = "id = \"r1\"\nskills = [\"lint\"\n"
+	machine.Preset("Ruby", broken)
+
+	err := session.WritePreset()
+	if err == nil || errors.Is(err, equip.ErrPresetChanged) {
+		t.Errorf("WritePreset = %v, want the read error", err)
+	}
+
+	file := filepath.Join(machine.ConfigHome, "equip", "presets", "Ruby.toml")
+	if got, _ := os.ReadFile(file); string(got) != broken {
+		t.Errorf("Ruby.toml = %q, want it kept", got)
+	}
+}
+
+func TestWriteOfAPresetDeletedOutsideStopsOnceThenWritesItAgain(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	session := newSession(t, machine, machine.Root)
+	add(t, session, "r1", "review")
+	removePreset(t, machine, "Ruby")
+
+	err := session.WritePreset()
+	if !errors.Is(err, equip.ErrPresetChanged) {
+		t.Errorf("WritePreset = %v, want ErrPresetChanged", err)
+	}
+
+	write(t, session)
+
+	got := members(newSession(t, machine, machine.Root), "r1")
+	if !slices.Equal(got, []string{"lint =", "review =", "rspec ="}) {
+		t.Errorf("Ruby's members on disk = %q, want lint, review and rspec", got)
+	}
+}
+
 func TestPreviewShowsWhatTheWriteChangesInTheSavedStatesAndWritesNothing(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)

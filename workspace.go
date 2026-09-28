@@ -2,6 +2,7 @@ package main
 
 import (
 	"cmp"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -391,6 +392,8 @@ func (m *model) write(presets []equip.Preset) {
 	err := m.s.WritePreset()
 
 	switch {
+	case errors.Is(err, equip.ErrPresetChanged):
+		m.flash, m.ws.leave = m.style.warn.Render(err.Error()+": merged into the edits, w writes them"), ""
 	case err != nil:
 		m.flash, m.ws.leave = m.style.bad.Render("write failed: "+err.Error()), ""
 	case cur.New:
