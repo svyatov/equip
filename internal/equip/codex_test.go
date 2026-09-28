@@ -427,7 +427,7 @@ func TestSavingADroppedOverrideRemovesTheCodexTableItWasAlone(t *testing.T) {
 	}
 }
 
-func TestSavingADroppedOverrideRemovesItsDottedCodexKey(t *testing.T) {
+func TestSavingADroppedOverrideOfADottedCodexKeyWritesTheConfigInFull(t *testing.T) {
 	t.Parallel()
 
 	before := "[mcp_servers]\nsearch.startup_timeout_sec = 5\nsearch.enabled = false\n"

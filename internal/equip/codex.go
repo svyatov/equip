@@ -135,7 +135,8 @@ func readCodex(_ Machine, project Project, exts []Extension) (map[string]State, 
 // writeCodex writes the states of overrides for exts into the Project's Codex
 // config, keeping every key equip does not own, and keeps the file out of git.
 // It removes the dead entries, and leaves the file alone when no entry
-// changes. It edits the file in place, keeping its comments and key order.
+// changes. It edits the file in place, keeping its comments and key order, or
+// writes it in full when a table has a shape the edit does not handle.
 func writeCodex(machine Machine, project Project, exts []Extension, overrides map[string]State) error {
 	// Read again, as the file may have become tracked since open.
 	cfg := readCodexConfig(machine, project)
@@ -222,7 +223,7 @@ func editTOML(data []byte, doc map[string]any, paths [][]string) ([]byte, bool) 
 	edits := make([]tomlEdit, 0, len(paths))
 
 	for _, path := range paths {
-		edits = append(edits, tables[fmt.Sprintf("%q", path)].edit(data, path, tablesOn(doc, path)[len(path)])...)
+		edits = append(edits, tables[tomlPath(path)].edit(data, path, tablesOn(doc, path)[len(path)])...)
 	}
 
 	edited := applyEdits(data, edits)
@@ -240,21 +241,20 @@ func editTOML(data []byte, doc map[string]any, paths [][]string) ([]byte, bool) 
 // tomlTable is where a table's header line and its enabled's value and line
 // are in a TOML file. Each is empty when the file has none.
 type tomlTable struct {
-	header  unstable.Range
-	enabled unstable.Range
-	line    unstable.Range
+	header      unstable.Range
+	enabled     unstable.Range
+	enabledLine unstable.Range
 }
 
 // edit lists the edits that set the enabled of the table at path in data as
 // in entry, the table after the change.
 func (t tomlTable) edit(data []byte, path []string, entry map[string]any) []tomlEdit {
 	value, set := entry["enabled"]
-	none := unstable.Range{Offset: 0, Length: 0}
 
 	switch {
-	case set && t.enabled != none:
+	case set && t.enabled.Length > 0:
 		return []tomlEdit{{text: fmt.Sprint(value), at: t.enabled}}
-	case set && t.header != none:
+	case set && t.header.Length > 0:
 		at := unstable.Range{Offset: lineEnd(data, t.header.Offset), Length: 0}
 
 		return []tomlEdit{{text: fmt.Sprint("\nenabled = ", value), at: at}}
@@ -264,11 +264,14 @@ func (t tomlTable) edit(data []byte, path []string, entry map[string]any) []toml
 		return []tomlEdit{{text: fmt.Sprintf("\n[%s]\nenabled = %v\n", tomlHeader(path), value), at: end}}
 	case entry == nil:
 		// A table that held only equip's entry goes with it.
-		return []tomlEdit{{text: "", at: t.line}, {text: "", at: t.header}}
+		return []tomlEdit{{text: "", at: t.enabledLine}, {text: "", at: t.header}}
 	}
 
-	return []tomlEdit{{text: "", at: t.line}}
+	return []tomlEdit{{text: "", at: t.enabledLine}}
 }
+
+// tomlPath is the key of the table at path in the tables tomlTables reads.
+func tomlPath(path []string) string { return fmt.Sprintf("%q", path) }
 
 // tomlHeader writes path as the key of a TOML table header.
 func tomlHeader(path []string) string {
@@ -299,16 +302,18 @@ func tomlTables(data []byte) map[string]tomlTable {
 	for parser.NextExpression() {
 		expr := parser.Expression()
 
+		parts, last := tomlKey(expr.Key())
+
 		switch expr.Kind { //nolint:exhaustive // no other kind of expression holds a table's enabled
-		case unstable.Table, unstable.ArrayTable:
-			parts, at := tomlKey(expr.Key())
-			key = fmt.Sprintf("%q", parts)
-			none := unstable.Range{Offset: 0, Length: 0}
-			tables[key] = tomlTable{header: lines(data, at), enabled: none, line: none}
+		case unstable.Table:
+			key = tomlPath(parts)
+			table := tables[key]
+			table.header = lines(data, last)
+			tables[key] = table
 		case unstable.KeyValue:
-			if parts, _ := tomlKey(expr.Key()); slices.Equal(parts, []string{"enabled"}) {
+			if slices.Equal(parts, []string{"enabled"}) {
 				table := tables[key]
-				table.enabled, table.line = expr.Value().Raw, lines(data, expr.Raw)
+				table.enabled, table.enabledLine = expr.Value().Raw, lines(data, expr.Raw)
 				tables[key] = table
 			}
 		}
