@@ -27,7 +27,8 @@ type codexConfig struct {
 }
 
 const (
-	// codexConfigRel is the Project's Codex config, the one equip writes.
+	// codexConfigRel is the Project's Codex config, the one equip writes, in
+	// the checkout equip runs in.
 	codexConfigRel = ".codex/config.toml"
 	// codexPlugins and codexServers are the Codex config tables of plugins
 	// and of MCP servers, each by its name.
@@ -37,6 +38,10 @@ const (
 	// Codex puts into a session once when any plugin is on.
 	codexPluginsBlockBytes = 1000
 )
+
+// codexConfigPath is the Project's Codex config. Codex 0.155.1 reads it at the
+// root of the worktree it runs in.
+func codexConfigPath(project Project) string { return filepath.Join(project.checkout, codexConfigRel) }
 
 // readCodexConfig reads the Codex config of the Project. Codex reads the
 // Project's config only when the user's config trusts the Project, and equip
@@ -51,13 +56,14 @@ func readCodexConfig(machine Machine, project Project) codexConfig {
 	}
 
 	cfg := codexConfig{notApplied: "", layers: []codexLayer{{data: user, path: userPath, owned: false}}}
+	// Codex 0.155.1 trusts a worktree through its main checkout.
 	if table(table(user, "projects"), project.Path)["trust_level"] != "trusted" {
 		cfg.notApplied = "this Project is not trusted"
 
 		return cfg
 	}
 
-	path := filepath.Join(project.Path, codexConfigRel)
+	path := codexConfigPath(project)
 
 	data, err := readTOML(path)
 	if err != nil {
@@ -66,7 +72,7 @@ func readCodexConfig(machine Machine, project Project) codexConfig {
 		return cfg
 	}
 
-	cfg.notApplied = trackedReason(machine, project, codexConfigRel)
+	cfg.notApplied = trackedReason(machine, project, project.checkout, codexConfigRel)
 	cfg.layers = append(cfg.layers, codexLayer{data: data, path: path, owned: cfg.notApplied == ""})
 
 	return cfg
@@ -108,7 +114,7 @@ func readCodex(_ Machine, project Project, exts []Extension) (map[string]State, 
 		return states, nil
 	}
 
-	doc, err := readTOML(filepath.Join(project.Path, codexConfigRel))
+	doc, err := readTOML(codexConfigPath(project))
 	if err != nil {
 		return states, err
 	}
@@ -122,10 +128,10 @@ func readCodex(_ Machine, project Project, exts []Extension) (map[string]State, 
 	return states, nil
 }
 
-// writeCodex writes the states of overrides for exts into the Project's
-// .codex/config.toml, keeping every key equip does not own, and keeps the
-// file out of git. It removes the dead entries, and leaves the file alone when
-// no entry changes.
+// writeCodex writes the states of overrides for exts into the Project's Codex
+// config, keeping every key equip does not own, and keeps the file out of git.
+// It removes the dead entries, and leaves the file alone when no entry
+// changes.
 // ponytail: re-encodes the file, which drops its comments and key order; edit
 // the TOML in place if users keep notes there.
 func writeCodex(machine Machine, project Project, exts []Extension, overrides map[string]State) error {
@@ -135,7 +141,7 @@ func writeCodex(machine Machine, project Project, exts []Extension, overrides ma
 		return nil
 	}
 
-	path := filepath.Join(project.Path, codexConfigRel)
+	path := codexConfigPath(project)
 	doc := cfg.layers[len(cfg.layers)-1].data
 	dead := cfg.dead()
 	changed := len(dead) > 0
@@ -158,7 +164,7 @@ func writeCodex(machine Machine, project Project, exts []Extension, overrides ma
 		return fmt.Errorf("encode %s: %w", path, err)
 	}
 
-	err = exclude(machine, project, codexConfigRel)
+	err = exclude(machine, project, project.checkout, codexConfigRel)
 	if err != nil {
 		return err
 	}

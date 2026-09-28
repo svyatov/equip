@@ -21,6 +21,7 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 ### Fixed
 
 - A row whose state no agent applies shows `!` before its state glyph, and a `Not applied` facet keeps these rows. It is a skill only Codex has, as Codex has no per-project skill setting, an extension only Codex has in a Project Codex does not trust, or an extension only Claude Code has while git tracks `.claude/settings.local.json`. When a save includes such changes, it says how many, and why when they share one reason: `saved 3 changes, 2 not applied: Codex has no per-project skill setting`. Before, these rows looked applied.
+- In a linked worktree, equip reads and writes the Codex states in `.codex/config.toml` at the worktree's root, where Codex reads them. A worktree with no such file opens with the Record's Codex states as unsaved changes, and `s` writes them there. Before, equip used the main checkout's file, so the Codex states never reached a Codex session in the worktree.
 - The keys `1`, `2`, and `3` set on, manual-only, and off on every row. On a plugin or an MCP server, `3` sets off, and `2` changes nothing and says the row has no manual-only state. Before, `2` set off there and `3` did nothing.
 
 ## [0.1.3] - 2026-09-27

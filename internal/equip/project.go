@@ -50,47 +50,48 @@ func locate(machine Machine, dir string) Project {
 	return Project{Path: root, RootCommit: commit, gitDir: common, checkout: checkout}
 }
 
-// tracked reports whether git tracks rel, a path in the Project, or the file
-// the symlinks on its way lead to. Outside git nothing is tracked.
-func tracked(machine Machine, project Project, rel string) bool {
+// tracked reports whether git tracks rel, a path under root, a checkout of the
+// Project, or the file the symlinks on its way lead to. Outside git nothing is
+// tracked.
+func tracked(machine Machine, project Project, root, rel string) bool {
 	if project.gitDir == "" {
 		return false
 	}
 	// git does not follow symlinks, so ask about the file they lead to. A file
 	// outside the repo reads as untracked.
-	path := filepath.Join(project.Path, rel)
+	path := filepath.Join(root, rel)
 
 	resolved, err := filepath.EvalSymlinks(path)
 	if err == nil {
 		path = resolved
 	}
 
-	_, err = machine.Git(project.Path, "ls-files", "--error-unmatch", "--", path)
+	_, err = machine.Git(root, "ls-files", "--error-unmatch", "--", path)
 
 	return err == nil
 }
 
-// trackedReason is why equip does not write rel, a config in the Project,
-// when git tracks it. It is empty when git does not.
-func trackedReason(machine Machine, project Project, rel string) string {
+// trackedReason is why equip does not write rel, a config under root, a
+// checkout of the Project, when git tracks it. It is empty when git does not.
+func trackedReason(machine Machine, project Project, root, rel string) string {
 	// A tracked file belongs to everyone who clones the repo.
-	if tracked(machine, project, rel) {
+	if tracked(machine, project, root, rel) {
 		return rel + " is tracked by git"
 	}
 
 	return ""
 }
 
-// exclude adds rel, a path in the Project, to the main checkout's
-// .git/info/exclude unless git already ignores it. Outside git it does
-// nothing.
-func exclude(machine Machine, project Project, rel string) error {
+// exclude adds rel, a path under root, a checkout of the Project, to the main
+// checkout's .git/info/exclude unless git already ignores it there. Every
+// worktree reads that file. Outside git it does nothing.
+func exclude(machine Machine, project Project, root, rel string) error {
 	if project.gitDir == "" {
 		return nil
 	}
 	// ponytail: any check-ignore failure reads as not ignored, which at worst
 	// adds a line git did not need.
-	_, err := machine.Git(project.Path, "check-ignore", "-q", rel)
+	_, err := machine.Git(root, "check-ignore", "-q", rel)
 	if err == nil {
 		return nil
 	}
