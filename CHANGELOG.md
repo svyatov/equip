@@ -14,6 +14,8 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 
 ## [Unreleased]
 
+## [0.1.4] - 2026-09-28
+
 ### Added
 
 - The key `a` acts on every row the list shows, after the facet and the search. `a` then `1`, `2`, or `3` sets them on, manual-only, or off, and `a` then `x` drops their Overrides, with those of a shown plugin's MCP servers. equip skips each plugin's skill and each row without the state, asks to confirm with the counts it changes and skips, and says how many it changed. `s` saves the changes.
@@ -94,7 +96,8 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 - equip keeps a Record per Project and machine. On a moved repository's first open, equip offers to adopt the Record left at the old path.
 - `--help` prints the usage and `--version` prints the build version.
 
-[unreleased]: https://github.com/svyatov/equip/compare/v0.1.3...HEAD
+[unreleased]: https://github.com/svyatov/equip/compare/v0.1.4...HEAD
+[0.1.4]: https://github.com/svyatov/equip/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/svyatov/equip/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/svyatov/equip/compare/v0.1.1...v0.1.2
 [0.1.1]: https://github.com/svyatov/equip/compare/v0.1.0...v0.1.1
