@@ -25,7 +25,7 @@ The trailing `echo EXITED=$?; sleep 3600` keeps the pane alive after equip quits
 
 - Send a key with `tmux send-keys -t eq j`. Type text with `tmux send-keys -t eq -l 'text'`.
 - Read the screen with `tmux capture-pane -t eq -p`. The first line holds the totals and the unsaved count. The last line holds the flash or a prompt. `▸` marks the highlighted row.
-- Test a layout with `-x` and `-y` on a new session, for example 90x20 and 59x20.
+- Test a layout with `-x` and `-y` on a new session, for example 90x20 and 60x20. 60 is the narrowest width equip draws (`minWidth` in `tui.go`); below it, equip shows "terminal too small".
 
 Keys get lost or merged when sent too fast:
 
