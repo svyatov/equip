@@ -346,6 +346,49 @@ func TestWriteStopsWhenThePresetChangedOutsideAndMergesTheChange(t *testing.T) {
 	write(t, session)
 }
 
+func TestWriteOfAnEmptyPresetDeletedOutsideStopsOnce(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	machine.Preset("Empty", "id = \"e1\"\n")
+	session := newSession(t, machine, machine.Root)
+	add(t, session, "e1", "review")
+	removePreset(t, machine, "Empty")
+
+	err := session.WritePreset()
+	if !errors.Is(err, equip.ErrPresetDeleted) {
+		t.Errorf("WritePreset = %v, want ErrPresetDeleted", err)
+	}
+
+	write(t, session)
+
+	if got := members(newSession(t, machine, machine.Root), "e1"); !slices.Equal(got, []string{"review ="}) {
+		t.Errorf("Empty's members on disk = %q, want review", got)
+	}
+}
+
+func TestWriteOverAFileThatHoldsAnotherPresetFails(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	session := newSession(t, machine, machine.Root)
+	id := create(t, session, "Docs")
+	add(t, session, id, "docs")
+
+	const other = "id = \"d9\"\nskills = [\"lint\"]\n"
+	machine.Preset("Docs", other)
+
+	err := session.WritePreset()
+	if !errors.Is(err, equip.ErrPresetName) {
+		t.Errorf("WritePreset = %v, want ErrPresetName", err)
+	}
+
+	err = session.WritePreset()
+	file := filepath.Join(machine.ConfigHome, "equip", "presets", "Docs.toml")
+
+	if got, _ := os.ReadFile(file); !errors.Is(err, equip.ErrPresetName) || string(got) != other {
+		t.Errorf("second WritePreset = %v and Docs.toml = %q, want ErrPresetName and the file kept", err, got)
+	}
+}
+
 func TestWriteOfAPresetFileThatNoLongerReadsFailsAndKeepsIt(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)
@@ -374,8 +417,12 @@ func TestWriteOfAPresetDeletedOutsideStopsOnceThenWritesItAgain(t *testing.T) {
 	removePreset(t, machine, "Ruby")
 
 	err := session.WritePreset()
-	if !errors.Is(err, equip.ErrPresetChanged) {
-		t.Errorf("WritePreset = %v, want ErrPresetChanged", err)
+	if !errors.Is(err, equip.ErrPresetDeleted) {
+		t.Errorf("WritePreset = %v, want ErrPresetDeleted", err)
+	}
+
+	if got := members(session, "r1"); !slices.Equal(got, []string{"lint +", "review +", "rspec +"}) {
+		t.Errorf("Ruby's members = %q, want each added to the deleted file", got)
 	}
 
 	write(t, session)

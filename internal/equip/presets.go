@@ -39,6 +39,10 @@ var ErrUnwrittenEdits = errors.New("another preset has unwritten edits")
 // since equip read it.
 var ErrPresetChanged = fmt.Errorf("preset %w", ErrChangedSinceOpen)
 
+// ErrPresetDeleted is the ErrPresetChanged of a preset whose file was
+// deleted.
+var ErrPresetDeleted = fmt.Errorf("%w: its file was deleted", ErrPresetChanged)
+
 // ErrPresetName is the error of a preset name that is empty, taken, or
 // cannot name a file.
 var ErrPresetName = errors.New("a preset needs a free name that can name a file")
@@ -472,9 +476,11 @@ func (s *Session) preview(change presetChange) (View, View) {
 
 // WritePreset writes the preset with unwritten edits. If the Project saved it
 // active, it rewrites the Project's agent config and record with the states
-// the preset changes, and pending changes stay pending. If an agent's entries
-// changed since they were read, it writes nothing, imports the changes and
-// returns ErrChangedSinceOpen.
+// the preset changes, and pending changes stay pending. If the preset's file
+// changed since it was read, it writes nothing, merges the change into the
+// unwritten edits and returns ErrPresetChanged. If an agent's entries changed
+// since they were read, it writes nothing, imports the changes and returns
+// ErrChangedSinceOpen.
 func (s *Session) WritePreset() error {
 	if s.draft == nil {
 		return nil
@@ -516,25 +522,29 @@ func (s *Session) WritePreset() error {
 // mergeOutside returns ErrPresetChanged if the file of the preset with
 // unwritten edits changed since equip read it. It then takes the file's
 // members as the written ones, and makes the unwritten edits to them. A
-// deleted file has none, and leaves the edits as they are.
+// deleted file has none, and leaves the edits as they are: New then marks
+// the draft, whose write creates the file.
 func (s *Session) mergeOutside() error {
 	written := &s.pending.library[s.presetIndex(s.draft.ID)]
+	file := presetPath(s.machine, written.Name)
+	now, err := readPreset(file)
 
-	now, err := readPreset(presetPath(s.machine, written.Name))
-	deleted := errors.Is(err, fs.ErrNotExist)
+	switch {
+	case errors.Is(err, fs.ErrNotExist) && s.draft.New:
+		return nil
+	case errors.Is(err, fs.ErrNotExist):
+		s.draft.New, written.Members = true, nil
 
-	if err != nil && !deleted {
-		return err
-	}
-
-	if slices.EqualFunc(now.Members, written.Members, func(a, b Member) bool { return a.Key == b.Key }) {
+		return ErrPresetDeleted
+	case err != nil:
+		return fmt.Errorf("read %s: %w", file, err)
+	case now.ID != s.draft.ID:
+		return fmt.Errorf("%w: %s holds preset %s", ErrPresetName, file, now.ID)
+	case slices.EqualFunc(now.Members, written.Members, func(a, b Member) bool { return a.Key == b.Key }):
 		return nil
 	}
 
-	if !deleted {
-		s.draft.Members = merged(written.Members, s.draft.Members, now.Members)
-	}
-
+	s.draft.Members = merged(written.Members, s.draft.Members, now.Members)
 	written.Members = now.Members
 
 	return ErrPresetChanged

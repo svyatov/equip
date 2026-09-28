@@ -392,6 +392,8 @@ func (m *model) write(presets []equip.Preset) {
 	err := m.s.WritePreset()
 
 	switch {
+	case errors.Is(err, equip.ErrPresetDeleted):
+		m.flash, m.ws.leave = m.style.warn.Render("preset file deleted outside equip since open: w writes it again"), ""
 	case errors.Is(err, equip.ErrPresetChanged):
 		m.flash, m.ws.leave = m.style.warn.Render(err.Error()+": merged into the edits, w writes them"), ""
 	case err != nil:
