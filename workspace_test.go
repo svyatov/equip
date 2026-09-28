@@ -498,11 +498,23 @@ func TestWriteAfterAnOutsideChangeHereSaysWWritesIt(t *testing.T) {
 	settings := filepath.Join(machine.Root, ".claude", "settings.local.json")
 
 	press(tui, key('a'), key(' '), esc())
-	machine.WriteFile(settings, `{"skillOverrides": {"review": "off"}}`)
+	// Ruby saved docs off, lint on and review off here.
+	machine.WriteFile(settings, `{"skillOverrides": {"docs": "off", "lint": "on", "review": "on"}}`)
 	press(tui, key('w'), key('y'))
 
 	if line(tui, "changed outside equip: added to Unsaved changes, press w to write") == "" {
 		t.Errorf("w does not say the change was added:\n%s", tui.View().Content)
+	}
+
+	press(tui, key('w'), key('y'))
+
+	file := filepath.Join(machine.ConfigHome, "equip", "presets", "Ruby.toml")
+	if data, _ := os.ReadFile(file); !strings.Contains(string(data), "docs") {
+		t.Errorf("the second w did not write Ruby:\n%s", data)
+	}
+	// The write keeps pending changes pending, the imported one too.
+	if n := tui.s.View().Unsaved; n != 1 {
+		t.Errorf("Unsaved = %d, want the imported change", n)
 	}
 }
 
