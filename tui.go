@@ -1115,7 +1115,7 @@ func (m *model) act(key, target string) tea.Cmd {
 		m.s.DropOverride(target)
 	case spaceKey:
 		states := m.s.Detail(target).States
-		state, _ := m.pending(target)
+		state, _ := m.stateAndKind(target)
 		m.s.SetState(target, states[(slices.Index(states, state)+1)%len(states)])
 	case "m":
 		m.flash = m.style.dim.Render("measuring " + target + "…")
@@ -1124,7 +1124,7 @@ func (m *model) act(key, target string) tea.Cmd {
 	default:
 		state := equip.States()[key[0]-'1']
 		if !slices.Contains(m.s.Detail(target).States, state) {
-			_, kind := m.pending(target)
+			_, kind := m.stateAndKind(target)
 			m.flash = m.style.dim.Render(fmt.Sprintf("%ss have no %s state", kind, state))
 
 			return nil
@@ -1136,9 +1136,9 @@ func (m *model) act(key, target string) tea.Cmd {
 	return nil
 }
 
-// pending is the pending state and the kind of the extension with key: the
-// highlighted row, or one of its MCP servers.
-func (m *model) pending(key string) (equip.State, equip.Kind) {
+// stateAndKind are the pending state and the kind of the extension with key:
+// the highlighted row, or one of its MCP servers.
+func (m *model) stateAndKind(key string) (equip.State, equip.Kind) {
 	rows := m.rows(m.s.View())
 	for _, content := range m.s.Detail(rows[m.cur].Key).Contents {
 		if content.Key == key {
