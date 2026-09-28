@@ -413,6 +413,12 @@ func TestStateKeySetsAnUnsavedOverrideOnTheHighlightedSkill(t *testing.T) {
 	if strings.Count(tui.View().Content, "*") != 1 || strings.Contains(line(tui, "alpha"), "*") {
 		t.Errorf("unsaved marker on the wrong row:\n%s", tui.View().Content)
 	}
+
+	press(tui, key('1'))
+
+	if r := tui.s.View().Rows[1]; r.State != equip.On || !r.Override {
+		t.Errorf("after 1, beta = %+v, want an Override on", r)
+	}
 }
 
 func TestDetailPaneShowsStatesOriginAndFallback(t *testing.T) {
