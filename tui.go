@@ -316,18 +316,18 @@ func (m *model) probed(probed probedMsg) {
 	}
 
 	if m.probing == 0 && m.failed > 0 {
-		m.flash = m.style.warn.Render(fmt.Sprintf("%d MCP %s could not be measured, m on one says why",
-			m.failed, plural(m.failed, "server", "servers")))
+		m.flash = m.style.warn.Render(count(m.failed, "MCP server", "MCP servers") +
+			" could not be measured, m on one says why")
 	}
 }
 
-// plural is one when count is 1, else many.
-func plural(count int, one, many string) string {
-	if count == 1 {
-		return one
+// count is n followed by one when n is 1, else by many: "1 change", "2 changes".
+func count(n int, one, many string) string {
+	if n == 1 {
+		return "1 " + one
 	}
 
-	return many
+	return fmt.Sprintf("%d %s", n, many)
 }
 
 // mainView is the main screen's status and panes, height lines tall.
@@ -603,9 +603,7 @@ func (m *model) footer() string {
 
 		return strings.Join(append(lines, m.style.dim.Render("its number adopts it  n start fresh")), "\n")
 	case m.quitting:
-		n := m.unsaved()
-
-		return m.style.warn.Render(fmt.Sprintf("%d unsaved %s. Quit without saving? y/n", n, plural(n, "change", "changes")))
+		return m.style.warn.Render(count(m.unsaved(), "unsaved change", "unsaved changes") + ". Quit without saving? y/n")
 	case m.bulking():
 		return m.bulkPrompt()
 	case m.flash != "":
@@ -643,10 +641,10 @@ func (m *model) bulkPrompt() string {
 
 	keys, skipped := m.bulkRows(m.bulk)
 	if m.bulk == "x" {
-		return m.style.warn.Render(fmt.Sprintf("Drop %d %s? y/n", len(keys), plural(len(keys), "override", "overrides")))
+		return m.style.warn.Render(fmt.Sprintf("Drop %s? y/n", count(len(keys), "override", "overrides")))
 	}
 
-	prompt := fmt.Sprintf("Set %d %s %s", len(keys), plural(len(keys), "row", "rows"), numbered(m.bulk))
+	prompt := fmt.Sprintf("Set %s %s", count(len(keys), "row", "rows"), numbered(m.bulk))
 	if skipped > 0 {
 		prompt += fmt.Sprintf(", skip %d without it", skipped)
 	}
@@ -1051,7 +1049,7 @@ func (m *model) bulkKey(key string) {
 			m.s.DropOverride(key)
 		}
 
-		m.flash = m.style.dim.Render(fmt.Sprintf("dropped %d %s", len(keys), plural(len(keys), "override", "overrides")))
+		m.flash = m.style.dim.Render("dropped " + count(len(keys), "override", "overrides"))
 
 		return
 	}
@@ -1061,7 +1059,7 @@ func (m *model) bulkKey(key string) {
 		m.s.SetState(key, state)
 	}
 
-	m.flash = fmt.Sprintf("set %d %s %s", len(keys), plural(len(keys), "row", "rows"), state)
+	m.flash = fmt.Sprintf("set %s %s", count(len(keys), "row", "rows"), state)
 	if skipped > 0 {
 		m.flash += fmt.Sprintf(", skipped %d without it", skipped)
 	}
@@ -1149,7 +1147,7 @@ func (m *model) save() {
 	case saved.Changes == 0:
 		m.flash = m.style.dim.Render("nothing to save")
 	default:
-		flash := fmt.Sprintf("saved %d %s", saved.Changes, plural(saved.Changes, "change", "changes"))
+		flash := "saved " + count(saved.Changes, "change", "changes")
 		if saved.NotApplied > 0 {
 			flash += fmt.Sprintf(", %d not applied", saved.NotApplied)
 		}
