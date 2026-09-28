@@ -442,8 +442,9 @@ func (s *Session) unsavedNotApplied() (int, string) {
 	count, reasons := 0, map[string]bool{}
 
 	for _, key := range s.unsavedKeys() {
-		ext, _ := s.pending.ext(key)
-		if !s.isNotApplied(ext) {
+		// An extension not installed has no agent to apply it yet.
+		ext, ok := s.pending.ext(key)
+		if !ok || !s.isNotApplied(ext) {
 			continue
 		}
 

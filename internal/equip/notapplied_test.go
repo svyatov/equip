@@ -82,6 +82,22 @@ func TestSaveCountsAChangeNotAppliedSinceTheSettingsFileGotTracked(t *testing.T)
 	}
 }
 
+func TestSaveDoesNotCountAnOverrideOfAnExtensionNotInstalledAsNotApplied(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	session := newSession(t, machine, machine.Root)
+	session.SetState("missing", equip.Off)
+
+	saved, err := session.Save()
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if saved.Changes != 1 || saved.NotApplied != 0 {
+		t.Errorf("Save = %+v, want 1 change and none not applied", saved)
+	}
+}
+
 func TestClaudeOnlySkillIsNotAppliedWithATrackedSettingsFile(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
