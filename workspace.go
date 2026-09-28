@@ -397,7 +397,7 @@ func (m *model) write(presets []equip.Preset) {
 	case errors.Is(err, equip.ErrPresetChanged):
 		m.flash, m.ws.leave = m.style.warn.Render(err.Error()+": merged into the edits, w writes them"), ""
 	case errors.Is(err, equip.ErrChangedSinceOpen):
-		m.flash, m.ws.leave = m.style.bad.Render(imported("w to write, then esc and s to save")), ""
+		m.flash, m.ws.leave = m.style.bad.Render("changed outside equip: press w to write, then esc and s to save"), ""
 	case err != nil:
 		m.flash, m.ws.leave = m.style.bad.Render("write failed: "+err.Error()), ""
 	case cur.New:

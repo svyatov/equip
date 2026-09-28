@@ -1134,13 +1134,6 @@ func stateKey(key string) bool {
 	return slices.Contains([]string{"1", "2", "3", "x", "m", spaceKey}, key)
 }
 
-// imported is the flash of a key that stopped on an agent config changed
-// outside equip, which equip added to the unsaved changes. next is the key to
-// press again and what it does.
-func imported(next string) string {
-	return "changed outside equip: added to Unsaved changes, press " + next
-}
-
 // save saves the pending changes, and says how many it wrote, how many of
 // them no agent applies and why, or why it failed.
 func (m *model) save() {
@@ -1148,7 +1141,7 @@ func (m *model) save() {
 
 	switch {
 	case errors.Is(err, equip.ErrChangedSinceOpen):
-		m.flash = m.style.bad.Render(imported("s to save"))
+		m.flash = m.style.bad.Render("changed outside equip: added to Unsaved changes, press s to save")
 	case err != nil:
 		m.flash = m.style.bad.Render("save failed: " + err.Error())
 	case saved.Changes == 0:

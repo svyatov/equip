@@ -502,7 +502,8 @@ func TestWriteAfterAnOutsideChangeHereSaysWThenSSavesBoth(t *testing.T) {
 	machine.WriteFile(settings, `{"skillOverrides": {"docs": "off", "lint": "on", "review": "on"}}`)
 	press(tui, key('w'), key('y'))
 
-	if line(tui, "changed outside equip: added to Unsaved changes, press w to write, then esc and s to save") == "" {
+	if line(tui, "changed outside equip: press w to write, then esc and s to save") == "" ||
+		line(tui, "added to Unsaved changes") != "" {
 		t.Errorf("w does not say the change was added:\n%s", tui.View().Content)
 	}
 
