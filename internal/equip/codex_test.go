@@ -328,6 +328,170 @@ func TestUnknownCodexValueIsNotImportedAndSaveKeepsIt(t *testing.T) {
 	}
 }
 
+// savedCodex saves the change to a trusted Project whose Codex config holds
+// before, with the github@official plugin and the db and search MCP servers
+// in the user config, and returns the Project's Codex config after the save.
+func savedCodex(t *testing.T, before string, change func(*equip.Session)) string {
+	t.Helper()
+
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	codexPlugin(t, machine, "github@official")
+	appendFile(t, machine.CodexConfig(), "[mcp_servers.db]\ncommand = \"db\"\n[mcp_servers.search]\ncommand = \"s\"\n")
+	trust(t, machine, repo)
+	writeFile(t, codexProject(repo), before)
+	session := newSession(t, machine, repo)
+	change(session)
+	save(t, session)
+
+	data, err := os.ReadFile(codexProject(repo))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	return string(data)
+}
+
+func TestSaveChangesOnlyTheEnabledValueInTheCodexConfig(t *testing.T) {
+	t.Parallel()
+
+	before := "# my precious comment\nmodel = \"gpt-5\" # inline note\n\n" +
+		"[mcp_servers.search]\nstartup_timeout_sec = 5\nenabled = true # on for now\n"
+	got := savedCodex(t, before, func(s *equip.Session) { s.SetState("mcp:search", equip.Off) })
+
+	want := "# my precious comment\nmodel = \"gpt-5\" # inline note\n\n" +
+		"[mcp_servers.search]\nstartup_timeout_sec = 5\nenabled = false # on for now\n"
+	if got != want {
+		t.Errorf(".codex/config.toml =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestSaveInsertsEnabledUnderTheCodexTableWithoutIt(t *testing.T) {
+	t.Parallel()
+
+	before := "# notes\n[mcp_servers.search] # the search server\nstartup_timeout_sec = 5\n"
+	got := savedCodex(t, before, func(s *equip.Session) { s.SetState("mcp:search", equip.Off) })
+
+	want := "# notes\n[mcp_servers.search] # the search server\nenabled = false\nstartup_timeout_sec = 5\n"
+	if got != want {
+		t.Errorf(".codex/config.toml =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestSaveAppendsTheCodexTableOfAPluginWithoutOne(t *testing.T) {
+	t.Parallel()
+
+	before := "# notes\n[mcp_servers.search]\nstartup_timeout_sec = 5\n"
+	got := savedCodex(t, before, func(s *equip.Session) { s.SetState("github@official", equip.Off) })
+
+	want := before + "\n[plugins.\"github@official\"]\nenabled = false\n"
+	if got != want {
+		t.Errorf(".codex/config.toml =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestSaveIntoAnEmptyCodexConfigStartsWithTheTable(t *testing.T) {
+	t.Parallel()
+
+	got := savedCodex(t, "", func(s *equip.Session) {
+		s.SetState("mcp:search", equip.Off)
+		s.SetState("github@official", equip.On)
+	})
+
+	want := "[plugins.\"github@official\"]\nenabled = true\n\n[mcp_servers.search]\nenabled = false\n"
+	if got != want {
+		t.Errorf(".codex/config.toml =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestSavingADroppedOverrideRemovesOnlyItsEnabledLine(t *testing.T) {
+	t.Parallel()
+
+	before := "# notes\n[mcp_servers.search]\nstartup_timeout_sec = 5\n  enabled = false # off\n# after\n"
+	got := savedCodex(t, before, func(s *equip.Session) { s.DropOverride("mcp:search") })
+
+	want := "# notes\n[mcp_servers.search]\nstartup_timeout_sec = 5\n# after\n"
+	if got != want {
+		t.Errorf(".codex/config.toml =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestSavingADroppedOverrideRemovesTheCodexTableItWasAlone(t *testing.T) {
+	t.Parallel()
+
+	before := "# top\n[mcp_servers.db]\ncwd = \"/\"\n[mcp_servers.search] # note\nenabled = false\n# end\n"
+	got := savedCodex(t, before, func(s *equip.Session) { s.DropOverride("mcp:search") })
+
+	if want := "# top\n[mcp_servers.db]\ncwd = \"/\"\n# end\n"; got != want {
+		t.Errorf(".codex/config.toml =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestSavingADroppedOverrideRemovesTheParentCodexTablesItLeavesEmpty(t *testing.T) {
+	t.Parallel()
+
+	before := "# top\n[mcp_servers]\n[mcp_servers.db]\nenabled = true\n[mcp_servers.search]\nenabled = false\n# end\n"
+	got := savedCodex(t, before, func(s *equip.Session) {
+		s.DropOverride("mcp:db")
+		s.DropOverride("mcp:search")
+	})
+
+	if want := "# top\n# end\n"; got != want {
+		t.Errorf(".codex/config.toml =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestSavingADroppedOverrideOfADottedCodexKeyWritesTheConfigInFull(t *testing.T) {
+	t.Parallel()
+
+	before := "[mcp_servers]\nsearch.startup_timeout_sec = 5\nsearch.enabled = false\n"
+	got := savedCodex(t, before, func(s *equip.Session) { s.DropOverride("mcp:search") })
+
+	var doc map[string]any
+
+	err := toml.Unmarshal([]byte(got), &doc)
+	want := map[string]any{"mcp_servers": map[string]any{"search": map[string]any{"startup_timeout_sec": int64(5)}}}
+
+	if err != nil || !reflect.DeepEqual(doc, want) {
+		t.Errorf(".codex/config.toml = %v, %v, want %v", doc, err, want)
+	}
+}
+
+func TestSavingDroppedOverridesOfAnInlineAndAFirstCodexTableRemovesBoth(t *testing.T) {
+	t.Parallel()
+
+	before := "[mcp_servers.db]\nenabled = false\n[mcp_servers]\nsearch = { enabled = false }\n"
+	got := savedCodex(t, before, func(s *equip.Session) {
+		s.DropOverride("mcp:db")
+		s.DropOverride("mcp:search")
+	})
+
+	var doc map[string]any
+
+	err := toml.Unmarshal([]byte(got), &doc)
+	if err != nil || len(doc) != 0 {
+		t.Errorf(".codex/config.toml = %v, %v, want it empty", doc, err)
+	}
+}
+
+func TestSaveSetsTheStateOfAnInlineCodexTable(t *testing.T) {
+	t.Parallel()
+
+	before := "[mcp_servers]\nsearch = { startup_timeout_sec = 5 }\n"
+	got := savedCodex(t, before, func(s *equip.Session) { s.SetState("mcp:search", equip.Off) })
+
+	var doc map[string]any
+
+	err := toml.Unmarshal([]byte(got), &doc)
+	want := map[string]any{"mcp_servers": map[string]any{
+		"search": map[string]any{"startup_timeout_sec": int64(5), "enabled": false},
+	}}
+
+	if err != nil || !reflect.DeepEqual(doc, want) {
+		t.Errorf(".codex/config.toml = %v, %v, want %v", doc, err, want)
+	}
+}
+
 func TestSaveWithNoCodexChangeLeavesTheCodexConfigAlone(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)

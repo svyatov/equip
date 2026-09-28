@@ -1,16 +1,20 @@
 package equip
 
 import (
+	"bytes"
 	"cmp"
 	"encoding/json"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
+	"reflect"
 	"slices"
+	"strconv"
 	"strings"
 
 	"github.com/pelletier/go-toml/v2"
+	"github.com/pelletier/go-toml/v2/unstable"
 )
 
 // codexLayer is one Codex config file as equip reads it.
@@ -131,9 +135,8 @@ func readCodex(_ Machine, project Project, exts []Extension) (map[string]State, 
 // writeCodex writes the states of overrides for exts into the Project's Codex
 // config, keeping every key equip does not own, and keeps the file out of git.
 // It removes the dead entries, and leaves the file alone when no entry
-// changes.
-// ponytail: re-encodes the file, which drops its comments and key order; edit
-// the TOML in place if users keep notes there.
+// changes. It edits the file in place, keeping its comments and key order, or
+// writes it in full when a table has a shape the edit does not handle.
 func writeCodex(machine Machine, project Project, exts []Extension, overrides map[string]State) error {
 	// Read again, as the file may have become tracked since open.
 	cfg := readCodexConfig(machine, project)
@@ -143,28 +146,38 @@ func writeCodex(machine Machine, project Project, exts []Extension, overrides ma
 
 	path := codexConfigPath(project)
 	doc := cfg.layers[len(cfg.layers)-1].data
-	dead := cfg.dead()
-	changed := len(dead) > 0
 
-	for _, name := range dead {
+	var changed [][]string
+
+	for _, name := range cfg.dead() {
 		setCodexState(doc, []string{codexServers, name}, On, false)
+		changed = append(changed, []string{codexServers, name})
 	}
 
 	for _, ext := range exts {
 		st, set := overrides[ext.Key]
-		changed = setCodexState(doc, ext.codexPath(), st, set) || changed
+		if setCodexState(doc, ext.codexPath(), st, set) {
+			changed = append(changed, ext.codexPath())
+		}
 	}
 
-	if !changed {
+	if len(changed) == 0 {
 		return nil
 	}
 
-	data, err := toml.Marshal(doc)
-	if err != nil {
-		return fmt.Errorf("encode %s: %w", path, err)
+	before, _ := os.ReadFile(path) //nolint:gosec // equip builds the path
+
+	data, ok := editTOML(before, doc, changed)
+	if !ok {
+		var err error
+
+		data, err = toml.Marshal(doc)
+		if err != nil {
+			return fmt.Errorf("encode %s: %w", path, err)
+		}
 	}
 
-	err = exclude(machine, project, project.checkout, codexConfigRel)
+	err := exclude(machine, project, project.checkout, codexConfigRel)
 	if err != nil {
 		return err
 	}
@@ -200,6 +213,171 @@ func setCodexState(doc map[string]any, path []string, state State, set bool) boo
 	}
 
 	return true
+}
+
+// editTOML returns data with the enabled key of the table at each of paths
+// set as in doc, keeping every other byte, or false when the edited data does
+// not read as doc, as when data holds a table in a shape it does not edit.
+func editTOML(data []byte, doc map[string]any, paths [][]string) ([]byte, bool) {
+	tables := tomlTables(data)
+	edits := make([]tomlEdit, 0, len(paths))
+
+	for _, path := range paths {
+		edits = append(edits, tables[tomlPath(path)].edit(data, path, tablesOn(doc, path)[len(path)])...)
+	}
+	// Tables that held only equip's entries go with them.
+	for _, table := range tables {
+		if tablesOn(doc, table.path)[len(table.path)] == nil {
+			edits = append(edits, tomlEdit{text: "", at: table.header})
+		}
+	}
+
+	edited := applyEdits(data, edits)
+	if len(data) == 0 {
+		edited = bytes.TrimPrefix(edited, []byte("\n"))
+	}
+
+	var got map[string]any
+
+	err := toml.Unmarshal(edited, &got)
+
+	return edited, err == nil && reflect.DeepEqual(got, doc)
+}
+
+// tomlTable is a table's path, and where its header line and its enabled's
+// value and line are in a TOML file. Each range is empty when the file has
+// none.
+type tomlTable struct {
+	path        []string
+	header      unstable.Range
+	enabled     unstable.Range
+	enabledLine unstable.Range
+}
+
+// edit lists the edits that set the enabled of the table at path in data as
+// in entry, the table after the change.
+func (t tomlTable) edit(data []byte, path []string, entry map[string]any) []tomlEdit {
+	value, set := entry["enabled"]
+
+	switch {
+	case set && t.enabled.Length > 0:
+		return []tomlEdit{{text: fmt.Sprint(value), at: t.enabled}}
+	case set && t.header.Length > 0:
+		at := unstable.Range{Offset: lineEnd(data, t.header.Offset), Length: 0}
+
+		return []tomlEdit{{text: fmt.Sprint("\nenabled = ", value), at: at}}
+	case set:
+		end := unstable.Range{Offset: uint32(len(data)), Length: 0} //nolint:gosec // the parser takes no data past 4 GiB
+
+		return []tomlEdit{{text: fmt.Sprintf("\n[%s]\nenabled = %v\n", tomlHeader(path), value), at: end}}
+	}
+
+	return []tomlEdit{{text: "", at: t.enabledLine}}
+}
+
+// tomlPath is the key of the table at path in the tables tomlTables reads.
+func tomlPath(path []string) string { return fmt.Sprintf("%q", path) }
+
+// tomlHeader writes path as the key of a TOML table header.
+func tomlHeader(path []string) string {
+	parts := make([]string, len(path))
+
+	for i, part := range path {
+		parts[i] = part
+		// A key of other bytes needs quotes.
+		if strings.Trim(part, "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_") != "" {
+			parts[i] = strconv.Quote(part)
+		}
+	}
+
+	return strings.Join(parts, ".")
+}
+
+// tomlTables reads the tables of the TOML data by their keys, up to the first
+// error.
+func tomlTables(data []byte) map[string]tomlTable {
+	tables := map[string]tomlTable{}
+
+	var parser unstable.Parser
+
+	parser.Reset(data)
+
+	var key string
+
+	for parser.NextExpression() {
+		expr := parser.Expression()
+
+		parts, last := tomlKey(expr.Key())
+
+		switch expr.Kind { //nolint:exhaustive // no other kind of expression holds a table's enabled
+		case unstable.Table:
+			key = tomlPath(parts)
+			table := tables[key]
+			table.path, table.header = parts, lines(data, last)
+			tables[key] = table
+		case unstable.KeyValue:
+			if slices.Equal(parts, []string{"enabled"}) {
+				table := tables[key]
+				table.enabled, table.enabledLine = expr.Value().Raw, lines(data, expr.Raw)
+				tables[key] = table
+			}
+		}
+	}
+
+	return tables
+}
+
+// tomlKey reads the parts of a TOML key and where its last part is.
+func tomlKey(key unstable.Iterator) ([]string, unstable.Range) {
+	var (
+		parts []string
+		last  unstable.Range
+	)
+
+	for key.Next() {
+		parts = append(parts, string(key.Node().Data))
+		last = key.Node().Raw
+	}
+
+	return parts, last
+}
+
+// lineEnd is where the line at offset ends in data, before its newline.
+func lineEnd(data []byte, offset uint32) uint32 {
+	line, _, _ := bytes.Cut(data[offset:], []byte("\n"))
+
+	return offset + uint32(len(line)) //nolint:gosec // the parser takes no data past 4 GiB
+}
+
+// lines is the lines of data that r is on, with the newline that ends them.
+func lines(data []byte, r unstable.Range) unstable.Range {
+	start := bytes.LastIndexByte(data[:r.Offset], '\n') + 1
+	end := min(int(lineEnd(data, r.Offset+r.Length))+1, len(data))
+
+	return unstable.Range{Offset: uint32(start), Length: uint32(end - start)} //nolint:gosec // as in lineEnd
+}
+
+// tomlEdit replaces the bytes at with text.
+type tomlEdit struct {
+	text string
+	at   unstable.Range
+}
+
+// applyEdits returns data with each of edits made, those at one offset in
+// order. The edits do not overlap.
+func applyEdits(data []byte, edits []tomlEdit) []byte {
+	slices.SortStableFunc(edits, func(a, b tomlEdit) int { return cmp.Compare(a.at.Offset, b.at.Offset) })
+
+	out := make([]byte, 0, len(data))
+	done := 0
+
+	for _, edit := range edits {
+		out = append(out, data[done:edit.at.Offset]...)
+		out = append(out, edit.text...)
+		done = int(edit.at.Offset + edit.at.Length)
+	}
+
+	return append(out, data[done:]...)
 }
 
 // tableAt returns the table under key in doc, creating it when missing.
