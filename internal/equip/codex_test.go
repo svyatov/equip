@@ -419,8 +419,22 @@ func TestSavingADroppedOverrideRemovesOnlyItsEnabledLine(t *testing.T) {
 func TestSavingADroppedOverrideRemovesTheCodexTableItWasAlone(t *testing.T) {
 	t.Parallel()
 
-	before := "# top\n[mcp_servers.search] # note\nenabled = false\n# end\n"
+	before := "# top\n[mcp_servers.db]\ncwd = \"/\"\n[mcp_servers.search] # note\nenabled = false\n# end\n"
 	got := savedCodex(t, before, func(s *equip.Session) { s.DropOverride("mcp:search") })
+
+	if want := "# top\n[mcp_servers.db]\ncwd = \"/\"\n# end\n"; got != want {
+		t.Errorf(".codex/config.toml =\n%s\nwant\n%s", got, want)
+	}
+}
+
+func TestSavingADroppedOverrideRemovesTheParentCodexTablesItLeavesEmpty(t *testing.T) {
+	t.Parallel()
+
+	before := "# top\n[mcp_servers]\n[mcp_servers.db]\nenabled = true\n[mcp_servers.search]\nenabled = false\n# end\n"
+	got := savedCodex(t, before, func(s *equip.Session) {
+		s.DropOverride("mcp:db")
+		s.DropOverride("mcp:search")
+	})
 
 	if want := "# top\n# end\n"; got != want {
 		t.Errorf(".codex/config.toml =\n%s\nwant\n%s", got, want)

@@ -225,6 +225,12 @@ func editTOML(data []byte, doc map[string]any, paths [][]string) ([]byte, bool) 
 	for _, path := range paths {
 		edits = append(edits, tables[tomlPath(path)].edit(data, path, tablesOn(doc, path)[len(path)])...)
 	}
+	// Tables that held only equip's entries go with them.
+	for _, table := range tables {
+		if tablesOn(doc, table.path)[len(table.path)] == nil {
+			edits = append(edits, tomlEdit{text: "", at: table.header})
+		}
+	}
 
 	edited := applyEdits(data, edits)
 	if len(data) == 0 {
@@ -238,9 +244,11 @@ func editTOML(data []byte, doc map[string]any, paths [][]string) ([]byte, bool) 
 	return edited, err == nil && reflect.DeepEqual(got, doc)
 }
 
-// tomlTable is where a table's header line and its enabled's value and line
-// are in a TOML file. Each is empty when the file has none.
+// tomlTable is a table's path, and where its header line and its enabled's
+// value and line are in a TOML file. Each range is empty when the file has
+// none.
 type tomlTable struct {
+	path        []string
 	header      unstable.Range
 	enabled     unstable.Range
 	enabledLine unstable.Range
@@ -262,12 +270,6 @@ func (t tomlTable) edit(data []byte, path []string, entry map[string]any) []toml
 		end := unstable.Range{Offset: uint32(len(data)), Length: 0} //nolint:gosec // the parser takes no data past 4 GiB
 
 		return []tomlEdit{{text: fmt.Sprintf("\n[%s]\nenabled = %v\n", tomlHeader(path), value), at: end}}
-	case t.enabledLine.Length == 0:
-		// Not in a shape edit handles; editTOML's check writes the file in full.
-		return nil
-	case entry == nil:
-		// A table that held only equip's entry goes with it.
-		return []tomlEdit{{text: "", at: t.enabledLine}, {text: "", at: t.header}}
 	}
 
 	return []tomlEdit{{text: "", at: t.enabledLine}}
@@ -311,7 +313,7 @@ func tomlTables(data []byte) map[string]tomlTable {
 		case unstable.Table:
 			key = tomlPath(parts)
 			table := tables[key]
-			table.header = lines(data, last)
+			table.path, table.header = parts, lines(data, last)
 			tables[key] = table
 		case unstable.KeyValue:
 			if slices.Equal(parts, []string{"enabled"}) {
