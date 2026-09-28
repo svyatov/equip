@@ -6,6 +6,10 @@
 
 When equip's list or a facet count disagrees with what Claude Code or Codex loads, follow `docs/agents/checking-counts.md`.
 
+## QA
+
+To test equip end to end in a terminal, driving the TUI through tmux, follow `docs/agents/qa.md`.
+
 ## Agent skills
 
 ### Issue tracker
