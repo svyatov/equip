@@ -1739,16 +1739,39 @@ func TestAXYDropsEveryShownOverride(t *testing.T) {
 	}
 }
 
+func TestAXYDropsTheOverridesOfAShownPluginsMCPServers(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	dir := machine.Plugin("github@official", "user", "")
+	machine.WriteFile(filepath.Join(dir, ".mcp.json"), `{"mcpServers": {"search": {"command": "search"}}}`)
+	tui := newModel(t, machine)
+
+	// Off by hand on the plugin's MCP server.
+	press(tui, tea.KeyPressMsg{Code: tea.KeyTab}, key('3'), key('a'), key('x'))
+
+	if line(tui, "Drop 1 override? y/n") == "" {
+		t.Errorf("prompt does not count the MCP server's Override:\n%s", plain(tui))
+	}
+
+	press(tui, key('y'))
+
+	for _, content := range tui.s.Detail("github@official").Contents {
+		if content.Override {
+			t.Errorf("MCP server %s = %+v, want no Override", content.Name, content)
+		}
+	}
+}
+
 func TestABulkActionAsksToConfirmWithItsCount(t *testing.T) {
 	t.Parallel()
 
 	for want, keys := range map[string][]tea.KeyPressMsg{
-		"Set 3 rows off? y/n":                 {key('a'), key('3')},
-		"Set 3 rows manual-only? y/n":         {key('a'), key('2')},
-		"Drop 1 override? y/n":                {key('3'), key('a'), key('x')},
-		"Change every row the list shows":     {key('a')},
-		"1 2 3  on, manual-only, off":         {key('a')},
-		"x  drop the overrides   esc  cancel": {key('a')},
+		"Set 3 rows off? y/n":                           {key('a'), key('3')},
+		"Set 1 row manual-only, skip 2 without it? y/n": {key('a'), key('2')},
+		"Drop 1 override? y/n":                          {key('3'), key('a'), key('x')},
+		"Change every row the list shows":               {key('a')},
+		"1 2 3  on, manual-only, off":                   {key('a')},
+		"x  drop the overrides   esc  cancel":           {key('a')},
 	} {
 		tui := newModel(t, withEveryKind(t))
 
@@ -1758,8 +1781,11 @@ func TestABulkActionAsksToConfirmWithItsCount(t *testing.T) {
 			t.Errorf("after %v, view does not show %q:\n%s", keys, want, plain(tui))
 		}
 
-		if r := tui.s.View().Rows[3]; r.Override {
-			t.Errorf("after %v, search = %+v, want no Override before y", keys, r)
+		// Only 3 on alpha, the first row, sets an Override before y.
+		for _, r := range tui.s.View().Rows {
+			if r.Override && r.Name != "alpha" {
+				t.Errorf("after %v, %s = %+v, want no Override before y", keys, r.Name, r)
+			}
 		}
 	}
 }

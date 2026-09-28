@@ -16,7 +16,7 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 
 ### Added
 
-- The key `a` acts on every row the list shows, after the facet and the search. `a` then `1`, `2`, or `3` sets them on, manual-only, or off, and `a` then `x` drops their Overrides. equip asks to confirm with the count, skips each plugin's skill and each row without the state, and says how many it set and skipped. `s` saves the changes.
+- The key `a` acts on every row the list shows, after the facet and the search. `a` then `1`, `2`, or `3` sets them on, manual-only, or off, and `a` then `x` drops their Overrides, with those of a shown plugin's MCP servers. equip skips each plugin's skill and each row without the state, asks to confirm with the counts it changes and skips, and says how many it changed. `s` saves the changes.
 
 ### Fixed
 
