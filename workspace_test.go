@@ -280,7 +280,7 @@ func TestWorkspaceFitsNarrowTerminals(t *testing.T) {
 				press(tui, key('p'), key(focus))
 
 				if why := fits(tui, width, 20); why != "" {
-					t.Errorf("workspace does not fit %dx20: %s\n%s", width, why, tui.View().Content)
+					t.Errorf("workspace does not fit %dx20: %s\n%s", width, why, plain(tui))
 				}
 			})
 		}
@@ -354,7 +354,7 @@ func TestWorkspaceFitsAfterAResizeToTheNarrowestTerminal(t *testing.T) {
 	resize(tui, minWidth, 20)
 
 	if why := fits(tui, minWidth, 20); why != "" {
-		t.Errorf("workspace does not fit %dx20: %s\n%s", minWidth, why, tui.View().Content)
+		t.Errorf("workspace does not fit %dx20: %s\n%s", minWidth, why, plain(tui))
 	}
 }
 
