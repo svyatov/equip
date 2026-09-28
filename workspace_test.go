@@ -271,7 +271,7 @@ func TestWorkspaceFitsTheTerminalAndScrollsTheMembers(t *testing.T) {
 func TestWorkspaceFitsNarrowTerminals(t *testing.T) {
 	t.Parallel()
 
-	for _, width := range []int{minWidth, 73} {
+	for _, width := range []int{minWidth, 73, 74} {
 		for _, focus := range []rune{'a', 'l'} {
 			t.Run(fmt.Sprintf("%d %c", width, focus), func(t *testing.T) {
 				t.Parallel()
@@ -284,6 +284,39 @@ func TestWorkspaceFitsNarrowTerminals(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+func TestAddListSearchFitsTheNarrowestTerminal(t *testing.T) {
+	t.Parallel()
+
+	for _, query := range []string{"c", "cccccc"} {
+		tui := presetModel(t)
+		resize(tui, minWidth, 20)
+		press(tui, key('p'), key('a'), key('/'))
+
+		for _, r := range query {
+			press(tui, key(r))
+		}
+
+		if why := fits(tui, minWidth, 20); why != "" {
+			t.Errorf("workspace searching %q does not fit %dx20: %s\n%s", query, minWidth, why, plain(tui))
+		}
+	}
+}
+
+func TestAddListSearchShowsTheQueryInANarrowTerminal(t *testing.T) {
+	t.Parallel()
+	tui := presetModel(t)
+	resize(tui, 73, 20)
+	press(tui, key('p'), key('a'), key('/'))
+
+	for _, r := range "zzzzzzzz" {
+		press(tui, key(r))
+	}
+
+	if line(tui, "/zzzzzzzz") == "" {
+		t.Errorf("the add list's border does not show the query:\n%s", plain(tui))
 	}
 }
 

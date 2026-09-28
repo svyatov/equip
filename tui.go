@@ -422,8 +422,8 @@ func tilde(path, home string) string {
 }
 
 // box is text in a pane of width by height cells, with title set into the
-// left of its top border and right into the right of it when it leaves title
-// room, its border in the accent when focused.
+// left of its top border and right into the right of it when it fits, its
+// border in the accent when focused.
 func (m *model) box(title, right, text string, width, height int, focused bool) string {
 	style := m.style.pane
 	if focused {
@@ -438,7 +438,7 @@ func (m *model) box(title, right, text string, width, height int, focused bool) 
 		tail = lipgloss.Width(right) + rightMarks
 	}
 
-	if inner-tail-titleMarks <= 0 { // right leaves title no room
+	if tail >= inner { // no room for right and the line before title
 		right, tail = "", 0
 	}
 
@@ -481,7 +481,11 @@ func cut(line string, width int) string {
 		return line
 	}
 
-	return lipgloss.NewStyle().MaxWidth(max(width-1, 0)).Render(line) + "…"
+	if width <= 1 { // MaxWidth(0) sets no limit
+		return strings.Repeat("…", max(width, 0))
+	}
+
+	return lipgloss.NewStyle().MaxWidth(width-1).Render(line) + "…"
 }
 
 // fit is one line cut with … or padded to width cells.

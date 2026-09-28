@@ -1852,6 +1852,26 @@ func TestCutStartKeepsTheEndOfTheTextWithinWidth(t *testing.T) {
 	}
 }
 
+func TestCutKeepsTheStartOfTheLineWithinWidth(t *testing.T) {
+	t.Parallel()
+
+	for _, testCase := range []struct {
+		line  string
+		want  string
+		width int
+	}{
+		{"abc", "", -1},
+		{"abc", "", 0},
+		{"abc", "…", 1},
+		{"abc", "a…", 2},
+		{"abc", "abc", 3},
+	} {
+		if got := cut(testCase.line, testCase.width); got != testCase.want {
+			t.Errorf("cut(%q, %d) = %q, want %q", testCase.line, testCase.width, got, testCase.want)
+		}
+	}
+}
+
 // withEveryKind is a machine with a skill, a plugin with a skill of its own,
 // and an MCP server.
 func withEveryKind(t *testing.T) *equiptest.Machine {
