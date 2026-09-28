@@ -51,13 +51,15 @@ func readCodexConfig(machine Machine, project Project) codexConfig {
 	}
 
 	cfg := codexConfig{notApplied: "", layers: []codexLayer{{data: user, path: userPath, owned: false}}}
+	// Codex 0.155.1 trusts a worktree through its main checkout, but reads the
+	// config at the root of the worktree it runs in.
 	if table(table(user, "projects"), project.Path)["trust_level"] != "trusted" {
 		cfg.notApplied = "this Project is not trusted"
 
 		return cfg
 	}
 
-	path := filepath.Join(project.Path, codexConfigRel)
+	path := filepath.Join(project.checkout, codexConfigRel)
 
 	data, err := readTOML(path)
 	if err != nil {
@@ -66,7 +68,7 @@ func readCodexConfig(machine Machine, project Project) codexConfig {
 		return cfg
 	}
 
-	cfg.notApplied = trackedReason(machine, project, codexConfigRel)
+	cfg.notApplied = trackedReason(machine, project, project.checkout, codexConfigRel)
 	cfg.layers = append(cfg.layers, codexLayer{data: data, path: path, owned: cfg.notApplied == ""})
 
 	return cfg
@@ -108,7 +110,7 @@ func readCodex(_ Machine, project Project, exts []Extension) (map[string]State, 
 		return states, nil
 	}
 
-	doc, err := readTOML(filepath.Join(project.Path, codexConfigRel))
+	doc, err := readTOML(filepath.Join(project.checkout, codexConfigRel))
 	if err != nil {
 		return states, err
 	}
@@ -135,7 +137,7 @@ func writeCodex(machine Machine, project Project, exts []Extension, overrides ma
 		return nil
 	}
 
-	path := filepath.Join(project.Path, codexConfigRel)
+	path := filepath.Join(project.checkout, codexConfigRel)
 	doc := cfg.layers[len(cfg.layers)-1].data
 	dead := cfg.dead()
 	changed := len(dead) > 0
@@ -158,7 +160,7 @@ func writeCodex(machine Machine, project Project, exts []Extension, overrides ma
 		return fmt.Errorf("encode %s: %w", path, err)
 	}
 
-	err = exclude(machine, project, codexConfigRel)
+	err = exclude(machine, project, project.checkout, codexConfigRel)
 	if err != nil {
 		return err
 	}

@@ -199,7 +199,7 @@ func excludeSettings(machine Machine, project Project) error {
 		return nil //nolint:nilerr // no file to keep out
 	}
 
-	return exclude(machine, project, settingsRel)
+	return exclude(machine, project, project.Path, settingsRel)
 }
 
 // pluginState reads one enabledPlugins value, reporting whether equip knows it.
@@ -237,7 +237,7 @@ func skillState(raw json.RawMessage) (State, bool) {
 // ~/.claude.json. It never writes a settings.local.json git tracks.
 func writeClaude(machine Machine, project Project, exts []Extension, overrides map[string]State) error {
 	// Checked here, as the file may have become tracked since open.
-	if tracked(machine, project, settingsRel) {
+	if tracked(machine, project, project.Path, settingsRel) {
 		return writeClaudeJSON(machine, project, exts, overrides)
 	}
 
@@ -270,7 +270,7 @@ func writeClaude(machine Machine, project Project, exts []Extension, overrides m
 		return fmt.Errorf("encode %s: %w", path, err)
 	}
 
-	err = exclude(machine, project, settingsRel)
+	err = exclude(machine, project, project.Path, settingsRel)
 	if err != nil {
 		return err
 	}

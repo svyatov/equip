@@ -859,5 +859,5 @@ func approvalsCount(machine Machine, project Project) bool {
 	config, _ := readJSONObject(claudeJSONPath(machine))
 	_ = json.Unmarshal(config.object("projects").object(project.Path)["hasTrustDialogAccepted"], &trusted)
 
-	return trusted && !tracked(machine, project, settingsRel)
+	return trusted && !tracked(machine, project, project.Path, settingsRel)
 }

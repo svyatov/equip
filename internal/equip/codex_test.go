@@ -501,6 +501,119 @@ func TestSaveExcludesTheCodexConfigItWritesFromGit(t *testing.T) {
 	}
 }
 
+// codexWorktree makes a linked worktree of a committed repo whose main
+// checkout the Codex user config trusts, with the Codex plugin github. It
+// returns the main checkout and the worktree.
+func codexWorktree(t *testing.T, machine *equiptest.Machine) (string, string) {
+	t.Helper()
+
+	repo := machine.Repo("app")
+	machine.Commit(repo)
+	codexPlugin(t, machine, "github@official")
+	trust(t, machine, repo)
+
+	return repo, machine.Worktree(repo, "app-feature")
+}
+
+func TestSaveInAWorktreeWritesTheWorktreesCodexConfig(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo, tree := codexWorktree(t, machine)
+	session := newSession(t, machine, tree)
+	session.SetState("github@official", equip.Off)
+
+	save(t, session)
+
+	want := map[string]any{"plugins": map[string]any{"github@official": map[string]any{"enabled": false}}}
+	if got := readTOML(t, codexProject(tree)); !reflect.DeepEqual(got, want) {
+		t.Errorf("worktree .codex/config.toml = %v, want %v", got, want)
+	}
+
+	noCodexConfig(t, repo)
+}
+
+func TestOpenInAWorktreeReadsTheWorktreesCodexConfig(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo, tree := codexWorktree(t, machine)
+	writeFile(t, codexProject(repo), "[plugins.\"github@official\"]\nenabled = true\n")
+	writeFile(t, codexProject(tree), "[plugins.\"github@official\"]\nenabled = false\n")
+
+	got := row(t, open(t, machine, tree), "github@official")
+	if got.State != equip.Off || !got.Override || got.Unsaved {
+		t.Errorf("row = %+v, want a saved off Override", got)
+	}
+}
+
+func TestWorktreeWithNoCodexConfigOpensWithTheRecordsCodexStatesUnsaved(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo, tree := codexWorktree(t, machine)
+	main := newSession(t, machine, repo)
+	main.SetState("github@official", equip.Off)
+	save(t, main)
+	session := newSession(t, machine, tree)
+
+	got := row(t, session.View(), "github@official")
+	if got.State != equip.Off || !got.Override || !got.Unsaved {
+		t.Errorf("row = %+v, want an unsaved off Override", got)
+	}
+
+	save(t, session)
+
+	want := map[string]any{"plugins": map[string]any{"github@official": map[string]any{"enabled": false}}}
+	if got := readTOML(t, codexProject(tree)); !reflect.DeepEqual(got, want) {
+		t.Errorf("worktree .codex/config.toml = %v, want %v", got, want)
+	}
+}
+
+func TestSaveInAWorktreeFailsOnAnEditToTheWorktreesCodexConfigSinceOpen(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	_, tree := codexWorktree(t, machine)
+	session := newSession(t, machine, tree)
+	session.SetState("github@official", equip.On)
+	writeFile(t, codexProject(tree), "[plugins.\"github@official\"]\nenabled = false\n")
+
+	_, err := session.Save()
+	if !errors.Is(err, equip.ErrChangedSinceOpen) {
+		t.Errorf("Save = %v, want %v", err, equip.ErrChangedSinceOpen)
+	}
+}
+
+func TestCodexConfigTrackedOnlyInTheWorktreesBranchIsNotWritten(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	_, tree := codexWorktree(t, machine)
+
+	const config = "model = \"o3\"\n"
+	writeFile(t, codexProject(tree), config)
+	machine.RunGit(tree, "add", ".codex/config.toml")
+	session := newSession(t, machine, tree)
+	session.SetState("github@official", equip.Off)
+
+	save(t, session)
+
+	if data, _ := os.ReadFile(codexProject(tree)); string(data) != config {
+		t.Errorf(".codex/config.toml = %q, want it as it was", data)
+	}
+}
+
+func TestSaveInAWorktreeExcludesItsCodexConfigFromGitWhenOnlyTheMainCheckoutIgnoresIt(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo, tree := codexWorktree(t, machine)
+	writeFile(t, filepath.Join(repo, ".gitignore"), ".codex/\n")
+	session := newSession(t, machine, tree)
+	session.SetState("github@official", equip.Off)
+
+	save(t, session)
+
+	if st := machine.RunGit(tree, "status", "--porcelain", "--untracked-files=all"); st != "" {
+		t.Errorf("worktree git status shows %q, want nothing", st)
+	}
+}
+
 func TestCodexEntrySetByHandAfterASaveIsChangedOutsideInCodex(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)

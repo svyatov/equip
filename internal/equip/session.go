@@ -614,7 +614,7 @@ func (s *Session) contents(plugin Extension) []Content {
 func (s *Session) takeConfigs(codex codexConfig) {
 	s.codex = codex
 	s.notApplied = map[Agent]string{
-		ClaudeCode: trackedReason(s.machine, s.project, settingsRel),
+		ClaudeCode: trackedReason(s.machine, s.project, s.project.Path, settingsRel),
 		Codex:      codex.notApplied,
 	}
 	takeClaudeDefaults(s.machine, s.project, s.pending.exts, s.discovered, s.notApplied[ClaudeCode] != "")
