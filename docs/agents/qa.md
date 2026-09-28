@@ -7,7 +7,7 @@ Use this to test equip end to end as a user would. Run the real binary in a deta
 Work in a fresh `mktemp -d` dir, `$T`. Keep every helper there as a Ruby script.
 
 1. Build equip: `go build -o $T/equip .` from the repo.
-2. Make the Project: `git init $T/proj` with one commit. Add fixtures under `.claude/skills/`, `.agents/skills/`, and a `.mcp.json`. For an MCP server, write a stdio server in stdlib Ruby. An `npx` server pulls in a package nobody vetted.
+2. Make the Project: `git init $T/proj` with one commit. Add fixtures under `.claude/skills/`, `.agents/skills/`, and a `.mcp.json`. For an MCP server, write a stdio server in stdlib Ruby. An `npx` server pulls in a package nobody vetted. Write each fixture by its full `$T/...` path: a redirect into a relative path trips the `script-edits-source` hook. A Preset is `$T/xdg/config/equip/presets/<name>.toml` with an `id` and any of `skills`, `plugins`, and `mcp_servers` (`internal/equip/presets.go`).
 3. Back up `~/.claude.json` and `~/.codex/config.toml`. The agents and equip write to them, and step 5 undoes those writes.
 
 equip's own files follow the XDG vars, so QA never touches the user's presets, Records, or MCP cache. The agents' config has no such switch. For a test that needs a clean home, such as running in the home directory, set `HOME` to a fake dir in `$T`.
@@ -18,10 +18,10 @@ Start equip in a detached session, with the XDG vars pointing into `$T`:
 
 ```sh
 tmux new-session -d -s eq -x 200 -y 50 -c $T/proj \
-  "env XDG_CONFIG_HOME=$T/xdg/config XDG_STATE_HOME=$T/xdg/state XDG_CACHE_HOME=$T/xdg/cache $T/equip; echo EXITED=\$?; sleep 3600"
+  "stty oxtabs; env XDG_CONFIG_HOME=$T/xdg/config XDG_STATE_HOME=$T/xdg/state XDG_CACHE_HOME=$T/xdg/cache $T/equip; echo EXITED=\$?; sleep 3600"
 ```
 
-The trailing `echo EXITED=$?; sleep 3600` keeps the pane alive after equip quits, so a crash or an exit code stays readable.
+The trailing `echo EXITED=$?; sleep 3600` keeps the pane alive after equip quits, so a crash or an exit code stays readable. `stty oxtabs` turns the tabs equip writes into spaces; without it they reach the capture as tab characters and every width you measure is wrong.
 
 - Send a key with `tmux send-keys -t eq j`. Type text with `tmux send-keys -t eq -l 'text'`.
 - Read the screen with `tmux capture-pane -t eq -p`. The first line holds the totals and the unsaved count. The last line holds a prompt, the flash, or else the key help for the focused pane: capture the whole screen, not its head. `▸` marks the highlighted row.
