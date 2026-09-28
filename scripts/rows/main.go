@@ -57,8 +57,16 @@ func run(args []string, stdout, stderr io.Writer) error {
 			locations = append(locations, location.Agent.String()+": "+location.Path)
 		}
 
-		fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\t%s\n", row.Kind, row.Name, row.Plugin, row.State,
-			strings.Join(agents, ","), strings.Join(locations, " | "))
+		where := strings.Join(locations, " | ")
+		fmt.Fprintf(stdout, "%s\t%s\t\t%s\t%s\t%s\n", row.Kind, row.Name, row.State, strings.Join(agents, ","), where)
+
+		// A plugin's skills have no row, so each follows its plugin's line.
+		for _, content := range detail.Contents {
+			if content.Kind == equip.Skill {
+				fmt.Fprintf(stdout, "%s\t%s\t%s\t%s\t%s\t%s\n", content.Kind, content.Name, row.Name, content.State,
+					strings.Join(agents, ","), where)
+			}
+		}
 	}
 
 	return nil

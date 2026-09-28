@@ -84,10 +84,6 @@ func (m *model) note(text string, style lipgloss.Style, width int) []string {
 // origin is where the state of row comes from in view, with why it changed
 // outside equip, its lines wrapped at width.
 func (m *model) origin(view equip.View, row equip.Row, ext equip.Detail, width int) []string {
-	if row.Follows() {
-		return []string{m.field("Origin", "follows "+row.Plugin)}
-	}
-
 	var lines []string
 
 	origin := "default"
@@ -167,9 +163,9 @@ func (m *model) detail(view equip.View, row equip.Row, ext equip.Detail, server 
 
 // states are the detail pane lines of the states of ext to pick from, with
 // the one of row marked. The presets workspace leaves them out, as its keys
-// do not set them, and so does a plugin's skill, which has none.
+// do not set them.
 func (m *model) states(row equip.Row, ext equip.Detail) []string {
-	if m.ws.open || len(ext.States) == 0 {
+	if m.ws.open {
 		return nil
 	}
 

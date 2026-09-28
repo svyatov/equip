@@ -1664,85 +1664,16 @@ func withPluginSkill(t *testing.T) *equiptest.Machine {
 	return machine
 }
 
-func TestPluginSkillRowNamesItsPluginAndItsPluginsNameFindsIt(t *testing.T) {
+func TestSearchForAPluginsSkillFindsThePlugin(t *testing.T) {
 	t.Parallel()
-	tui := newModel(t, withPluginSkill(t))
-
-	if got := rowLine(tui, "review"); !strings.Contains(got, "review  github") {
-		t.Errorf("row %q does not name its plugin", got)
-	}
-
-	press(tui, key('/'), key('g'), key('i'), key('t'))
-
-	if rowLine(tui, "review") == "" {
-		t.Errorf("a search for its plugin leaves out the plugin's skill:\n%s", plain(tui))
-	}
-}
-
-func TestStateKeysOnAPluginSkillRowChangeNothingAndSayWhatItFollows(t *testing.T) {
-	t.Parallel()
-	tui := newModel(t, withPluginSkill(t))
-
-	press(tui, down(), key(' '), key('1'), key('3'), key('x'), key('m'))
-
-	if n := tui.s.View().Unsaved; n != 0 {
-		t.Errorf("Unsaved = %d, want 0", n)
-	}
-
-	if line(tui, "follows github@official, enter goes to it") == "" {
-		t.Errorf("state keys do not say what the skill follows:\n%s", plain(tui))
-	}
-}
-
-func TestEnterOnAPluginSkillRowMovesToItsPlugin(t *testing.T) {
-	t.Parallel()
-	tui := newModel(t, withPluginSkill(t))
-
-	press(tui, key(']'), enter())
-
-	if tui.key != "github@official" || tui.focus != onList {
-		t.Errorf("enter left the highlight on %q in pane %d, want the plugin in the list", tui.key, tui.focus)
-	}
-
-	if got := rowLine(tui, "github@official"); !strings.Contains(got, "▸") {
-		t.Errorf("plugin row %q is not highlighted:\n%s", got, plain(tui))
-	}
-}
-
-func TestEnterOnAPluginSkillRowShowsItsPluginFromTheTop(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	skills := filepath.Join(machine.Plugin("github@official", "user", ""), "skills")
-	machine.WriteFile(filepath.Join(skills, "review", "SKILL.md"),
-		"---\nname: review\ndescription: "+strings.Repeat("word ", 400)+"\n---\n")
+	machine := withPluginSkill(t)
+	machine.Plugin("slack@official", "user", "")
 	tui := newModel(t, machine)
-	resize(tui, 120, 20)
 
-	press(tui, down(), key('l'), key('j'), key('j'), key('j'), key('h'))
+	press(tui, key('/'), key('r'), key('e'), key('v'))
 
-	if tui.detailTop == 0 {
-		t.Fatal("the skill's detail pane did not scroll")
-	}
-
-	press(tui, enter())
-
-	if tui.detailTop != 0 {
-		t.Errorf("detailTop = %d on the plugin, want 0", tui.detailTop)
-	}
-}
-
-func TestDetailPaneOfAPluginSkillSaysItFollowsItsPlugin(t *testing.T) {
-	t.Parallel()
-	tui := newModel(t, withPluginSkill(t))
-
-	press(tui, down())
-
-	if got := line(tui, "Origin"); !strings.Contains(got, "follows github@official") {
-		t.Errorf("origin %q does not name the plugin", got)
-	}
-
-	if line(tui, "1 on") != "" {
-		t.Errorf("detail pane offers states:\n%s", plain(tui))
+	if rowLine(tui, "github@official") == "" || rowLine(tui, "slack@official") != "" {
+		t.Errorf("a search for review does not keep only the plugin with that skill:\n%s", plain(tui))
 	}
 }
 
@@ -1910,10 +1841,7 @@ func TestAThreeYSetsEveryShownRowOff(t *testing.T) {
 	press(tui, key('a'), key('3'), key('y'))
 
 	for _, r := range tui.s.View().Rows {
-		switch {
-		case r.Follows() && r.Override:
-			t.Errorf("plugin skill %s = %+v, want it to follow its plugin", r.Name, r)
-		case !r.Follows() && (r.State != equip.Off || !r.Override):
+		if r.State != equip.Off || !r.Override {
 			t.Errorf("%s = %+v, want an Override off", r.Name, r)
 		}
 	}

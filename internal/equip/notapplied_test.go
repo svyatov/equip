@@ -55,7 +55,7 @@ func TestCodexOnlyPluginAndMCPServerAreNotAppliedInAnUntrustedProject(t *testing
 	appendFile(t, machine.CodexConfig(), "[mcp_servers.db]\ncommand = \"db\"\n")
 	view := open(t, machine, repo)
 
-	for _, name := range []string{"github@official", "review", "db"} {
+	for _, name := range []string{"github@official", "db"} {
 		if got := row(t, view, name); !got.NotApplied {
 			t.Errorf("row = %+v, want it not applied", got)
 		}

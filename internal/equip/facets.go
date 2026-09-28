@@ -1,7 +1,5 @@
 package equip
 
-import "cmp"
-
 // Facet is a way to narrow the list.
 type Facet struct {
 	keys     map[string]bool // of the rows it keeps
@@ -47,8 +45,8 @@ func (s *Session) facets(rows []Row) []Facet {
 		{agentFacet(ClaudeCode), agentFacet(Codex)},
 		{stateFacet("On", On), stateFacet("Manual-only", ManualOnly), stateFacet("Off", Off)},
 		{
-			{name: "Overrides", has: func(ext Extension, row Row) bool {
-				return !row.Follows() && s.inRow(ext, s.overridden)
+			{name: "Overrides", has: func(ext Extension, _ Row) bool {
+				return s.inRow(ext, s.overridden)
 			}},
 			{name: "Not applied", has: func(_ Extension, row Row) bool { return row.NotApplied }},
 			{name: "Unsaved changes", has: func(_ Extension, row Row) bool { return row.Unsaved }},
@@ -62,8 +60,7 @@ func (s *Session) facets(rows []Row) []Facet {
 			keys := map[string]bool{}
 
 			for _, row := range rows {
-				// A plugin's skill is had by the agents that have its plugin.
-				if ext, _ := s.pending.ext(cmp.Or(row.Plugin, row.Key)); def.has(ext, row) {
+				if ext, _ := s.pending.ext(row.Key); def.has(ext, row) {
 					keys[row.Key] = true
 				}
 			}

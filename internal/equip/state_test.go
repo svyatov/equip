@@ -38,7 +38,7 @@ func TestSetStateMakesAnUnsavedOverride(t *testing.T) {
 	view := session.View()
 
 	want := equip.Row{
-		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
+		Key: "review", Name: "review", Kind: equip.Skill,
 		Cost: 0, CostUnknown: false, ByName: false, State: equip.Off, Override: true, Fallback: equip.On, Unsaved: true,
 		NotApplied: false, ChangedOutside: false,
 	}
@@ -61,7 +61,7 @@ func TestDropOverrideReturnsSkillToDefault(t *testing.T) {
 	session.DropOverride("review")
 
 	want := equip.Row{
-		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
+		Key: "review", Name: "review", Kind: equip.Skill,
 		Cost: 8, CostUnknown: false, ByName: false, State: equip.On, Override: false, Fallback: equip.On, Unsaved: false,
 		NotApplied: false, ChangedOutside: false,
 	}
@@ -539,7 +539,7 @@ func TestReopenShowsSavedOverrides(t *testing.T) {
 	view := newSession(t, machine, repo).View()
 
 	want := equip.Row{
-		Key: "review", Name: "review", Plugin: "", Kind: equip.Skill,
+		Key: "review", Name: "review", Kind: equip.Skill,
 		Cost: 0, CostUnknown: false, ByName: false, State: equip.ManualOnly, Override: true, Fallback: equip.On,
 		Unsaved:        false,
 		NotApplied:     false,

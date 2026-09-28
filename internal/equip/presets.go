@@ -50,10 +50,6 @@ var ErrPresetName = errors.New("a preset needs a free name that can name a file"
 // errNoPreset is the error of an edit of a preset the library does not have.
 var errNoPreset = errors.New("no such preset")
 
-// errFollows is the error of an edit that adds a plugin's skill, which
-// follows its plugin, to a preset.
-var errFollows = errors.New("a plugin's skill follows its plugin")
-
 // Member is one extension a Preset names, which may not be installed. An
 // installed one has its row here: its state, cost and Override mark.
 type Member struct {
@@ -68,7 +64,7 @@ type Member struct {
 func member(key string) Member {
 	return Member{
 		Key: key, Name: keyName(key), Kind: keyKind(key), Cost: 0, State: On, Fallback: On, CostUnknown: false, ByName: false,
-		Override: false, Unsaved: false, NotApplied: false, ChangedOutside: false, Plugin: "",
+		Override: false, Unsaved: false, NotApplied: false, ChangedOutside: false,
 		Installed: false, Added: false, Removed: false,
 	}
 }
@@ -217,14 +213,13 @@ func (s *Session) TogglePreset(id string) {
 }
 
 // TurnedSince returns the rows whose state changed since the view before:
-// with the totals of both, the effect of the changes in between. A plugin's
-// skill turns with its plugin, so only the plugin's row counts.
+// with the totals of both, the effect of the changes in between.
 func (v View) TurnedSince(before View) []Row {
 	var turned []Row
 
 	for _, row := range v.Rows {
 		i := slices.IndexFunc(before.Rows, func(was Row) bool { return was.Key == row.Key })
-		if !row.Follows() && i >= 0 && before.Rows[i].State != row.State {
+		if i >= 0 && before.Rows[i].State != row.State {
 			turned = append(turned, row)
 		}
 	}
@@ -267,12 +262,8 @@ func (s *Session) CreatePreset(name string) (string, error) {
 }
 
 // AddMember adds the extension with key to the preset with id, an unwritten
-// edit. A plugin's skill follows its plugin, so it joins none.
+// edit.
 func (s *Session) AddMember(id, key string) error {
-	if _, _, isSkill := splitSkillRowKey(key); isSkill {
-		return fmt.Errorf("%w: %s", errFollows, key)
-	}
-
 	return s.edit(id, func(members []Member) []Member {
 		return append(members, member(key))
 	})

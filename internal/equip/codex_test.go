@@ -919,17 +919,21 @@ func TestPluginSkillBothAgentsHaveIsByNameOnlyWhenBothCallItByName(t *testing.T)
 	// Only Codex has scan.
 	machine.Skill(codex, "scan")
 
-	view := newSession(t, machine, machine.Root).View()
-	if got := row(t, view, "ship"); got.ByName || got.Cost != 3 {
+	skills := map[string]equip.Content{}
+	for _, content := range newSession(t, machine, machine.Root).Detail("github@official").Contents {
+		skills[content.Name] = content
+	}
+
+	if got := skills["ship"]; got.ByName || got.Cost != 3 {
 		t.Errorf("ship: ByName = %v, Cost = %d, want false and Codex's 3", got.ByName, got.Cost)
 	}
 
-	if got := row(t, view, "lint"); !got.ByName {
+	if got := skills["lint"]; !got.ByName {
 		t.Error("lint: ByName = false, want true")
 	}
 
-	if got := row(t, view, "scan"); got.Plugin != "github@official" {
-		t.Errorf("scan: Plugin = %q, want github@official", got.Plugin)
+	if _, ok := skills["scan"]; !ok {
+		t.Errorf("contents = %v, want scan among them", skills)
 	}
 }
 
