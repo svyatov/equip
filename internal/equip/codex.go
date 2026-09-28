@@ -77,6 +77,11 @@ func readCodexConfig(machine Machine, project Project) codexConfig {
 	}
 
 	cfg.notApplied = trackedReason(machine, project, project.checkout, codexConfigRel)
+	// Written for the Project, it would apply in every Project.
+	if sameFile(path, userPath) {
+		cfg.notApplied = "the Project's Codex config is the global Codex config"
+	}
+
 	cfg.layers = append(cfg.layers, codexLayer{data: data, path: path, owned: cfg.notApplied == ""})
 
 	return cfg
