@@ -492,6 +492,54 @@ func TestWriteOfAPresetChangedOutsideSaysTheEditsMergedIt(t *testing.T) {
 	}
 }
 
+func TestWriteAfterAnOutsideChangeHereSaysWThenSSavesBoth(t *testing.T) {
+	t.Parallel()
+	tui, machine := ruby(t)
+	settings := filepath.Join(machine.Root, ".claude", "settings.local.json")
+
+	press(tui, key('a'), key(' '), esc())
+	// Ruby saved docs off, lint on and review off here.
+	machine.WriteFile(settings, `{"skillOverrides": {"docs": "off", "lint": "on", "review": "on"}}`)
+	press(tui, key('w'), key('y'))
+
+	if line(tui, "changed outside equip: press w to write, then esc and s to save") == "" ||
+		line(tui, "added to Unsaved changes") != "" {
+		t.Errorf("w does not say the change was added:\n%s", tui.View().Content)
+	}
+
+	press(tui, key('w'), key('y'))
+
+	file := filepath.Join(machine.ConfigHome, "equip", "presets", "Ruby.toml")
+	if data, _ := os.ReadFile(file); !strings.Contains(string(data), "docs") {
+		t.Errorf("the second w did not write Ruby:\n%s", data)
+	}
+
+	press(tui, esc(), key('s'))
+
+	data, _ := os.ReadFile(settings)
+	if !strings.Contains(string(data), `"docs": "on"`) || !strings.Contains(string(data), `"review": "on"`) {
+		t.Errorf("settings =\n%s\nwant docs from Ruby and review from outside on", data)
+	}
+}
+
+func TestWriteThatFailsShowsTheError(t *testing.T) {
+	t.Parallel()
+	tui, machine := ruby(t)
+	presets := filepath.Join(machine.ConfigHome, "equip", "presets")
+
+	err := os.Chmod(presets, 0o500)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = os.Chmod(presets, 0o700) })
+	press(tui, key('a'), key(' '), esc(), key('w'), key('y'))
+
+	if !strings.Contains(line(tui, "write failed: "), "permission denied") {
+		t.Errorf("w does not show the error:\n%s", tui.View().Content)
+	}
+}
+
 func TestWriteOfAPresetDeletedOutsideSaysWWritesItAgain(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)

@@ -692,9 +692,10 @@ func TestDropKeyDropsTheOverride(t *testing.T) {
 	}
 }
 
-func TestSaveKeyShowsTheErrorUntilTheNextKey(t *testing.T) {
+func TestSaveKeyAfterAnOutsideChangeSaysSSavesIt(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "lint")
 	machine.Skill(machine.ClaudeSkills(), "review")
 	tui := newModel(t, machine)
 	settings := filepath.Join(machine.Root, ".claude", "settings.local.json")
@@ -702,14 +703,44 @@ func TestSaveKeyShowsTheErrorUntilTheNextKey(t *testing.T) {
 
 	press(tui, key('3'), key('s'))
 
-	const flash = "save failed: changed outside equip since open"
-	if line(tui, flash) == "" {
+	if line(tui, "changed outside equip: added to Unsaved changes, press s to save") == "" {
+		t.Errorf("s does not say the change was added:\n%s", tui.View().Content)
+	}
+
+	press(tui, key('s'))
+
+	if line(tui, "saved 2 changes") == "" {
+		t.Errorf("the second s does not save both changes:\n%s", tui.View().Content)
+	}
+
+	data, _ := os.ReadFile(settings)
+	if !strings.Contains(string(data), `"lint": "off"`) || !strings.Contains(string(data), `"review": "off"`) {
+		t.Errorf("settings =\n%s\nwant lint and review off", data)
+	}
+}
+
+func TestSaveKeyShowsTheErrorUntilTheNextKey(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Skill(machine.ClaudeSkills(), "review")
+	tui := newModel(t, machine)
+	claude := filepath.Join(machine.Root, ".claude")
+
+	err := os.Mkdir(claude, 0o500)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	t.Cleanup(func() { _ = os.Chmod(claude, 0o700) })
+	press(tui, key('3'), key('s'))
+
+	if !strings.Contains(line(tui, "save failed: "), "permission denied") {
 		t.Errorf("s does not show the error:\n%s", tui.View().Content)
 	}
 
 	press(tui, down())
 
-	if line(tui, flash) != "" {
+	if line(tui, "save failed: ") != "" {
 		t.Error("the save error stays after the next key")
 	}
 }

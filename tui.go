@@ -1140,6 +1140,8 @@ func (m *model) save() {
 	saved, err := m.s.Save()
 
 	switch {
+	case errors.Is(err, equip.ErrChangedSinceOpen):
+		m.flash = m.style.bad.Render("changed outside equip: added to Unsaved changes, press s to save")
 	case err != nil:
 		m.flash = m.style.bad.Render("save failed: " + err.Error())
 	case saved.Changes == 0:

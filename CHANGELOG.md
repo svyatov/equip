@@ -18,6 +18,10 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 
 - The key `a` acts on every row the list shows, after the facet and the search. `a` then `1`, `2`, or `3` sets them on, manual-only, or off, and `a` then `x` drops their Overrides, with those of a shown plugin's MCP servers. equip skips each plugin's skill and each row without the state, asks to confirm with the counts it changes and skips, and says how many it changed. `s` saves the changes.
 
+### Changed
+
+- When `s` or `w` stops on an agent config changed outside equip, the message says equip added the change to Unsaved changes, and names the keys that save it: `changed outside equip: added to Unsaved changes, press s to save`. After `w`, it says `changed outside equip: press w to write, then esc and s to save`, as the write puts back the Project's last save and keeps the outside change unsaved. Before, it read `save failed: changed outside equip since open`, or `write failed: changed outside equip since open` after `w`.
+
 ### Fixed
 
 - When the Project's `.codex/config.toml` is the global Codex config, as in the home directory, equip marks Codex not applied and a save leaves that file alone. equip still reads the Codex states in it, and still saves the Claude Code states. Before, a save wrote the Project's Codex states into the global config, so they applied in every Codex session.
