@@ -706,10 +706,11 @@ func (m *model) keyList() string {
 		"   ", strings.Join(blocks[leftSections:], "\n\n")) + "\n\n" + m.style.dim.Render("any key closes")
 }
 
-// mark is the start of a list line: the highlight's when on.
+// mark is the start of a list line, two cells: the highlight's when on, then
+// a space.
 func (m *model) mark(on bool) string {
 	if on {
-		return m.style.cur.Render("▸ ")
+		return m.style.cur.Render("▸") + " "
 	}
 
 	return "  "
@@ -726,6 +727,7 @@ func (m *model) sidebar(session equip.View, height int) string {
 		"  " + m.style.bars[1].Render("▂") + m.style.bars[3].Render("▄") + m.style.bars[5].Render("▆") +
 			m.style.bars[7].Render("█") + m.style.dim.Render(" tokens a session"),
 		"  " + m.style.unmeasured.Render("?") + m.style.dim.Render("    not measured yet"),
+		"  " + m.style.warn.Render("!") + m.style.dim.Render("    not applied"),
 	}
 
 	if gap := height - len(facets) - len(legend); gap > 0 {
@@ -844,7 +846,13 @@ func (m *model) entry(row equip.Row, highlighted bool, width int) string {
 		name += m.style.warn.Render("*")
 	}
 
-	return fit(m.mark(highlighted)+mark+" "+name, width-lipgloss.Width(cost)) + cost
+	// A row no agent applies has ! in the mark's space, next to its glyph.
+	lead := m.mark(highlighted)
+	if row.NotApplied {
+		lead = strings.TrimSuffix(lead, " ") + m.style.warn.Render("!")
+	}
+
+	return fit(lead+mark+" "+name, width-lipgloss.Width(cost)) + cost
 }
 
 // name is the name of a row, base in style then rest dimmed, cut to width
@@ -1127,10 +1135,11 @@ func stateKey(key string) bool {
 	return slices.Contains([]string{"1", "2", "3", "x", "m", spaceKey}, key)
 }
 
-// save saves the pending changes, and says how many it wrote or why it
-// failed.
+// save saves the pending changes, and says how many it wrote, how many of
+// them no agent applies and why, or why it failed.
 func (m *model) save() {
 	count := m.s.View().Unsaved
+	notApplied, reason := m.s.UnsavedNotApplied()
 
 	err := m.s.Save()
 
@@ -1140,7 +1149,16 @@ func (m *model) save() {
 	case count == 0:
 		m.flash = m.style.dim.Render("nothing to save")
 	default:
-		m.flash = m.style.ok.Render(fmt.Sprintf("saved %d %s", count, plural(count, "change", "changes")))
+		flash := fmt.Sprintf("saved %d %s", count, plural(count, "change", "changes"))
+		if notApplied > 0 {
+			flash += fmt.Sprintf(", %d not applied", notApplied)
+		}
+
+		if reason != "" {
+			flash += ": " + reason
+		}
+
+		m.flash = m.style.ok.Render(flash)
 	}
 }
 

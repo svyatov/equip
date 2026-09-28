@@ -1641,8 +1641,56 @@ func TestSaveSaysHowManyChangesItWrote(t *testing.T) {
 
 	press(tui, key('3'), key('s'))
 
-	if line(tui, "saved 1 change") == "" {
-		t.Errorf("save does not say what it wrote:\n%s", plain(tui))
+	if got := line(tui, "saved 1 change"); got == "" || strings.Contains(got, "not applied") {
+		t.Errorf("save does not say what it wrote alone:\n%s", plain(tui))
+	}
+}
+
+func TestSaveSaysHowManyChangesNoAgentAppliesAndWhy(t *testing.T) {
+	t.Parallel()
+	machine := withSkills(t, 1)
+	machine.Skill(machine.CodexSkills(), "codex-a")
+	machine.Skill(machine.CodexSkills(), "codex-b")
+	tui := newModel(t, machine)
+
+	press(tui, key('a'), key('3'), key('y'), key('s'))
+
+	if line(tui, "saved 3 changes, 2 not applied: Codex has no per-project skill setting") == "" {
+		t.Errorf("save does not say what it did not apply:\n%s", plain(tui))
+	}
+}
+
+func TestListMarksARowNoAgentApplies(t *testing.T) {
+	t.Parallel()
+	machine := withSkills(t, 1)
+	machine.Skill(machine.CodexSkills(), "codex-only")
+	tui := newModel(t, machine)
+
+	if line(tui, "!● codex-only") == "" {
+		t.Errorf("codex-only row has no not-applied marker before its glyph:\n%s", plain(tui))
+	}
+
+	if got := line(tui, "● s00"); strings.Contains(got, "!") {
+		t.Errorf("row %q is marked not applied", got)
+	}
+
+	if line(tui, "!    not applied") == "" {
+		t.Errorf("legend does not explain the marker:\n%s", plain(tui))
+	}
+}
+
+func TestSaveGivesNoReasonForChangesNotAppliedForTwo(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	repo := machine.Repo("app")
+	machine.Skill(machine.CodexSkills(), "codex-only")
+	machine.WriteFile(machine.CodexConfig(), "[mcp_servers.db]\ncommand = \"db\"\n")
+	tui := newModelIn(t, machine, repo)
+
+	press(tui, key('a'), key('3'), key('y'), key('s'))
+
+	if got := line(tui, "saved 2 changes"); !strings.Contains(got, "saved 2 changes, 2 not applied ") {
+		t.Errorf("save line %q does not count 2 not applied with no reason", got)
 	}
 }
 

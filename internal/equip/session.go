@@ -97,6 +97,9 @@ type Row struct {
 	ByName      bool  // a By-name skill, or a plugin of only such skills
 	Override    bool  // State was set by hand in this Project
 	Unsaved     bool
+	// NotApplied reports that no agent that has the extension gets its
+	// state, each for the reason Detail's NotApplied gives.
+	NotApplied bool
 	// ChangedOutside reports that the row changed through an edit outside
 	// equip in Claude Code.
 	ChangedOutside bool
@@ -419,6 +422,34 @@ func (s *Session) Save() error {
 	return nil
 }
 
+// UnsavedNotApplied counts the pending changes of extensions no agent gets
+// the state of, which a save records but applies nowhere, and gives the
+// reason they share, empty when they have more than one.
+func (s *Session) UnsavedNotApplied() (int, string) {
+	count, reasons := 0, map[string]bool{}
+
+	for _, key := range s.unsavedKeys() {
+		ext, _ := s.pending.ext(key)
+		if !s.isNotApplied(ext) {
+			continue
+		}
+
+		count++
+
+		for _, agent := range Agents() {
+			if ext.has(agent) {
+				reasons[s.whyNotApplied(agent, ext)] = true
+			}
+		}
+	}
+
+	if len(reasons) != 1 {
+		return count, ""
+	}
+
+	return count, slices.Collect(maps.Keys(reasons))[0]
+}
+
 // skillDetail is the detail of the skill named name in the plugin with
 // pluginKey: the plugin's, with the skill's description and cost, and no
 // states or contents, as the skill follows its plugin.
@@ -458,8 +489,16 @@ func (s *Session) row(ext Extension) Row {
 		Override:       override,
 		Fallback:       s.pending.base(ext.primary(), ext),
 		Unsaved:        s.inRow(ext, s.unsaved),
+		NotApplied:     s.isNotApplied(ext),
 		ChangedOutside: changed,
 	}
+}
+
+// isNotApplied reports whether no agent that has ext gets its state.
+func (s *Session) isNotApplied(ext Extension) bool {
+	return !slices.ContainsFunc(Agents(), func(agent Agent) bool {
+		return ext.has(agent) && s.whyNotApplied(agent, ext) == ""
+	})
 }
 
 // skillRowKey is the key of the row of the skill named name in the plugin
@@ -480,7 +519,7 @@ func (s *Session) skillRows(plugin Extension) []Row {
 			rows = append(rows, Row{
 				Key: skillRowKey(plugin.Key, content.Name), Name: content.Name, Plugin: plugin.Key, Kind: Skill,
 				Cost: content.Cost, State: content.State, Fallback: content.State, CostUnknown: false,
-				ByName: content.ByName, Override: false, Unsaved: false, ChangedOutside: false,
+				ByName: content.ByName, Override: false, Unsaved: false, NotApplied: s.isNotApplied(plugin), ChangedOutside: false,
 			})
 		}
 	}
@@ -735,6 +774,17 @@ func (s *Session) missing(ids []string) []string {
 
 // unsavedCount counts the pending changes a save would write.
 func (s *Session) unsavedCount() int {
+	// A save removes each dead Codex entry, and records a change of presets.
+	count := len(s.codex.dead()) + len(s.unsavedKeys())
+	if !slices.Equal(s.pending.active, ids(s.recorded)) {
+		count++
+	}
+
+	return count
+}
+
+// unsavedKeys are the keys whose Override or entries a save would change.
+func (s *Session) unsavedKeys() []string {
 	keys := maps.Clone(s.saved)
 	maps.Copy(keys, s.pending.overrides)
 
@@ -742,19 +792,8 @@ func (s *Session) unsavedCount() int {
 		maps.Copy(keys, s.disk[agent])
 		maps.Copy(keys, s.pending.entries(agent))
 	}
-	// A save removes each dead Codex entry, and records a change of presets.
-	count := len(s.codex.dead())
-	if !slices.Equal(s.pending.active, ids(s.recorded)) {
-		count++
-	}
 
-	for key := range keys {
-		if s.unsaved(key) {
-			count++
-		}
-	}
-
-	return count
+	return slices.DeleteFunc(slices.Collect(maps.Keys(keys)), func(key string) bool { return !s.unsaved(key) })
 }
 
 // inRow reports whether has holds for a key in the row of ext: its own or,
