@@ -477,6 +477,40 @@ func TestWriteConfirmShowsTheChangesHereAndNCancels(t *testing.T) {
 	}
 }
 
+func TestWriteOfAPresetChangedOutsideSaysTheEditsMergedIt(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	tui := newModel(t, machine)
+
+	press(tui, key('p'), tab(), key(' '))
+	machine.Preset("Ruby", "id = \"r1\"\nskills = [\"docs\", \"lint\", \"rspec\"]\n")
+	press(tui, key('w'), key('y'))
+
+	if line(tui, "preset changed outside equip since open: merged into the edits, w writes them") == "" ||
+		line(tui, "+ docs") != "" || line(tui, "Ruby*") == "" {
+		t.Errorf("w does not show the merged edits:\n%s", tui.View().Content)
+	}
+}
+
+func TestWriteOfAPresetDeletedOutsideSaysWWritesItAgain(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	tui := newModel(t, machine)
+
+	press(tui, key('p'), tab(), key(' '))
+
+	err := os.Remove(filepath.Join(machine.ConfigHome, "equip", "presets", "Ruby.toml"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	press(tui, key('w'), key('y'))
+
+	if line(tui, "preset file deleted outside equip since open: w writes it again") == "" {
+		t.Errorf("w does not say the file was deleted:\n%s", tui.View().Content)
+	}
+}
+
 func TestDKeyDeletesThePresetAfterAConfirm(t *testing.T) {
 	t.Parallel()
 	tui, machine := ruby(t)

@@ -35,6 +35,14 @@ type Preset struct {
 // has unwritten edits.
 var ErrUnwrittenEdits = errors.New("another preset has unwritten edits")
 
+// ErrPresetChanged is the error of a write of a preset whose file changed
+// since equip read it.
+var ErrPresetChanged = fmt.Errorf("preset %w", ErrChangedSinceOpen)
+
+// ErrPresetDeleted is the ErrPresetChanged of a preset whose file was
+// deleted.
+var ErrPresetDeleted = fmt.Errorf("%w: its file was deleted", ErrPresetChanged)
+
 // ErrPresetName is the error of a preset name that is empty, taken, or
 // cannot name a file.
 var ErrPresetName = errors.New("a preset needs a free name that can name a file")
@@ -93,22 +101,8 @@ func readPresets(machine Machine) ([]Preset, error) {
 	byID := map[string]string{} // the file of each id
 
 	for _, file := range files {
-		data, err := os.ReadFile(file) //nolint:gosec // equip builds the path
-		if err != nil {
-			return nil, fmt.Errorf("read preset: %w", err)
-		}
-
-		var preset presetFile
-
-		// Strict, so a misspelled kind fails here and does not turn its
-		// members off.
-		err = toml.NewDecoder(bytes.NewReader(data)).DisallowUnknownFields().Decode(&preset)
-
-		switch {
-		case err != nil:
-		case preset.ID == "":
-			err = errNoID
-		case byID[preset.ID] != "":
+		preset, err := readPreset(file)
+		if err == nil && byID[preset.ID] != "" {
 			err = fmt.Errorf("%w %q with %s", errTakenID, preset.ID, byID[preset.ID])
 		}
 
@@ -117,22 +111,39 @@ func readPresets(machine Machine) ([]Preset, error) {
 		}
 
 		byID[preset.ID] = file
-
-		var members []Member
-
-		for kind, names := range [][]string{Skill: preset.Skills, Plugin: preset.Plugins, MCPServer: preset.MCPServers} {
-			for _, name := range slices.Sorted(slices.Values(names)) {
-				members = append(members, member(Kind(kind).keyOf(name)))
-			}
-		}
-
-		presets = append(presets, Preset{
-			ID: preset.ID, Name: strings.TrimSuffix(filepath.Base(file), ".toml"), Members: members,
-			Projects: nil, Active: false, New: false, Missing: false, Unwritten: false,
-		})
+		presets = append(presets, preset)
 	}
 
 	return presets, nil
+}
+
+// readPreset reads the preset file.
+func readPreset(file string) (Preset, error) {
+	var preset presetFile
+
+	data, err := os.ReadFile(file) //nolint:gosec // equip builds the path
+	if err == nil {
+		// Strict, so a misspelled kind fails here and does not turn its
+		// members off.
+		err = toml.NewDecoder(bytes.NewReader(data)).DisallowUnknownFields().Decode(&preset)
+	}
+
+	if err == nil && preset.ID == "" {
+		err = errNoID
+	}
+
+	var members []Member
+
+	for kind, names := range [][]string{Skill: preset.Skills, Plugin: preset.Plugins, MCPServer: preset.MCPServers} {
+		for _, name := range slices.Sorted(slices.Values(names)) {
+			members = append(members, member(Kind(kind).keyOf(name)))
+		}
+	}
+
+	return Preset{
+		ID: preset.ID, Name: strings.TrimSuffix(filepath.Base(file), ".toml"), Members: members,
+		Projects: nil, Active: false, New: false, Missing: false, Unwritten: false,
+	}, err
 }
 
 // Presets returns the library: every preset, by name.
@@ -370,19 +381,15 @@ func byKind(a, b Member) int { return cmp.Or(cmp.Compare(a.Kind, b.Kind), cmp.Co
 // edits are the members of written, a preset's as written, and of draft, as
 // edited, each added or removed marked so.
 func edits(written, draft []Member) []Member {
-	has := func(members []Member, m Member) bool {
-		return slices.ContainsFunc(members, func(other Member) bool { return other.Key == m.Key })
-	}
-
 	var out []Member
 
 	for _, m := range draft {
-		m.Added = !has(written, m)
+		m.Added = !hasKey(written, m.Key)
 		out = append(out, m)
 	}
 
 	for _, m := range written {
-		if !has(draft, m) {
+		if !hasKey(draft, m.Key) {
 			m.Removed = true
 			out = append(out, m)
 		}
@@ -391,6 +398,11 @@ func edits(written, draft []Member) []Member {
 	slices.SortFunc(out, byKind)
 
 	return out
+}
+
+// hasKey reports whether members has the member with key.
+func hasKey(members []Member, key string) bool {
+	return slices.ContainsFunc(members, func(m Member) bool { return m.Key == key })
 }
 
 // Preview is what a write or delete of a preset changes: the views of the
@@ -464,12 +476,19 @@ func (s *Session) preview(change presetChange) (View, View) {
 
 // WritePreset writes the preset with unwritten edits. If the Project saved it
 // active, it rewrites the Project's agent config and record with the states
-// the preset changes, and pending changes stay pending. If an agent's entries
-// changed since they were read, it writes nothing, imports the changes and
-// returns ErrChangedSinceOpen.
+// the preset changes, and pending changes stay pending. If the preset's file
+// changed since it was read, it writes nothing, merges the change into the
+// unwritten edits and returns ErrPresetChanged. If an agent's entries changed
+// since they were read, it writes nothing, imports the changes and returns
+// ErrChangedSinceOpen.
 func (s *Session) WritePreset() error {
 	if s.draft == nil {
 		return nil
+	}
+
+	err := s.mergeOutside()
+	if err != nil {
+		return err
 	}
 
 	here, err := s.savedActive(s.draft.ID)
@@ -498,6 +517,56 @@ func (s *Session) WritePreset() error {
 	s.draft, s.unfinished = nil, nil
 
 	return s.rewrite(others, written)
+}
+
+// mergeOutside returns ErrPresetChanged if the file of the preset with
+// unwritten edits changed since equip read it. It then takes the file's
+// members as the written ones, and makes the unwritten edits to them. A
+// deleted file has none, and leaves the edits as they are: New then marks
+// the draft, whose write creates the file.
+func (s *Session) mergeOutside() error {
+	written := &s.pending.library[s.presetIndex(s.draft.ID)]
+	file := presetPath(s.machine, written.Name)
+	now, err := readPreset(file)
+
+	switch {
+	case errors.Is(err, fs.ErrNotExist) && s.draft.New:
+		return nil
+	case errors.Is(err, fs.ErrNotExist):
+		s.draft.New, written.Members = true, nil
+
+		return ErrPresetDeleted
+	case err != nil:
+		return fmt.Errorf("read %s: %w", file, err)
+	case now.ID != s.draft.ID:
+		return fmt.Errorf("%w: %s holds preset %s", ErrPresetName, file, now.ID)
+	case slices.EqualFunc(now.Members, written.Members, func(a, b Member) bool { return a.Key == b.Key }):
+		return nil
+	}
+
+	s.draft.Members = merged(written.Members, s.draft.Members, now.Members)
+	written.Members = now.Members
+
+	return ErrPresetChanged
+}
+
+// merged are the members of now, a preset's file as it is, with the edits
+// from written to draft made to them.
+func merged(written, draft, now []Member) []Member {
+	out := slices.Clone(now)
+
+	for _, m := range edits(written, draft) {
+		switch {
+		case m.Removed:
+			out = slices.DeleteFunc(out, func(other Member) bool { return other.Key == m.Key })
+		case m.Added && !hasKey(out, m.Key):
+			out = append(out, member(m.Key))
+		}
+	}
+
+	slices.SortFunc(out, byKind)
+
+	return out
 }
 
 // savedActive reports whether the Project saved the preset with id active.
