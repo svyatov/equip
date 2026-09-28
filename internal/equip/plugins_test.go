@@ -31,7 +31,6 @@ func TestViewListsOnlyPluginsInstalledForThisProject(t *testing.T) {
 func TestViewSkipsAPluginWithoutFilesInTheCache(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	machine.Plugin("kept@official", "user", "")
 
 	err := os.RemoveAll(machine.Plugin("gone@official", "user", ""))
@@ -39,7 +38,7 @@ func TestViewSkipsAPluginWithoutFilesInTheCache(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := names(open(t, machine, repo))
+	got := names(open(t, machine, machine.Root))
 	if want := []string{"kept@official"}; !slices.Equal(got, want) {
 		t.Errorf("rows = %q, want %q", got, want)
 	}
@@ -48,10 +47,9 @@ func TestViewSkipsAPluginWithoutFilesInTheCache(t *testing.T) {
 func TestPluginOffersOnlyOnAndOff(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	machine.Plugin("github@official", "user", "")
 	machine.Skill(machine.ClaudeSkills(), "review")
-	session := newSession(t, machine, repo)
+	session := newSession(t, machine, machine.Root)
 
 	got, want := session.Detail("github@official").States, []equip.State{equip.On, equip.Off}
 	if !slices.Equal(got, want) {
@@ -67,9 +65,8 @@ func TestPluginOffersOnlyOnAndOff(t *testing.T) {
 func TestSettingAPluginToManualOnlyChangesNothing(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	machine.Plugin("github@official", "user", "")
-	session := newSession(t, machine, repo)
+	session := newSession(t, machine, machine.Root)
 
 	session.SetState("github@official", equip.ManualOnly)
 
@@ -130,10 +127,9 @@ func TestSaveRecordsPluginOverridesApartFromSkills(t *testing.T) {
 func TestPluginSkillHasARowThatFollowsItsPlugin(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	// "github:review" and "The review skill.": 30 bytes, 10 tokens in Claude Code.
 	machine.Skill(filepath.Join(machine.Plugin("github@official", "user", ""), "skills"), "review")
-	session := newSession(t, machine, repo)
+	session := newSession(t, machine, machine.Root)
 
 	want := equip.Row{
 		Key: "github@official/review", Name: "review", Plugin: "github@official", Kind: equip.Skill, Cost: 10,
@@ -158,9 +154,8 @@ func TestPluginSkillHasARowThatFollowsItsPlugin(t *testing.T) {
 func TestTurnedSinceLeavesOutAPluginsSkills(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	machine.Skill(filepath.Join(machine.Plugin("github@official", "user", ""), "skills"), "review")
-	session := newSession(t, machine, repo)
+	session := newSession(t, machine, machine.Root)
 	before := session.View()
 
 	session.SetState("github@official", equip.Off)
@@ -174,9 +169,8 @@ func TestTurnedSinceLeavesOutAPluginsSkills(t *testing.T) {
 func TestPluginSkillTakesNoOverride(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	machine.Skill(filepath.Join(machine.Plugin("github@official", "user", ""), "skills"), "review")
-	session := newSession(t, machine, repo)
+	session := newSession(t, machine, machine.Root)
 
 	session.SetState("github@official/review", equip.Off)
 
@@ -188,9 +182,8 @@ func TestPluginSkillTakesNoOverride(t *testing.T) {
 func TestPluginSkillJoinsNoPreset(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	machine.Skill(filepath.Join(machine.Plugin("github@official", "user", ""), "skills"), "review")
-	session := newSession(t, machine, repo)
+	session := newSession(t, machine, machine.Root)
 
 	id, err := session.CreatePreset("Ruby")
 	if err != nil {
@@ -210,11 +203,10 @@ func TestPluginSkillJoinsNoPreset(t *testing.T) {
 func TestPluginSkillDetailOffersNoState(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	dir := machine.Plugin("github@official", "user", "")
 	machine.Skill(filepath.Join(dir, "skills"), "review")
 
-	session := newSession(t, machine, repo)
+	session := newSession(t, machine, machine.Root)
 	if none := session.Detail("github@official/nope"); none.Description != "" || none.Locations != nil {
 		t.Errorf("Detail of a skill the plugin lacks = %+v, want an empty one", none)
 	}
@@ -233,7 +225,6 @@ func TestPluginSkillDetailOffersNoState(t *testing.T) {
 func TestPluginDefaultsToItsStateInUserSettings(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	machine.Plugin("github@official", "user", "")
 	writeFile(t, filepath.Join(machine.Home, ".claude", "settings.json"), `{"enabledPlugins": {"github@official": false}}`)
 
@@ -241,7 +232,7 @@ func TestPluginDefaultsToItsStateInUserSettings(t *testing.T) {
 		Key: "github@official", Name: "github@official", Kind: equip.Plugin, Cost: 0, State: equip.Off, Fallback: equip.Off,
 		Plugin: "", CostUnknown: false, ByName: false, Override: false, Unsaved: false, ChangedOutside: false,
 	}
-	if got := row(t, open(t, machine, repo), "github@official"); got != want {
+	if got := row(t, open(t, machine, machine.Root), "github@official"); got != want {
 		t.Errorf("row = %+v, want %+v", got, want)
 	}
 }
@@ -262,11 +253,10 @@ func TestPluginDefaultsToItsStateInProjectSettingsOverUserSettings(t *testing.T)
 func TestPluginNoSettingsNameDefaultsToItsManifest(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	dir := machine.Plugin("github@official", "user", "")
 	writeFile(t, filepath.Join(dir, ".claude-plugin", "plugin.json"), `{"name": "github", "defaultEnabled": false}`)
 
-	if got := row(t, open(t, machine, repo), "github@official"); got.State != equip.Off || got.Override {
+	if got := row(t, open(t, machine, machine.Root), "github@official"); got.State != equip.Off || got.Override {
 		t.Errorf("row = %+v, want off with no Override", got)
 	}
 }
@@ -274,12 +264,11 @@ func TestPluginNoSettingsNameDefaultsToItsManifest(t *testing.T) {
 func TestPluginSettingOnWinsOverItsManifest(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	dir := machine.Plugin("github@official", "user", "")
 	writeFile(t, filepath.Join(dir, ".claude-plugin", "plugin.json"), `{"name": "github", "defaultEnabled": false}`)
 	writeFile(t, filepath.Join(machine.Home, ".claude", "settings.json"), `{"enabledPlugins": {"github@official": true}}`)
 
-	if got := row(t, open(t, machine, repo), "github@official"); got.State != equip.On || got.Override {
+	if got := row(t, open(t, machine, machine.Root), "github@official"); got.State != equip.On || got.Override {
 		t.Errorf("row = %+v, want on with no Override", got)
 	}
 }
@@ -287,10 +276,9 @@ func TestPluginSettingOnWinsOverItsManifest(t *testing.T) {
 func TestPluginDetailShowsItsMarketplaceAndDescription(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	machine.Plugin("github@official", "user", "")
 
-	detail := newSession(t, machine, repo).Detail("github@official")
+	detail := newSession(t, machine, machine.Root).Detail("github@official")
 	if detail.Marketplace != "official" || detail.Description != "The github plugin." {
 		t.Errorf("Marketplace, Description = %q, %q, want %q, %q",
 			detail.Marketplace, detail.Description, "official", "The github plugin.")
@@ -300,7 +288,6 @@ func TestPluginDetailShowsItsMarketplaceAndDescription(t *testing.T) {
 func TestPluginDetailListsItsSkills(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	dir := machine.Plugin("github@official", "user", "")
 	// Claude Code lists the skill under the manifest name: "gh:review" and
 	// "The review skill.", 26 bytes.
@@ -315,7 +302,7 @@ func TestPluginDetailListsItsSkills(t *testing.T) {
 			Unmeasurable: "",
 		},
 	}
-	if got := newSession(t, machine, repo).Detail("github@official").Contents; !slices.Equal(got, want) {
+	if got := newSession(t, machine, machine.Root).Detail("github@official").Contents; !slices.Equal(got, want) {
 		t.Errorf("Contents = %+v, want %+v", got, want)
 	}
 }
@@ -323,12 +310,11 @@ func TestPluginDetailListsItsSkills(t *testing.T) {
 func TestPluginOfSkillsOnlyTheirNamesCallIsByName(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	writeFile(t, filepath.Join(machine.Plugin("github@official", "user", ""), "skills", "review", "SKILL.md"),
 		"---\nname: review\ndescription: x\ndisable-model-invocation: true\n---\n")
 	machine.Plugin("empty@official", "user", "")
 
-	session := newSession(t, machine, repo)
+	session := newSession(t, machine, machine.Root)
 	if got := session.Detail("github@official").Contents; len(got) != 1 || !got[0].ByName {
 		t.Errorf("Contents = %+v, want review by name", got)
 	}
@@ -344,9 +330,8 @@ func TestPluginOfSkillsOnlyTheirNamesCallIsByName(t *testing.T) {
 func TestPluginSkillFollowsItsPlugin(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	machine.Skill(filepath.Join(machine.Plugin("github@official", "user", ""), "skills"), "review")
-	session := newSession(t, machine, repo)
+	session := newSession(t, machine, machine.Root)
 
 	session.SetState("github@official", equip.Off)
 
@@ -366,7 +351,6 @@ func TestPluginSkillFollowsItsPlugin(t *testing.T) {
 func TestPluginCostsItsSkillsCommandsAndAgents(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	dir := machine.Plugin("github@official", "user", "")
 	// "github:review" and "The review skill.": 30 bytes, 10 tokens.
 	machine.Skill(filepath.Join(dir, "skills"), "review")
@@ -375,7 +359,7 @@ func TestPluginCostsItsSkillsCommandsAndAgents(t *testing.T) {
 	// "github:triage" and "Triage.": 20 bytes, 7 tokens.
 	writeFile(t, filepath.Join(dir, "agents", "triage.md"), "---\nname: triage\ndescription: Triage.\n---\nNot counted.\n")
 
-	if got := row(t, open(t, machine, repo), "github@official").Cost; got != 24 {
+	if got := row(t, open(t, machine, machine.Root), "github@official").Cost; got != 24 {
 		t.Errorf("Cost = %d, want 24", got)
 	}
 }
@@ -383,12 +367,11 @@ func TestPluginCostsItsSkillsCommandsAndAgents(t *testing.T) {
 func TestPluginCostSkipsFilesClaudeCodeDoesNotList(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	dir := machine.Plugin("github@official", "user", "")
 	machine.Mkdir(filepath.Join(dir, "skills", "empty"))
 	writeFile(t, filepath.Join(dir, "commands", "sync.toml"), "description = \"Sync it.\"\n")
 
-	session := newSession(t, machine, repo)
+	session := newSession(t, machine, machine.Root)
 
 	if got := row(t, session.View(), "github@official").Cost; got != 0 {
 		t.Errorf("Cost = %d, want 0", got)
@@ -402,7 +385,6 @@ func TestPluginCostSkipsFilesClaudeCodeDoesNotList(t *testing.T) {
 func TestPluginWithoutManifestListsItsSkillsUnderItsKeyName(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	dir := machine.Plugin("github@official", "user", "")
 	// "github:review" and "The review skill.": 30 bytes, 10 tokens.
 	machine.Skill(filepath.Join(dir, "skills"), "review")
@@ -412,7 +394,7 @@ func TestPluginWithoutManifestListsItsSkillsUnderItsKeyName(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := row(t, open(t, machine, repo), "github@official").Cost; got != 10 {
+	if got := row(t, open(t, machine, machine.Root), "github@official").Cost; got != 10 {
 		t.Errorf("Cost = %d, want 10", got)
 	}
 }
@@ -420,13 +402,12 @@ func TestPluginWithoutManifestListsItsSkillsUnderItsKeyName(t *testing.T) {
 func TestPluginDetailListsItsMCPServersAfterItsSkills(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	dir := machine.Plugin("github@official", "user", "")
 	machine.Skill(filepath.Join(dir, "skills"), "review")
 	writeFile(t, filepath.Join(dir, ".mcp.json"),
 		`{"mcpServers": {"search": {"command": "search"}, "issues": {"url": "https://example.com/mcp"}}}`)
 
-	contents := newSession(t, machine, repo).Detail("github@official").Contents
+	contents := newSession(t, machine, machine.Root).Detail("github@official").Contents
 
 	got := make([]string, 0, len(contents))
 	for _, content := range contents {
@@ -441,13 +422,12 @@ func TestPluginDetailListsItsMCPServersAfterItsSkills(t *testing.T) {
 func TestPluginDetailListsMCPServersDeclaredInItsManifest(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	dir := machine.Plugin("github@official", "user", "")
 	writeFile(t, filepath.Join(dir, ".claude-plugin", "plugin.json"),
 		`{"name": "github", "mcpServers": {"api": {"command": "api"}}, "defaultEnabled": false}`)
 	writeFile(t, filepath.Join(dir, ".mcp.json"), `{"mcpServers": {"search": {"command": "search"}}}`)
 
-	detail := newSession(t, machine, repo).Detail("github@official")
+	detail := newSession(t, machine, machine.Root).Detail("github@official")
 
 	got := make([]string, 0, len(detail.Contents))
 	for _, content := range detail.Contents {
@@ -462,12 +442,11 @@ func TestPluginDetailListsMCPServersDeclaredInItsManifest(t *testing.T) {
 func TestPluginManifestWithMCPServersInAFileKeepsItsOtherFields(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	dir := machine.Plugin("github@official", "user", "")
 	writeFile(t, filepath.Join(dir, ".claude-plugin", "plugin.json"),
 		`{"name": "github", "mcpServers": "./servers.json", "defaultEnabled": false}`)
 
-	if got := row(t, open(t, machine, repo), "github@official").State; got != equip.Off {
+	if got := row(t, open(t, machine, machine.Root), "github@official").State; got != equip.Off {
 		t.Errorf("State = %v, want off", got)
 	}
 }
@@ -475,10 +454,9 @@ func TestPluginManifestWithMCPServersInAFileKeepsItsOtherFields(t *testing.T) {
 func TestPluginWithAHooksFileHasHooks(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	machine.Plugin("plain@official", "user", "")
 	writeFile(t, filepath.Join(machine.Plugin("hooked@official", "user", ""), "hooks", "hooks.json"), `{"hooks": {}}`)
-	session := newSession(t, machine, repo)
+	session := newSession(t, machine, machine.Root)
 
 	if !session.Detail("hooked@official").Hooks || session.Detail("plain@official").Hooks {
 		t.Errorf("Hooks = %v and %v, want true for hooked and false for plain",
@@ -489,11 +467,10 @@ func TestPluginWithAHooksFileHasHooks(t *testing.T) {
 func TestPluginWithHooksInItsManifestHasHooks(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	writeFile(t, filepath.Join(machine.Plugin("hooked@official", "user", ""), ".claude-plugin", "plugin.json"),
 		`{"name": "hooked", "hooks": "./hooks/extra.json"}`)
 
-	if !newSession(t, machine, repo).Detail("hooked@official").Hooks {
+	if !newSession(t, machine, machine.Root).Detail("hooked@official").Hooks {
 		t.Error("Hooks = false, want true")
 	}
 }
@@ -501,10 +478,9 @@ func TestPluginWithHooksInItsManifestHasHooks(t *testing.T) {
 func TestOpenRefusesABrokenInstalledPluginsList(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	writeFile(t, filepath.Join(machine.Home, ".claude", "plugins", "installed_plugins.json"), "{")
 
-	_, err := equip.Open(machine.Machine, repo)
+	_, err := equip.Open(machine.Machine, machine.Root)
 	if err == nil {
 		t.Error("Open = nil, want an error")
 	}

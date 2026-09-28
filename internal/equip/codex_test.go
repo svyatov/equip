@@ -20,12 +20,11 @@ import (
 func TestViewListsACodexPluginFromTheUserConfigWithFilesInTheCache(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	machine.CodexPlugin("github@official")
 	machine.CodexPlugin("unnamed@official")
 	writeFile(t, machine.CodexConfig(), "[plugins.\"github@official\"]\nenabled = true\n"+
 		"[plugins.\"gone@official\"]\nenabled = true\n")
-	session := newSession(t, machine, repo)
+	session := newSession(t, machine, machine.Root)
 
 	if got, want := names(session.View()), []string{"github@official"}; !slices.Equal(got, want) {
 		t.Fatalf("rows = %q, want %q", got, want)
@@ -93,10 +92,9 @@ func appendFile(t *testing.T, path, content string) {
 func TestPluginBothAgentsHaveIsOneRow(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	claudeDir := machine.Plugin("github@official", "user", "")
 	codexDir := codexPlugin(t, machine, "github@official")
-	session := newSession(t, machine, repo)
+	session := newSession(t, machine, machine.Root)
 
 	if got, want := names(session.View()), []string{"github@official"}; !slices.Equal(got, want) {
 		t.Fatalf("rows = %q, want %q", got, want)
@@ -111,10 +109,9 @@ func TestPluginBothAgentsHaveIsOneRow(t *testing.T) {
 func TestViewListsCodexMCPServersFromTheUserConfigAsOneRowWithClaudeCodes(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	writeFile(t, claudeJSON(machine), `{"mcpServers": {"github": {"command": "gh"}}}`)
 	writeFile(t, machine.CodexConfig(), "[mcp_servers.github]\ncommand = \"gh\"\n[mcp_servers.search]\ncommand = \"s\"\n")
-	session := newSession(t, machine, repo)
+	session := newSession(t, machine, machine.Root)
 
 	got := states(session.View())
 	if want := []string{"MCP server github on", "MCP server search on"}; !slices.Equal(got, want) {
@@ -132,12 +129,11 @@ func TestViewListsCodexMCPServersFromTheUserConfigAsOneRowWithClaudeCodes(t *tes
 func TestCodexExtensionDefaultsToItsStateInTheUserConfig(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	machine.CodexPlugin("github@official")
 	writeFile(t, machine.CodexConfig(), "[plugins.\"github@official\"]\nenabled = false\n"+
 		"[mcp_servers.search]\ncommand = \"s\"\nenabled = false\n")
 
-	view := open(t, machine, repo)
+	view := open(t, machine, machine.Root)
 	if got := states(view); !slices.Equal(got, []string{"plugin github@official off", "MCP server search off"}) {
 		t.Errorf("rows = %q, want both off", got)
 	}
@@ -412,10 +408,9 @@ func TestCodexConfigTrackedThroughASymlinkedDirIsNotWritten(t *testing.T) {
 func TestBrokenCodexUserConfigStillOpensAndSaves(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	machine.Skill(machine.ClaudeSkills(), "review")
 	writeFile(t, machine.CodexConfig(), "[")
-	session := newSession(t, machine, repo)
+	session := newSession(t, machine, machine.Root)
 
 	if got, want := names(session.View()), []string{"review"}; !slices.Equal(got, want) {
 		t.Errorf("rows = %q, want %q", got, want)
@@ -592,10 +587,9 @@ func TestSaveImportsACodexEntryChangedOutsideSinceOpen(t *testing.T) {
 func TestCodexPluginCostsItsSkillsListedUnderItsName(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	// "github:review" and "The review skill.": 30 bytes, 8 tokens in Codex.
 	machine.Skill(filepath.Join(codexPlugin(t, machine, "github@official"), "skills"), "review")
-	session := newSession(t, machine, repo)
+	session := newSession(t, machine, machine.Root)
 
 	if got := row(t, session.View(), "github@official").Cost; got != 8 {
 		t.Errorf("Cost = %d, want 8", got)
@@ -617,10 +611,9 @@ func TestCodexPluginCostsItsSkillsListedUnderItsName(t *testing.T) {
 func TestCodexPluginSkillThatDisallowsImplicitInvocationIsByName(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	skill := machine.Skill(filepath.Join(codexPlugin(t, machine, "grill-me@tk"), "skills"), "grill-me")
 	writeFile(t, filepath.Join(skill, "agents", "openai.yaml"), "policy:\n  allow_implicit_invocation: false\n")
-	session := newSession(t, machine, repo)
+	session := newSession(t, machine, machine.Root)
 
 	if got := row(t, session.View(), "grill-me@tk"); got.Cost != 0 || !got.ByName {
 		t.Errorf("Cost = %d, ByName = %v, want 0 and true", got.Cost, got.ByName)
@@ -634,7 +627,6 @@ func TestCodexPluginSkillThatDisallowsImplicitInvocationIsByName(t *testing.T) {
 func TestPluginSkillBothAgentsHaveIsByNameOnlyWhenBothCallItByName(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	claude := filepath.Join(machine.Plugin("github@official", "user", ""), "skills")
 	codex := filepath.Join(codexPlugin(t, machine, "github@official"), "skills")
 	// Claude Code only calls ship by name; Codex lists it: "github:ship" and
@@ -650,7 +642,7 @@ func TestPluginSkillBothAgentsHaveIsByNameOnlyWhenBothCallItByName(t *testing.T)
 	// Only Codex has scan.
 	machine.Skill(codex, "scan")
 
-	view := newSession(t, machine, repo).View()
+	view := newSession(t, machine, machine.Root).View()
 	if got := row(t, view, "ship"); got.ByName || got.Cost != 3 {
 		t.Errorf("ship: ByName = %v, Cost = %d, want false and Codex's 3", got.ByName, got.Cost)
 	}
@@ -692,11 +684,11 @@ func TestOffCodexPluginCostsNothingOnlyWhereCodexAppliesIt(t *testing.T) {
 func TestPluginOffInTheCodexUserConfigCostsNothingInAnUntrustedProject(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	machine.Skill(filepath.Join(machine.CodexPlugin("github@official"), "skills"), "review")
 	writeFile(t, machine.CodexConfig(), "[plugins.\"github@official\"]\nenabled = false\n")
 
-	if got := open(t, machine, repo); row(t, got, "github@official").Cost != 0 || got.Totals[equip.Codex].Tokens != 0 {
+	got := open(t, machine, machine.Root)
+	if row(t, got, "github@official").Cost != 0 || got.Totals[equip.Codex].Tokens != 0 {
 		t.Errorf("Cost = %d, Codex total = %d, want 0 and 0",
 			row(t, got, "github@official").Cost, got.Totals[equip.Codex].Tokens)
 	}
@@ -705,11 +697,10 @@ func TestPluginOffInTheCodexUserConfigCostsNothingInAnUntrustedProject(t *testin
 func TestPluginBothAgentsHaveKeepsEachAgentsDefault(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 	machine.Plugin("github@official", "user", "")
 	machine.Skill(filepath.Join(machine.CodexPlugin("github@official"), "skills"), "review")
 	writeFile(t, machine.CodexConfig(), "[plugins.\"github@official\"]\nenabled = false\n")
-	session := newSession(t, machine, repo)
+	session := newSession(t, machine, machine.Root)
 
 	if got := row(t, session.View(), "github@official"); got.State != equip.On || got.Fallback != equip.On {
 		t.Errorf("row = %+v, want Claude Code's on default", got)

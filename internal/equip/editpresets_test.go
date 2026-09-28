@@ -199,11 +199,11 @@ func TestRenameRenamesTheFileAtOnceAndRewritesNoProject(t *testing.T) {
 
 func TestAPresetNeedsAFreeNameThatCanNameItsFile(t *testing.T) {
 	t.Parallel()
+	machine := equiptest.WithPresets(t)
+	session := newSession(t, machine, machine.Root)
+	want := []string{"Ruby r1 2", "Writing w1 1"}
 
 	for _, name := range []string{"", " ", "writing", "a/b", ".hidden"} {
-		machine := equiptest.WithPresets(t)
-		session := newSession(t, machine, machine.Root)
-
 		_, createErr := session.CreatePreset(name)
 		renameErr := session.RenamePreset("r1", name)
 
@@ -211,10 +211,13 @@ func TestAPresetNeedsAFreeNameThatCanNameItsFile(t *testing.T) {
 			t.Errorf("%q: CreatePreset = %v, RenamePreset = %v, want ErrPresetName", name, createErr, renameErr)
 		}
 
-		got, want := library(newSession(t, machine, machine.Root)), []string{"Ruby r1 2", "Writing w1 1"}
-		if !slices.Equal(got, want) {
+		if got := library(session); !slices.Equal(got, want) {
 			t.Errorf("%q: library = %q, want %q", name, got, want)
 		}
+	}
+
+	if got := library(newSession(t, machine, machine.Root)); !slices.Equal(got, want) {
+		t.Errorf("library on disk = %q, want %q", got, want)
 	}
 }
 
@@ -463,7 +466,7 @@ func TestWriteRewritesTheOtherProjectsThatUseThePreset(t *testing.T) {
 	machine := equiptest.WithPresets(t)
 	other := machine.Repo("other")
 	using(t, machine, other, "r1")
-	session := newSession(t, machine, machine.Repo("app"))
+	session := newSession(t, machine, machine.Root)
 
 	add(t, session, "r1", "review")
 	write(t, session)
@@ -482,7 +485,7 @@ func TestWriteKeepsTheOtherPresetsAsTheOtherProjectsSavedThem(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.WithPresets(t)
 	other := machine.Repo("other")
-	session := newSession(t, machine, machine.Repo("app"))
+	session := newSession(t, machine, machine.Root)
 	// Writing gains review after this session read it, and other saves that.
 	machine.Preset("Writing", "id = \"w1\"\nskills = [\"docs\", \"review\"]\n")
 	using(t, machine, other, "r1", "w1")
@@ -571,7 +574,7 @@ func TestPreviewListsWhatTurnsInEachOtherProjectAndWritesNothing(t *testing.T) {
 	using(t, machine, machine.Repo("ruby"), "r1")
 
 	settings, _ := os.ReadFile(settingsLocal(other))
-	session := newSession(t, machine, machine.Repo("app"))
+	session := newSession(t, machine, machine.Root)
 	add(t, session, "w1", "review")
 	remove(t, session, "w1", "docs")
 
@@ -644,7 +647,7 @@ func TestWriteSkipsAProjectWithAMissingPreset(t *testing.T) {
 	// Its hash still matches the record's, but a missing preset hides hand
 	// edits there.
 	removePreset(t, machine, "Empty")
-	session := newSession(t, machine, machine.Repo("app"))
+	session := newSession(t, machine, machine.Root)
 
 	add(t, session, "r1", "review")
 
@@ -672,7 +675,7 @@ func TestWriteAndDeleteKeepAnotherProjectsOverride(t *testing.T) {
 		}
 	}
 
-	session := newSession(t, machine, machine.Repo("app"))
+	session := newSession(t, machine, machine.Root)
 	add(t, session, "r1", "docs")
 	write(t, session)
 	kept("the write")
@@ -838,7 +841,7 @@ func TestDeleteSkipsAProjectEquipCannotRead(t *testing.T) {
 	using(t, machine, other, "r1")
 	rec, broken := unreadableRecord(t, machine, other)
 
-	err := newSession(t, machine, machine.Repo("app")).DeletePreset("r1")
+	err := newSession(t, machine, machine.Root).DeletePreset("r1")
 	if err != nil {
 		t.Errorf("DeletePreset = %v, want nil with other skipped", err)
 	}
@@ -954,7 +957,7 @@ func TestWriteReportsAnotherProjectItFailedToRewrite(t *testing.T) {
 	other := machine.Repo("other")
 	using(t, machine, other, "r1")
 	writeFile(t, settingsLocal(other), "{")
-	session := newSession(t, machine, machine.Repo("app"))
+	session := newSession(t, machine, machine.Root)
 	add(t, session, "r1", "review")
 
 	err := session.WritePreset()
@@ -970,7 +973,7 @@ func TestWriteSkipsAProjectEquipCannotRead(t *testing.T) {
 	using(t, machine, other, "r1")
 	rec, broken := unreadableRecord(t, machine, other)
 
-	session := newSession(t, machine, machine.Repo("app"))
+	session := newSession(t, machine, machine.Root)
 	add(t, session, "r1", "review")
 
 	others := session.PreviewWrite().Others
@@ -997,7 +1000,7 @@ func TestWriteSkipsAProjectWhosePathIsGone(t *testing.T) {
 	files := map[string]string{}
 	data, _ := os.ReadFile(recordOf(t, machine, gone))
 	files[recordOf(t, machine, gone)] = string(data)
-	session := newSession(t, machine, machine.Repo("app"))
+	session := newSession(t, machine, machine.Root)
 	add(t, session, "r1", "review")
 
 	others := session.PreviewWrite().Others

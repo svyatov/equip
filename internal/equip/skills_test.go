@@ -159,7 +159,6 @@ func TestSaveWritesNoClaudeCodeEntryForACodexOnlySkill(t *testing.T) {
 func TestSkillDefaultsToItsStateInUserSettings(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
-	repo := machine.Repo("app")
 
 	for _, name := range []string{"review", "lint", "odd"} {
 		machine.Skill(machine.ClaudeSkills(), name)
@@ -168,7 +167,7 @@ func TestSkillDefaultsToItsStateInUserSettings(t *testing.T) {
 	writeFile(t, filepath.Join(machine.Home, ".claude", "settings.json"),
 		`{"skillOverrides": {"review": "user-invocable-only", "lint": "off", "odd": "bogus"}}`)
 
-	view := open(t, machine, repo)
+	view := open(t, machine, machine.Root)
 	for name, want := range map[string]equip.State{"review": equip.ManualOnly, "lint": equip.Off, "odd": equip.On} {
 		if got := row(t, view, name); got.State != want || got.Fallback != want || got.Override {
 			t.Errorf("%s: row = %+v, want %v with no Override", name, got, want)

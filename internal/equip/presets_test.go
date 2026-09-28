@@ -51,7 +51,7 @@ func TestLibraryShowsWhereEachPresetIsActive(t *testing.T) {
 	app := newSession(t, machine, repo)
 	app.SetPresets([]string{"r1"})
 	save(t, app)
-	session := newSession(t, machine, machine.Repo("other"))
+	session := newSession(t, machine, machine.Root)
 
 	session.SetPresets([]string{"w1"})
 
@@ -84,7 +84,7 @@ func TestLibraryDoesNotCountAProjectWhosePathIsGone(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got := len(newSession(t, machine, machine.Repo("other")).Presets()[0].Projects); got != 0 {
+	if got := len(newSession(t, machine, machine.Root).Presets()[0].Projects); got != 0 {
 		t.Errorf("Ruby's projects = %d, want 0", got)
 	}
 }
