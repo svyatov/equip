@@ -492,7 +492,7 @@ func TestWriteOfAPresetChangedOutsideSaysTheEditsMergedIt(t *testing.T) {
 	}
 }
 
-func TestWriteAfterAnOutsideChangeHereSaysWWritesIt(t *testing.T) {
+func TestWriteAfterAnOutsideChangeHereSaysWThenSSavesBoth(t *testing.T) {
 	t.Parallel()
 	tui, machine := ruby(t)
 	settings := filepath.Join(machine.Root, ".claude", "settings.local.json")
@@ -502,7 +502,7 @@ func TestWriteAfterAnOutsideChangeHereSaysWWritesIt(t *testing.T) {
 	machine.WriteFile(settings, `{"skillOverrides": {"docs": "off", "lint": "on", "review": "on"}}`)
 	press(tui, key('w'), key('y'))
 
-	if line(tui, "changed outside equip: added to Unsaved changes, press w to write") == "" {
+	if line(tui, "changed outside equip: added to Unsaved changes, press w to write, then esc and s to save") == "" {
 		t.Errorf("w does not say the change was added:\n%s", tui.View().Content)
 	}
 
@@ -512,9 +512,12 @@ func TestWriteAfterAnOutsideChangeHereSaysWWritesIt(t *testing.T) {
 	if data, _ := os.ReadFile(file); !strings.Contains(string(data), "docs") {
 		t.Errorf("the second w did not write Ruby:\n%s", data)
 	}
-	// The write keeps pending changes pending, the imported one too.
-	if n := tui.s.View().Unsaved; n != 1 {
-		t.Errorf("Unsaved = %d, want the imported change", n)
+
+	press(tui, esc(), key('s'))
+
+	data, _ := os.ReadFile(settings)
+	if !strings.Contains(string(data), `"docs": "on"`) || !strings.Contains(string(data), `"review": "on"`) {
+		t.Errorf("settings =\n%s\nwant docs from Ruby and review from outside on", data)
 	}
 }
 
