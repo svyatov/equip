@@ -2,6 +2,7 @@ package main
 
 import (
 	"fmt"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -174,13 +175,14 @@ func (m *model) states(row equip.Row, ext equip.Detail) []string {
 
 	lines := []string{"", m.style.head.Render("State")}
 
-	for index, state := range ext.States {
+	for _, state := range ext.States {
 		radio := " "
 		if state == row.State {
 			radio = m.glyph(state)
 		}
 
-		lines = append(lines, fmt.Sprintf("  (%s) %s %s", radio, m.style.key.Render(strconv.Itoa(index+1)),
+		number := strconv.Itoa(slices.Index(equip.States(), state) + 1)
+		lines = append(lines, fmt.Sprintf("  (%s) %s %s", radio, m.style.key.Render(number),
 			m.style.states[state].Render(state.String())))
 	}
 

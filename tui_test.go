@@ -436,29 +436,84 @@ func TestDetailPaneShowsStatesOriginAndFallback(t *testing.T) {
 	}
 }
 
-func TestStateKeysPickFromThePluginsOnAndOff(t *testing.T) {
+func TestThreeTurnsOffAPlugin(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	machine.Plugin("github@official", "user", "")
 	tui := newModel(t, machine)
 
-	// A plugin has no third state, so 3 leaves it alone.
 	press(tui, key('3'))
-
-	if r := tui.s.View().Rows[0]; r.State != equip.On || r.Override {
-		t.Errorf("after 3, github@official = %+v, want on with no Override", r)
-	}
-
-	press(tui, key('2'))
 
 	if r := tui.s.View().Rows[0]; r.State != equip.Off || !r.Override {
 		t.Errorf("github@official = %+v, want an Override off", r)
 	}
 
-	for _, want := range []string{"( ) 1 on", "(○) 2 off"} {
+	// Each state shows the key that sets it.
+	for _, want := range []string{"( ) 1 on", "(○) 3 off"} {
 		if line(tui, want) == "" {
-			t.Errorf("view does not show %q:\n%s", want, tui.View().Content)
+			t.Errorf("view does not show %q:\n%s", want, plain(tui))
 		}
+	}
+}
+
+func TestTwoLeavesAPluginAndSaysItHasNoManualOnlyState(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.Plugin("github@official", "user", "")
+	tui := newModel(t, machine)
+
+	press(tui, key('2'))
+
+	if r := tui.s.View().Rows[0]; r.State != equip.On || r.Override {
+		t.Errorf("github@official = %+v, want on with no Override", r)
+	}
+
+	if line(tui, "plugins have no manual-only state") == "" {
+		t.Errorf("view does not say plugins have no manual-only state:\n%s", plain(tui))
+	}
+}
+
+func TestTwoLeavesAnMCPServerAndSaysItHasNoManualOnlyState(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.WriteFile(filepath.Join(machine.Home, ".claude.json"), `{"mcpServers": {"github": {"command": "gh"}}}`)
+	tui := newModel(t, machine)
+
+	press(tui, key('2'))
+
+	if r := tui.s.View().Rows[0]; r.State != equip.On || r.Override {
+		t.Errorf("github = %+v, want on with no Override", r)
+	}
+
+	if line(tui, "MCP servers have no manual-only state") == "" {
+		t.Errorf("view does not say MCP servers have no manual-only state:\n%s", plain(tui))
+	}
+}
+
+func TestTwoOnAPluginsMCPServerSaysMCPServersHaveNoManualOnlyState(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	dir := machine.Plugin("github@official", "user", "")
+	machine.WriteFile(filepath.Join(dir, ".mcp.json"), `{"mcpServers": {"search": {"command": "search"}}}`)
+	tui := newModel(t, machine)
+
+	press(tui, tea.KeyPressMsg{Code: tea.KeyTab}, key('2'))
+
+	if line(tui, "MCP servers have no manual-only state") == "" {
+		t.Errorf("view does not say MCP servers have no manual-only state:\n%s", plain(tui))
+	}
+}
+
+func TestThreeTurnsOffAnMCPServer(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	machine.WriteFile(filepath.Join(machine.Home, ".claude.json"), `{"mcpServers": {"github": {"command": "gh"}}}`)
+	tui := newModel(t, machine)
+
+	press(tui, key('3'))
+
+	if r := tui.s.View().Rows[0]; r.State != equip.Off || !r.Override {
+		t.Errorf("github = %+v, want an Override off", r)
 	}
 }
 
@@ -501,7 +556,7 @@ func TestDetailPaneListsThePluginsContents(t *testing.T) {
 	machine.WriteFile(filepath.Join(dir, ".mcp.json"), `{"mcpServers": {"search": {"command": "search"}}}`)
 	tui := newModel(t, machine)
 
-	press(tui, key('2'))
+	press(tui, key('3'))
 
 	// Only its MCP servers can be overridden.
 	if line(tui, "Contents  skills follow the plugin, MCP servers too unless overridden") == "" {
@@ -528,7 +583,7 @@ func TestTabThenStateKeyTurnsOffTheHighlightedMCPServerInsideThePlugin(t *testin
 	up := tea.KeyPressMsg{Code: tea.KeyUp}
 
 	// Down stops at the last server, so two ups are back on the first.
-	press(tui, tea.KeyPressMsg{Code: tea.KeyTab}, down(), down(), down(), up, up, key('2'))
+	press(tui, tea.KeyPressMsg{Code: tea.KeyTab}, down(), down(), down(), up, up, key('3'))
 
 	if r := tui.s.View().Rows[0]; r.State != equip.On || r.Override {
 		t.Errorf("plugin = %+v, want on with no Override", r)
@@ -1027,7 +1082,7 @@ func TestPickingAFacetLeavesThePluginsContents(t *testing.T) {
 	tab := tea.KeyPressMsg{Code: tea.KeyTab}
 
 	// search off, then the Unsaved changes facet, which keeps the plugin.
-	press(tui, tab, key('2'), key('['))
+	press(tui, tab, key('3'), key('['))
 
 	if tui.focus == onDetail {
 		t.Error("keys still act on the MCP server after picking a facet")
@@ -1043,13 +1098,13 @@ func TestKeysStayOnTheListAfterTheHighlightedPluginLeavesTheFacet(t *testing.T) 
 
 	// Off by hand, then saved from the Unsaved changes facet.
 	tab := tea.KeyPressMsg{Code: tea.KeyTab}
-	press(tui, tab, key('2'), key('['), tab, key('s'))
+	press(tui, tab, key('3'), key('['), tab, key('s'))
 
 	if tui.focus == onDetail {
 		t.Fatalf("keys still act on the MCP server of a plugin that left the facet:\n%s", tui.View().Content)
 	}
 
-	press(tui, key('2'))
+	press(tui, key('3'))
 }
 
 func TestSlashSearchesTheListByName(t *testing.T) {
