@@ -447,22 +447,28 @@ func using(t *testing.T, machine *equiptest.Machine, dir string, ids ...string) 
 	}
 }
 
-func TestWriteConfirmListsTheOtherProjectsAndTheSkippedOnes(t *testing.T) {
+func TestOthersListsWhatTurnsInEachProjectAndWhyOneIsSkipped(t *testing.T) {
 	t.Parallel()
-	tui, machine := ruby(t)
-	other, edited := machine.Repo("other"), machine.Repo("edited")
-	using(t, machine, other, "r1")
-	using(t, machine, edited, "r1")
-	machine.WriteFile(filepath.Join(edited, ".claude", "settings.local.json"), `{"skillOverrides": {"docs": "on"}}`)
 
-	// The add list offers docs, then review; its esc leaves lint highlighted
-	// in the members pane.
-	press(tui, key('a'), down(), key(' '), esc(), key(' '), key('w'))
+	var tui model
 
-	for _, want := range []string{other, "    + review", "    - lint", edited + "  skipped: changed outside equip"} {
-		if line(tui, want) == "" {
-			t.Errorf("confirm does not show %q:\n%s", want, tui.View().Content)
-		}
+	tui.style = newStyles()
+
+	var review, lint equip.Row
+
+	review.Name, review.State = "review", equip.On
+	lint.Name, lint.State = "lint", equip.Off
+
+	lines := tui.others([]equip.Affected{
+		{Path: "/other", Skipped: "", Turned: []equip.Row{review, lint}},
+		{Path: "/edited", Skipped: "changed outside equip", Turned: nil},
+	})
+
+	got := styleCodes.ReplaceAllString(strings.Join(lines, "\n"), "")
+	want := "Other projects\n  /other\n    + review\n    - lint\n  /edited  skipped: changed outside equip"
+
+	if got != want {
+		t.Errorf("others =\n%s\nwant\n%s", got, want)
 	}
 }
 

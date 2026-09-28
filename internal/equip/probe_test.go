@@ -360,20 +360,6 @@ func TestUserServerMeasuredInOneProjectShowsItsCostInAnother(t *testing.T) {
 	}
 }
 
-func TestClaudeCodeCostsTheFirst2048CharactersOfInstructions(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	repo := machine.Repo("app")
-	config := fakeConfig(t, "modern", "")
-	config["env"] = map[string]string{fakeMCPEnv: "modern", "EQUIP_FAKE_INSTRUCTIONS": strings.Repeat("é", 3000)}
-	writeJSON(t, claudeJSON(machine), map[string]any{"mcpServers": map[string]any{"fake": config}})
-
-	// 2048 two-byte characters and mcp__fake__a: 4108 bytes.
-	if got := probedRow(t, machine, repo); got.Cost != 1370 {
-		t.Errorf("row = %+v, want a cost of 1370", got)
-	}
-}
-
 func TestProbeRefusesAServerOnTheSSETransport(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)

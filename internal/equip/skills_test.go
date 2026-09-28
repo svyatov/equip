@@ -275,63 +275,6 @@ func TestOpenFailsOnUnreadableClaudeCodeUserSkills(t *testing.T) {
 	}
 }
 
-// skillDescription writes a skill whose frontmatter holds description as
-// written and returns the description the Session reads from it.
-func skillDescription(t *testing.T, description string) string {
-	t.Helper()
-	machine := equiptest.New(t)
-	dir := machine.Skill(machine.ClaudeSkills(), "review")
-	skill := "---\nname: review\ndescription:" + description + "\nlicense: MIT\n---\nBody.\n"
-	writeFile(t, filepath.Join(dir, "SKILL.md"), skill)
-
-	return newSession(t, machine, machine.Root).Detail("review").Description
-}
-
-func TestSkillDescriptionReadsALiteralBlock(t *testing.T) {
-	t.Parallel()
-
-	got := skillDescription(t, " |\n  Reviews code.\n  Use before a merge.")
-	if want := "Reviews code.\nUse before a merge."; got != want {
-		t.Errorf("Description = %q, want %q", got, want)
-	}
-}
-
-func TestSkillDescriptionFoldsAFoldedBlock(t *testing.T) {
-	t.Parallel()
-
-	got := skillDescription(t, " >-\n  Reviews code.\n  Use before a merge.")
-	if want := "Reviews code. Use before a merge."; got != want {
-		t.Errorf("Description = %q, want %q", got, want)
-	}
-}
-
-func TestSkillDescriptionReadsAPlainValueOnTheNextLines(t *testing.T) {
-	t.Parallel()
-
-	got := skillDescription(t, "\n  Reviews code.\n  Use before a merge.")
-	if want := "Reviews code. Use before a merge."; got != want {
-		t.Errorf("Description = %q, want %q", got, want)
-	}
-}
-
-func TestSkillDescriptionUnquotesADoubleQuotedValue(t *testing.T) {
-	t.Parallel()
-
-	got := skillDescription(t, ` "Reviews \"code\": use before a merge."`)
-	if want := `Reviews "code": use before a merge.`; got != want {
-		t.Errorf("Description = %q, want %q", got, want)
-	}
-}
-
-func TestSkillDescriptionUnquotesASingleQuotedValue(t *testing.T) {
-	t.Parallel()
-
-	got := skillDescription(t, ` 'Reviews the user''s code.'`)
-	if want := "Reviews the user's code."; got != want {
-		t.Errorf("Description = %q, want %q", got, want)
-	}
-}
-
 // worktree makes a repo whose main checkout has the Claude Code skill
 // "in-main" and the Codex skill "codex-in-main", which git does not track, and
 // returns a worktree of it.

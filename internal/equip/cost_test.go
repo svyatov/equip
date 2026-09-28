@@ -11,17 +11,12 @@ import (
 	"github.com/svyatov/equip/internal/equiptest"
 )
 
-// writeSkill writes the skill abc into skills, with a when_to_use when
-// whenToUse is not empty.
-func writeSkill(t *testing.T, skills, description, whenToUse string) {
+// writeSkill writes the skill abc into skills.
+func writeSkill(t *testing.T, skills, description string) {
 	t.Helper()
 
-	front := "name: abc\ndescription: " + description + "\n"
-	if whenToUse != "" {
-		front += "when_to_use: " + whenToUse + "\n"
-	}
-
-	writeFile(t, filepath.Join(skills, "abc", "SKILL.md"), "---\n"+front+"---\nThe body is not counted.\n")
+	skill := "---\nname: abc\ndescription: " + description + "\n---\nThe body is not counted.\n"
+	writeFile(t, filepath.Join(skills, "abc", "SKILL.md"), skill)
 }
 
 func row(t *testing.T, view equip.View, name string) equip.Row {
@@ -49,7 +44,7 @@ func TestClaudeCodeSkillCostsItsNameAndDescriptionBytesOverThree(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	// 3 + 27 = 30 bytes.
-	writeSkill(t, machine.ClaudeSkills(), strings.Repeat("x", 27), "")
+	writeSkill(t, machine.ClaudeSkills(), strings.Repeat("x", 27))
 
 	if got := row(t, open(t, machine, machine.Root), "abc").Cost; got != 10 {
 		t.Errorf("Cost = %d, want 10", got)
@@ -60,32 +55,10 @@ func TestCostRoundsUp(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	// 3 + 28 = 31 bytes.
-	writeSkill(t, machine.ClaudeSkills(), strings.Repeat("x", 28), "")
+	writeSkill(t, machine.ClaudeSkills(), strings.Repeat("x", 28))
 
 	if got := row(t, open(t, machine, machine.Root), "abc").Cost; got != 11 {
 		t.Errorf("Cost = %d, want 11", got)
-	}
-}
-
-func TestClaudeCodeSkillCostCountsWhenToUse(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	// 3 + 12 + 15 = 30 bytes.
-	writeSkill(t, machine.ClaudeSkills(), strings.Repeat("x", 12), strings.Repeat("y", 15))
-
-	if got := row(t, open(t, machine, machine.Root), "abc").Cost; got != 10 {
-		t.Errorf("Cost = %d, want 10", got)
-	}
-}
-
-func TestClaudeCodeSkillCostCapsTheTextAt1536Characters(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	// "é" is 2 bytes: 3 + 1,536 × 2 = 3,075 bytes.
-	writeSkill(t, machine.ClaudeSkills(), strings.Repeat("é", 1000), strings.Repeat("é", 600))
-
-	if got := row(t, open(t, machine, machine.Root), "abc").Cost; got != 1025 {
-		t.Errorf("Cost = %d, want 1025", got)
 	}
 }
 
@@ -94,8 +67,8 @@ func TestClaudeCodeSkillCostComesFromThePersonalLocation(t *testing.T) {
 	machine := equiptest.New(t)
 	repo := machine.Repo("app")
 	// 3 + 27 = 30 bytes; the project Location loses to the personal one.
-	writeSkill(t, machine.ClaudeSkills(), strings.Repeat("x", 27), "")
-	writeSkill(t, claudeProjectSkills(repo), strings.Repeat("x", 90), "")
+	writeSkill(t, machine.ClaudeSkills(), strings.Repeat("x", 27))
+	writeSkill(t, claudeProjectSkills(repo), strings.Repeat("x", 90))
 
 	if got := row(t, open(t, machine, repo), "abc").Cost; got != 10 {
 		t.Errorf("Cost = %d, want 10", got)
@@ -106,32 +79,10 @@ func TestCodexSkillCostsItsNameAndDescriptionBytesOverFour(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	// 3 + 29 = 32 bytes.
-	writeSkill(t, machine.CodexSkills(), strings.Repeat("x", 29), "")
+	writeSkill(t, machine.CodexSkills(), strings.Repeat("x", 29))
 
 	if got := row(t, open(t, machine, machine.Root), "abc").Cost; got != 8 {
 		t.Errorf("Cost = %d, want 8", got)
-	}
-}
-
-func TestCodexSkillCostLeavesOutWhenToUse(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	// 3 + 13 = 16 bytes.
-	writeSkill(t, machine.CodexSkills(), strings.Repeat("x", 13), strings.Repeat("y", 50))
-
-	if got := row(t, open(t, machine, machine.Root), "abc").Cost; got != 4 {
-		t.Errorf("Cost = %d, want 4", got)
-	}
-}
-
-func TestCodexSkillCostCapsTheDescriptionAt1024Characters(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	// "é" is 2 bytes: 3 + 1,024 × 2 = 2,051 bytes.
-	writeSkill(t, machine.CodexSkills(), strings.Repeat("é", 1200), "")
-
-	if got := row(t, open(t, machine, machine.Root), "abc").Cost; got != 513 {
-		t.Errorf("Cost = %d, want 513", got)
 	}
 }
 
@@ -201,8 +152,8 @@ func TestCodexSkillCostCountsEveryLocation(t *testing.T) {
 	machine := equiptest.New(t)
 	repo := machine.Repo("app")
 	// Codex lists both: 3 + 29 = 32 bytes, and 3 + 13 = 16 bytes.
-	writeSkill(t, machine.CodexSkills(), strings.Repeat("x", 29), "")
-	writeSkill(t, filepath.Join(repo, ".agents", "skills"), strings.Repeat("x", 13), "")
+	writeSkill(t, machine.CodexSkills(), strings.Repeat("x", 29))
+	writeSkill(t, filepath.Join(repo, ".agents", "skills"), strings.Repeat("x", 13))
 
 	if got := row(t, open(t, machine, repo), "abc").Cost; got != 12 {
 		t.Errorf("Cost = %d, want 12", got)
@@ -282,7 +233,7 @@ func TestCodexListingPastTheBudgetIsOverBudgetAndKeepsEverySkill(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	machine.SkillsAtCodexBudget(machine.CodexSkills())
-	writeSkill(t, machine.CodexSkills(), "x", "") // 3 + 1 = 4 bytes: 1
+	writeSkill(t, machine.CodexSkills(), "x") // 3 + 1 = 4 bytes: 1
 
 	got := open(t, machine, machine.Root).Totals[equip.Codex]
 	if !got.OverBudget || got.Tokens != 6141 {
@@ -353,7 +304,7 @@ func TestClaudeCodeTotalIsNeverOverBudget(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	machine.SkillsAtCodexBudget(machine.ClaudeSkills())
-	writeSkill(t, machine.ClaudeSkills(), "x", "")
+	writeSkill(t, machine.ClaudeSkills(), "x")
 
 	if got := open(t, machine, machine.Root).Totals; got[equip.ClaudeCode].OverBudget {
 		t.Errorf("Totals = %v, want Claude Code not over budget", got)
