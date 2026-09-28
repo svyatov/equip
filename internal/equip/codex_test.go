@@ -329,15 +329,15 @@ func TestUnknownCodexValueIsNotImportedAndSaveKeepsIt(t *testing.T) {
 }
 
 // savedCodex saves the change to a trusted Project whose Codex config holds
-// before, with the github@official plugin and the search MCP server in the
-// user config, and returns the Project's Codex config after the save.
+// before, with the github@official plugin and the db and search MCP servers
+// in the user config, and returns the Project's Codex config after the save.
 func savedCodex(t *testing.T, before string, change func(*equip.Session)) string {
 	t.Helper()
 
 	machine := equiptest.New(t)
 	repo := machine.Repo("app")
 	codexPlugin(t, machine, "github@official")
-	appendFile(t, machine.CodexConfig(), "[mcp_servers.search]\ncommand = \"s\"\n")
+	appendFile(t, machine.CodexConfig(), "[mcp_servers.db]\ncommand = \"db\"\n[mcp_servers.search]\ncommand = \"s\"\n")
 	trust(t, machine, repo)
 	writeFile(t, codexProject(repo), before)
 	session := newSession(t, machine, repo)
@@ -440,6 +440,23 @@ func TestSavingADroppedOverrideOfADottedCodexKeyWritesTheConfigInFull(t *testing
 
 	if err != nil || !reflect.DeepEqual(doc, want) {
 		t.Errorf(".codex/config.toml = %v, %v, want %v", doc, err, want)
+	}
+}
+
+func TestSavingDroppedOverridesOfAnInlineAndAFirstCodexTableRemovesBoth(t *testing.T) {
+	t.Parallel()
+
+	before := "[mcp_servers.db]\nenabled = false\n[mcp_servers]\nsearch = { enabled = false }\n"
+	got := savedCodex(t, before, func(s *equip.Session) {
+		s.DropOverride("mcp:db")
+		s.DropOverride("mcp:search")
+	})
+
+	var doc map[string]any
+
+	err := toml.Unmarshal([]byte(got), &doc)
+	if err != nil || len(doc) != 0 {
+		t.Errorf(".codex/config.toml = %v, %v, want it empty", doc, err)
 	}
 }
 

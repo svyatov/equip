@@ -262,6 +262,9 @@ func (t tomlTable) edit(data []byte, path []string, entry map[string]any) []toml
 		end := unstable.Range{Offset: uint32(len(data)), Length: 0} //nolint:gosec // the parser takes no data past 4 GiB
 
 		return []tomlEdit{{text: fmt.Sprintf("\n[%s]\nenabled = %v\n", tomlHeader(path), value), at: end}}
+	case t.enabledLine.Length == 0:
+		// Not in a shape edit handles; editTOML's check writes the file in full.
+		return nil
 	case entry == nil:
 		// A table that held only equip's entry goes with it.
 		return []tomlEdit{{text: "", at: t.enabledLine}, {text: "", at: t.header}}
