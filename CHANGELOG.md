@@ -14,6 +14,8 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 
 ## [Unreleased]
 
+## [0.1.5] - 2026-09-29
+
 ### Changed
 
 - A plugin's skills no longer have rows of their own in the list. The plugin's detail pane lists them, and a search for a skill's name finds its plugin. The facets count only standalone skills, plugins, and MCP servers, so `All` and `Skills` no longer grow with every skill a plugin bundles. Before, each plugin skill had a row that followed its plugin, and every facet counted it.
@@ -101,7 +103,8 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 - equip keeps a Record per Project and machine. On a moved repository's first open, equip offers to adopt the Record left at the old path.
 - `--help` prints the usage and `--version` prints the build version.
 
-[unreleased]: https://github.com/svyatov/equip/compare/v0.1.4...HEAD
+[unreleased]: https://github.com/svyatov/equip/compare/v0.1.5...HEAD
+[0.1.5]: https://github.com/svyatov/equip/compare/v0.1.4...v0.1.5
 [0.1.4]: https://github.com/svyatov/equip/compare/v0.1.3...v0.1.4
 [0.1.3]: https://github.com/svyatov/equip/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/svyatov/equip/compare/v0.1.1...v0.1.2
