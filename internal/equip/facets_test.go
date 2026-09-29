@@ -63,7 +63,7 @@ func TestFacetsCountRowsByKind(t *testing.T) {
 		map[string]int{"All": 5, "Skills": 3, "Plugins": 1, "MCP servers": 1, "By name": 1})
 }
 
-func TestFacetsCountAPluginsSkillsAsSkills(t *testing.T) {
+func TestFacetsLeaveOutAPluginsSkills(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	skills := filepath.Join(machine.Plugin("github@official", "user", ""), "skills")
@@ -73,12 +73,12 @@ func TestFacetsCountAPluginsSkillsAsSkills(t *testing.T) {
 	session := newSession(t, machine, machine.Root)
 
 	wantCounts(t, session.View(), map[string]int{
-		"All": 3, "Skills": 2, "Plugins": 1, "By name": 1, "Claude Code": 3, "Codex": 0,
+		"All": 1, "Skills": 0, "Plugins": 1, "By name": 0, "Claude Code": 1, "Codex": 0,
 	})
 
 	session.SetState("github@official", equip.Off)
 
-	wantCounts(t, session.View(), map[string]int{"Overrides": 1, "Off": 3})
+	wantCounts(t, session.View(), map[string]int{"Overrides": 1, "Off": 1})
 }
 
 func TestFacetsCountRowsEachAgentHas(t *testing.T) {

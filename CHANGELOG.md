@@ -14,6 +14,11 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 
 ## [Unreleased]
 
+### Changed
+
+- A plugin's skills no longer have rows of their own in the list. The plugin's detail pane lists them, and a search for a skill's name finds its plugin. The facets count only standalone skills, plugins, and MCP servers, so `All` and `Skills` no longer grow with every skill a plugin bundles. Before, each plugin skill had a row that followed its plugin, and every facet counted it.
+- In the detail pane of a plugin with an MCP server, `j` and `k` move over every skill and MCP server it contains, so each skill scrolls into view. The state keys act only on an MCP server. Before, they moved over the MCP servers alone, and a skill in the middle of a long list could not be shown.
+
 ## [0.1.4] - 2026-09-28
 
 ### Added

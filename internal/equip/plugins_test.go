@@ -117,33 +117,6 @@ func TestSaveRecordsPluginOverridesApartFromSkills(t *testing.T) {
 	}
 }
 
-func TestPluginSkillHasARowThatFollowsItsPlugin(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	// "github:review" and "The review skill.": 30 bytes, 10 tokens in Claude Code.
-	machine.Skill(filepath.Join(machine.Plugin("github@official", "user", ""), "skills"), "review")
-	session := newSession(t, machine, machine.Root)
-
-	want := equip.Row{
-		Key: "github@official/review", Name: "review", Plugin: "github@official", Kind: equip.Skill, Cost: 10,
-		State: equip.On, Fallback: equip.On, CostUnknown: false, ByName: false, Override: false, Unsaved: false,
-		NotApplied: false, ChangedOutside: false,
-	}
-	if got := row(t, session.View(), "review"); got != want {
-		t.Errorf("row = %+v, want %+v", got, want)
-	}
-
-	if got := session.View().Totals[equip.ClaudeCode].Tokens; got != 10 {
-		t.Errorf("Claude Code total = %d, want 10, the skill counted once", got)
-	}
-
-	session.SetState("github@official", equip.Off)
-
-	if got := row(t, session.View(), "review"); got.State != equip.Off || got.Cost != 0 {
-		t.Errorf("row after the plugin turns off = %+v, want off with no cost", got)
-	}
-}
-
 func TestTurnedSinceLeavesOutAPluginsSkills(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
@@ -159,62 +132,6 @@ func TestTurnedSinceLeavesOutAPluginsSkills(t *testing.T) {
 	}
 }
 
-func TestPluginSkillTakesNoOverride(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	machine.Skill(filepath.Join(machine.Plugin("github@official", "user", ""), "skills"), "review")
-	session := newSession(t, machine, machine.Root)
-
-	session.SetState("github@official/review", equip.Off)
-
-	if got := session.View().Unsaved; got != 0 {
-		t.Errorf("Unsaved = %d, want 0, as the skill follows its plugin", got)
-	}
-}
-
-func TestPluginSkillJoinsNoPreset(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	machine.Skill(filepath.Join(machine.Plugin("github@official", "user", ""), "skills"), "review")
-	session := newSession(t, machine, machine.Root)
-
-	id, err := session.CreatePreset("Ruby")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	err = session.AddMember(id, "github@official/review")
-	if err == nil {
-		t.Error("AddMember of a plugin's skill = nil, want an error")
-	}
-
-	if got := session.Presets()[0].Members; len(got) != 0 {
-		t.Errorf("members = %+v, want none", got)
-	}
-}
-
-func TestPluginSkillDetailOffersNoState(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	dir := machine.Plugin("github@official", "user", "")
-	machine.Skill(filepath.Join(dir, "skills"), "review")
-
-	session := newSession(t, machine, machine.Root)
-	if none := session.Detail("github@official/nope"); none.Description != "" || none.Locations != nil {
-		t.Errorf("Detail of a skill the plugin lacks = %+v, want an empty one", none)
-	}
-
-	got := session.Detail("github@official/review")
-	if got.Description != "The review skill." || got.States != nil || got.Contents != nil ||
-		got.Marketplace != "official" {
-		t.Errorf("Detail = %+v, want the skill's description, no states, no contents, from official", got)
-	}
-
-	if got.Costs[equip.ClaudeCode] != 10 || len(got.Locations) != 1 || got.Locations[0].Path != dir {
-		t.Errorf("Costs = %v, Locations = %v, want 10 in Claude Code at %s", got.Costs, got.Locations, dir)
-	}
-}
-
 func TestPluginDefaultsToItsStateInUserSettings(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
@@ -223,7 +140,7 @@ func TestPluginDefaultsToItsStateInUserSettings(t *testing.T) {
 
 	want := equip.Row{
 		Key: "github@official", Name: "github@official", Kind: equip.Plugin, Cost: 0, State: equip.Off, Fallback: equip.Off,
-		Plugin: "", CostUnknown: false, ByName: false, Override: false, Unsaved: false, NotApplied: false,
+		CostUnknown: false, ByName: false, Override: false, Unsaved: false, NotApplied: false,
 		ChangedOutside: false,
 	}
 	if got := row(t, open(t, machine, machine.Root), "github@official"); got != want {

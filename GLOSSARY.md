@@ -22,7 +22,7 @@ An extension that bundles other extensions and comes from a marketplace.
 An extension that gives an agent tools over the Model Context Protocol.
 
 **Content**:
-A skill or MCP server that a plugin contains. A skill among a plugin's contents has a row in the list but no state or key of its own: it follows its plugin, and no Preset or Override names it.
+A skill or MCP server that a plugin contains. It shows in its plugin's detail, not as a row in the list. A skill among a plugin's contents has no state or key of its own: it follows its plugin, and no Preset or Override names it.
 _Avoid_: Component, part
 
 **Marketplace**:
@@ -44,7 +44,7 @@ The state of a skill that the user can call by name but that puts nothing into t
 _Avoid_: User-invocable-only, explicit-only
 
 **Not applied**:
-The mark of an extension whose State no Agent that has it gets in the Project: Codex has no per-project skill setting, Codex does not trust the Project, the Project's Codex config is the global Codex config, or git tracks the settings file equip would write. equip keeps the State in the Record, so it applies once the reason goes away. A plugin's skill is not applied when its plugin is not.
+The mark of an extension whose State no Agent that has it gets in the Project: Codex has no per-project skill setting, Codex does not trust the Project, the Project's Codex config is the global Codex config, or git tracks the settings file equip would write. equip keeps the State in the Record, so it applies once the reason goes away. A plugin's skill carries no mark of its own: it is not applied when its plugin is not.
 _Avoid_: Ignored, inactive, unapplied
 
 **By-name skill**:

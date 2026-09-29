@@ -581,18 +581,54 @@ func TestDetailPaneListsThePluginsContents(t *testing.T) {
 	}
 }
 
+func TestDetailHighlightReachesEverySkillOfAPluginWithAnMCPServer(t *testing.T) {
+	t.Parallel()
+	machine := equiptest.New(t)
+	dir := machine.Plugin("github@official", "user", "")
+	machine.WriteFile(filepath.Join(dir, ".mcp.json"), `{"mcpServers": {"issues": {"command": "issues"}}}`)
+
+	for i := range 30 {
+		machine.Skill(filepath.Join(dir, "skills"), fmt.Sprintf("s%02d", i))
+	}
+
+	tui := newModel(t, machine)
+	resize(tui, 120, 20)
+
+	press(tui, tea.KeyPressMsg{Code: tea.KeyTab})
+
+	for range 15 {
+		press(tui, down())
+	}
+
+	if got := line(tui, "The s15 skill."); !strings.Contains(got, "▸") {
+		t.Errorf("skill s15 line %q, want it shown and highlighted:\n%s", got, plain(tui))
+	}
+
+	press(tui, key('3'))
+
+	if got := line(tui, "have no"); got != "" {
+		t.Errorf("3 on a skill flashed %q, want no word", got)
+	}
+
+	press(tui, key(' '), key('s'))
+
+	if line(tui, "nothing to save") == "" {
+		t.Errorf("3 on a skill left something to save:\n%s", plain(tui))
+	}
+}
+
 func TestTabThenStateKeyTurnsOffTheHighlightedMCPServerInsideThePlugin(t *testing.T) {
 	t.Parallel()
 	machine := equiptest.New(t)
 	dir := machine.Plugin("github@official", "user", "")
 	machine.WriteFile(filepath.Join(dir, ".mcp.json"),
 		`{"mcpServers": {"issues": {"command": "issues"}, "search": {"command": "search"}}}`)
-	machine.Skill(filepath.Join(dir, "skills"), "review") // follows the plugin, so tab skips it
+	machine.Skill(filepath.Join(dir, "skills"), "review") // listed first
 	tui := newModel(t, machine)
 	up := tea.KeyPressMsg{Code: tea.KeyUp}
 
-	// Down stops at the last server, so two ups are back on the first.
-	press(tui, tea.KeyPressMsg{Code: tea.KeyTab}, down(), down(), down(), up, up, key('3'))
+	// Down stops at the last server, so one up is back on the first.
+	press(tui, tea.KeyPressMsg{Code: tea.KeyTab}, down(), down(), down(), up, key('3'))
 
 	if r := tui.s.View().Rows[0]; r.State != equip.On || r.Override {
 		t.Errorf("plugin = %+v, want on with no Override", r)
@@ -1381,7 +1417,7 @@ func TestHighlightLeavesTheContentsWhenAnotherRowTakesItsPlace(t *testing.T) {
 	press(tui, tea.KeyPressMsg{Code: tea.KeyTab}, down(), key('/'), key('b'))
 
 	if tui.focus == onDetail {
-		t.Errorf("keys still act on MCP server %d, of beta now:\n%s", tui.server, tui.View().Content)
+		t.Errorf("keys still act on content %d, of beta now:\n%s", tui.content, tui.View().Content)
 	}
 }
 
@@ -1653,8 +1689,8 @@ func TestManualOnlySkillReadsManualWhereNoAgentListsIt(t *testing.T) {
 	}
 }
 
-// withPluginSkill is a machine with the plugin github@official, whose skill
-// review has the second row, under its plugin's.
+// withPluginSkill is a machine with the plugin github@official, whose detail
+// lists its skill review.
 func withPluginSkill(t *testing.T) *equiptest.Machine {
 	t.Helper()
 
@@ -1664,85 +1700,16 @@ func withPluginSkill(t *testing.T) *equiptest.Machine {
 	return machine
 }
 
-func TestPluginSkillRowNamesItsPluginAndItsPluginsNameFindsIt(t *testing.T) {
+func TestSearchForAPluginsSkillFindsThePlugin(t *testing.T) {
 	t.Parallel()
-	tui := newModel(t, withPluginSkill(t))
-
-	if got := rowLine(tui, "review"); !strings.Contains(got, "review  github") {
-		t.Errorf("row %q does not name its plugin", got)
-	}
-
-	press(tui, key('/'), key('g'), key('i'), key('t'))
-
-	if rowLine(tui, "review") == "" {
-		t.Errorf("a search for its plugin leaves out the plugin's skill:\n%s", plain(tui))
-	}
-}
-
-func TestStateKeysOnAPluginSkillRowChangeNothingAndSayWhatItFollows(t *testing.T) {
-	t.Parallel()
-	tui := newModel(t, withPluginSkill(t))
-
-	press(tui, down(), key(' '), key('1'), key('3'), key('x'), key('m'))
-
-	if n := tui.s.View().Unsaved; n != 0 {
-		t.Errorf("Unsaved = %d, want 0", n)
-	}
-
-	if line(tui, "follows github@official, enter goes to it") == "" {
-		t.Errorf("state keys do not say what the skill follows:\n%s", plain(tui))
-	}
-}
-
-func TestEnterOnAPluginSkillRowMovesToItsPlugin(t *testing.T) {
-	t.Parallel()
-	tui := newModel(t, withPluginSkill(t))
-
-	press(tui, key(']'), enter())
-
-	if tui.key != "github@official" || tui.focus != onList {
-		t.Errorf("enter left the highlight on %q in pane %d, want the plugin in the list", tui.key, tui.focus)
-	}
-
-	if got := rowLine(tui, "github@official"); !strings.Contains(got, "▸") {
-		t.Errorf("plugin row %q is not highlighted:\n%s", got, plain(tui))
-	}
-}
-
-func TestEnterOnAPluginSkillRowShowsItsPluginFromTheTop(t *testing.T) {
-	t.Parallel()
-	machine := equiptest.New(t)
-	skills := filepath.Join(machine.Plugin("github@official", "user", ""), "skills")
-	machine.WriteFile(filepath.Join(skills, "review", "SKILL.md"),
-		"---\nname: review\ndescription: "+strings.Repeat("word ", 400)+"\n---\n")
+	machine := withPluginSkill(t)
+	machine.Plugin("slack@official", "user", "")
 	tui := newModel(t, machine)
-	resize(tui, 120, 20)
 
-	press(tui, down(), key('l'), key('j'), key('j'), key('j'), key('h'))
+	press(tui, key('/'), key('r'), key('e'), key('v'))
 
-	if tui.detailTop == 0 {
-		t.Fatal("the skill's detail pane did not scroll")
-	}
-
-	press(tui, enter())
-
-	if tui.detailTop != 0 {
-		t.Errorf("detailTop = %d on the plugin, want 0", tui.detailTop)
-	}
-}
-
-func TestDetailPaneOfAPluginSkillSaysItFollowsItsPlugin(t *testing.T) {
-	t.Parallel()
-	tui := newModel(t, withPluginSkill(t))
-
-	press(tui, down())
-
-	if got := line(tui, "Origin"); !strings.Contains(got, "follows github@official") {
-		t.Errorf("origin %q does not name the plugin", got)
-	}
-
-	if line(tui, "1 on") != "" {
-		t.Errorf("detail pane offers states:\n%s", plain(tui))
+	if rowLine(tui, "github@official") == "" || rowLine(tui, "slack@official") != "" {
+		t.Errorf("a search for review does not keep only the plugin with that skill:\n%s", plain(tui))
 	}
 }
 
@@ -1910,10 +1877,7 @@ func TestAThreeYSetsEveryShownRowOff(t *testing.T) {
 	press(tui, key('a'), key('3'), key('y'))
 
 	for _, r := range tui.s.View().Rows {
-		switch {
-		case r.Follows() && r.Override:
-			t.Errorf("plugin skill %s = %+v, want it to follow its plugin", r.Name, r)
-		case !r.Follows() && (r.State != equip.Off || !r.Override):
+		if r.State != equip.Off || !r.Override {
 			t.Errorf("%s = %+v, want an Override off", r.Name, r)
 		}
 	}

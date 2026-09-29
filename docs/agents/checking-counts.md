@@ -10,9 +10,9 @@ From the repo, for the Project in `<dir>` (the working directory when left out):
 go run ./scripts/rows <dir> > /tmp/equip-rows.tsv 2> /tmp/equip-facets.tsv
 ```
 
-Each row is tab-separated: kind, name, plugin (set on a plugin's skill row), state, agents, Locations. The facet counts go to stderr. An agent's facet counts every row the agent has, in any state. To compare with a session, count only that agent's rows that are on or manual-only.
+Each line is tab-separated: kind, name, plugin, state, agents, Locations. A plugin's skills have no row in equip's list, so the script prints each one on its own line after its plugin's, with the plugin column set. The facet counts go to stderr and leave out a plugin's skills. An agent's facet counts every row the agent has, in any state. To compare with a session, count only that agent's lines that are on or manual-only.
 
-A plugin skill row's Locations are the plugin's dir. Its skill dir is `<plugin dir>/skills/<name>`.
+A plugin skill line's Locations are the plugin's dir. Its skill dir is `<plugin dir>/skills/<name>`.
 
 ## 2. Claude Code's truth
 
