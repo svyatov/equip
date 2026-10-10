@@ -14,6 +14,10 @@ The MCP cost cache under `$XDG_CACHE_HOME/equip/` and the layout of the TUI are 
 
 ## [Unreleased]
 
+### Security
+
+- Build with Go 1.27.2 to include the standard-library security fixes reported by govulncheck.
+
 ## [0.1.5] - 2026-09-29
 
 ### Changed
