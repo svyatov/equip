@@ -31,7 +31,7 @@ jobs:
           go-version-file: go.mod
       # GoReleaser and syft at the versions mise.toml pins. No cache: a release
       # takes its tools from their publishers, not from what another run saved.
-      - uses: jdx/mise-action@2d8d4cafcbd33be2ea37d2b6f5ad595363d1f1ca # v5.1.1
+      - uses: jdx/mise-action@b44d12e7d0d8ee7461bb893e1b1993500433185b # v5.2.7
         with:
           cache: false
 
